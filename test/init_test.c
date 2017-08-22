@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
 
     hvr_ctx_t hvr_ctx;
     hvr_init(vertex_per_node, vertices, NULL, 0, edges, edge_offsets, &hvr_ctx);
-    hvr_cleanup(hvr_ctx);
+    hvr_finalize(hvr_ctx);
 
     shmem_finalize();
 

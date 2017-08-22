@@ -48,7 +48,7 @@ void hvr_init(const vertex_id_t n_local_nodes, vertex_id_t *vertex_ids,
     *out_ctx = new_ctx;
 }
 
-void hvr_cleanup(hvr_ctx_t in_ctx) {
+void hvr_finalize(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     free(ctx);
 }
