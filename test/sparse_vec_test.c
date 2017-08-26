@@ -19,6 +19,7 @@ int main(int argc, char **argv) {
     }
 
     hvr_sparse_vec_set(3, 42.0, vec, ctx);
+    ctx->timestep += 1; // need to increment to make changes readable
     for (unsigned i = 0; i < 100; i++) {
         if (i == 3) {
             assert(hvr_sparse_vec_get(i, vec, ctx) == 42.0);
@@ -28,6 +29,7 @@ int main(int argc, char **argv) {
     }
 
     hvr_sparse_vec_set(5, 43.0, vec, ctx);
+    ctx->timestep += 1; // need to increment to make changes readable
     for (unsigned i = 0; i < 100; i++) {
         if (i == 3) {
             assert(hvr_sparse_vec_get(i, vec, ctx) == 42.0);
@@ -39,6 +41,7 @@ int main(int argc, char **argv) {
     }
 
     hvr_sparse_vec_set(3, 44.0, vec, ctx);
+    ctx->timestep += 1; // need to increment to make changes readable
      for (unsigned i = 0; i < 100; i++) {
         if (i == 3) {
             assert(hvr_sparse_vec_get(i, vec, ctx) == 44.0);

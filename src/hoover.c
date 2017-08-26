@@ -8,10 +8,6 @@
 
 #include "hoover.h"
 
-static long long *p_wrk = NULL;
-static int *p_wrk_int = NULL;
-static long *p_sync = NULL;
-
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
     hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc(
             nvecs * sizeof(*new_vecs));
@@ -220,16 +216,16 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     assert(new_ctx->initialized == 0);
     new_ctx->initialized = 1;
 
-    p_wrk = (long long *)shmem_malloc(
-            SHMEM_REDUCE_MIN_WRKDATA_SIZE * sizeof(*p_wrk));
-    p_wrk_int = (int *)shmem_malloc(
-            SHMEM_REDUCE_MIN_WRKDATA_SIZE * sizeof(*p_wrk_int));
-    p_sync = (long *)shmem_malloc(
-            SHMEM_REDUCE_SYNC_SIZE * sizeof(*p_sync));
-    assert(p_wrk && p_sync && p_wrk_int);
+    new_ctx->p_wrk = (long long *)shmem_malloc(
+            SHMEM_REDUCE_MIN_WRKDATA_SIZE * sizeof(long long));
+    new_ctx->p_wrk_int = (int *)shmem_malloc(
+            SHMEM_REDUCE_MIN_WRKDATA_SIZE * sizeof(int));
+    new_ctx->p_sync = (long *)shmem_malloc(
+            SHMEM_REDUCE_SYNC_SIZE * sizeof(long));
+    assert(new_ctx->p_wrk && new_ctx->p_sync && new_ctx->p_wrk_int);
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
-        p_sync[i] = SHMEM_SYNC_VALUE;
+        (new_ctx->p_sync)[i] = SHMEM_SYNC_VALUE;
     }
 
     new_ctx->pe = shmem_my_pe();
@@ -388,8 +384,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;
             shmem_int_sum_to_all(ctx->strict_counter_dest,
-                    ctx->strict_counter_src, 1, 0, 0, ctx->npes, p_wrk_int,
-                    p_sync);
+                    ctx->strict_counter_src, 1, 0, 0, ctx->npes, ctx->p_wrk_int,
+                    ctx->p_sync);
             shmem_barrier_all();
         }
     }
@@ -400,8 +396,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         while (1) {
             *(ctx->strict_counter_src) = 1;
             shmem_int_sum_to_all(ctx->strict_counter_dest,
-                    ctx->strict_counter_src, 1, 0, 0, ctx->npes, p_wrk_int,
-                    p_sync);
+                    ctx->strict_counter_src, 1, 0, 0, ctx->npes, ctx->p_wrk_int,
+                    ctx->p_sync);
             shmem_barrier_all();
             if (*(ctx->strict_counter_dest) == ctx->npes) {
                 break;

@@ -139,6 +139,10 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_sparse_vec_t *buffer;
 
+    long long *p_wrk;
+    int *p_wrk_int;
+    long *p_sync;
+
     int strict_mode;
     int *strict_counter_dest;
     int *strict_counter_src;
