@@ -290,6 +290,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
     ctx->timestep = 1;
     int abort = 0;
     while (!abort) {
+        const unsigned long long start_iter = hvr_current_time_us();
+
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
             hvr_avl_tree_node_t *vertex_edge_tree = hvr_tree_find(
                     ctx->edges->tree, ctx->vertices[i].id);
@@ -319,18 +321,27 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     n_neighbors, ctx);
         }
 
+        const unsigned long long finished_updates = hvr_current_time_us();
+
         hvr_clear_edge_set(ctx->edges);
 
         ctx->timestep += 1;
 
+        // For each PE
         for (unsigned p = 0; p < ctx->npes; p++) {
             const unsigned target_pe = (ctx->pe + p) % ctx->npes;
 
+            // For each vertex stored on the other PE
             for (vertex_id_t j = 0; j < ctx->vertices_per_pe[target_pe]; j++) {
                 hvr_sparse_vec_t *other = &(ctx->vertices[j]);
 
+                // Fetch this vertex using getmem
                 shmem_getmem(ctx->buffer, other, sizeof(*other), target_pe);
 
+                /*
+                 * For each local vertex, check if we want to add an edge from
+                 * other to this.
+                 */
                 for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
                     /*
                      * Never want to add an edge from a node to itself (at
@@ -362,8 +373,17 @@ void hvr_body(hvr_ctx_t in_ctx) {
             }
         }
 
+        const unsigned long long finished_edge_adds = hvr_current_time_us();
+
         abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
                 ctx);
+
+        const unsigned long long finished_check_abort = hvr_current_time_us();
+
+        printf("PE %d - metadata %f ms - edges %f ms - abort %f ms\n",
+                ctx->pe, (double)(finished_updates - start_iter) / 1000.0,
+                (double)(finished_edge_adds - finished_updates) / 1000.0,
+                (double)(finished_check_abort - finished_edge_adds) / 1000.0);
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;
