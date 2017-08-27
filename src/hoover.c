@@ -203,6 +203,28 @@ int hvr_pe_neighbors_set_contains(int pe, hvr_pe_neighbors_set_t *set) {
     return hvr_pe_neighbors_set_contains_internal(pe, set->bit_vector);
 }
 
+static unsigned hvr_pe_neighbor_set_count_internal(unsigned char *bit_vector,
+        unsigned nbytes) {
+    unsigned count = 0;
+    for (int byte = 0; byte < nbytes; byte++) {
+        for (int bit = 0; bit < 8; bit++) {
+            if (bit_vector[byte] & (1 << bit)) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+unsigned hvr_pe_neighbor_set_count(hvr_pe_neighbors_set_t *set) {
+    return hvr_pe_neighbor_set_count_internal(set->bit_vector, set->nbytes);
+}
+
+void hvr_pe_neighbor_set_destroy(hvr_pe_neighbors_set_t *set) {
+    free(set->bit_vector);
+    free(set);
+}
+
 hvr_edge_set_t *hvr_create_empty_edge_set() {
     hvr_edge_set_t *new_set = (hvr_edge_set_t *)malloc(sizeof(*new_set));
     assert(new_set);
@@ -461,6 +483,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         // For each PE
         for (unsigned p = 0; p < ctx->npes; p++) {
             const unsigned target_pe = (ctx->pe + p) % ctx->npes;
+            // TODO instead use this to only update bounding boxes on these PEs, so that everyone still gets full information on all other PEs (just maybe a bit slower)
             if (!hvr_pe_neighbors_set_contains_internal(target_pe,
                         my_neighbors)) {
                 continue;

@@ -14,6 +14,8 @@ int main(int argc, char **argv) {
         hvr_create_empty_pe_neighbors_set(ctx);
     hvr_pe_neighbors_set_insert(0, singleton_set);
     assert(hvr_pe_neighbors_set_contains(0, singleton_set) == 1);
+    assert(hvr_pe_neighbor_set_count(singleton_set) == 1);
+    hvr_pe_neighbor_set_destroy(singleton_set);
 
     ((hvr_internal_ctx_t *)ctx)->npes = NPES;
     hvr_pe_neighbors_set_t *set = hvr_create_empty_pe_neighbors_set(ctx);
@@ -39,6 +41,9 @@ int main(int argc, char **argv) {
             assert(hvr_pe_neighbors_set_contains(i, set) == 0);
         }
     }
+    assert(hvr_pe_neighbor_set_count(set) == 2);
+
+    hvr_pe_neighbor_set_destroy(set);
 
     printf("Passed!\n");
 

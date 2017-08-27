@@ -102,6 +102,8 @@ extern hvr_pe_neighbors_set_t *hvr_create_empty_pe_neighbors_set(hvr_ctx_t ctx);
 extern void hvr_pe_neighbors_set_insert(int pe, hvr_pe_neighbors_set_t *set);
 extern void hvr_pe_neighbors_set_clear(int pe, hvr_pe_neighbors_set_t *set);
 extern int hvr_pe_neighbors_set_contains(int pe, hvr_pe_neighbors_set_t *set);
+extern unsigned hvr_pe_neighbor_set_count(hvr_pe_neighbors_set_t *set);
+extern void hvr_pe_neighbor_set_destroy(hvr_pe_neighbors_set_t *set);
 
 typedef struct _hvr_pe_neighbors_t {
     hvr_avl_tree_node_t *tree;
