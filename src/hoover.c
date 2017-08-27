@@ -443,6 +443,8 @@ static void update_bounding_box(hvr_sparse_vec_t *mins, hvr_sparse_vec_t *maxs,
             }
         }
     }
+
+    ctx->bounding_boxes_timestamps[ctx->pe] = ctx->timestep - 1;
 }
 
 void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
@@ -517,8 +519,16 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
 
     new_ctx->my_neighbors = hvr_create_empty_pe_neighbors_set(new_ctx);
     new_ctx->bounding_boxes_lock = (int *)shmem_malloc(sizeof(int));
+    assert(new_ctx->bounding_boxes_lock);
     *(new_ctx->bounding_boxes_lock) = 0;
     new_ctx->bounding_boxes = hvr_sparse_vec_create_n(new_ctx->npes * 2);
+    new_ctx->bounding_boxes_buffer = hvr_sparse_vec_create_n(new_ctx->npes * 2);
+    new_ctx->bounding_boxes_timestamps = (long long *)shmem_malloc(
+            new_ctx->npes * sizeof(long long));
+    new_ctx->bounding_boxes_timestamps_buffer = (long long *)shmem_malloc(
+            new_ctx->npes * sizeof(long long));
+    assert(new_ctx->bounding_boxes_timestamps &&
+            new_ctx->bounding_boxes_timestamps_buffer);
     update_bounding_box(new_ctx->bounding_boxes + (2 * new_ctx->pe),
             new_ctx->bounding_boxes  + (2 * new_ctx->pe + 1), new_ctx);
 
@@ -527,6 +537,7 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         shmem_putmem(new_ctx->bounding_boxes + (2 * new_ctx->pe),
                 new_ctx->bounding_boxes + (2 * new_ctx->pe),
                 2 * sizeof(hvr_sparse_vec_t), p);
+        (new_ctx->bounding_boxes_timestamps)[p] = 0;
     }
     shmem_barrier_all();
 
@@ -610,9 +621,21 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 // Lock the other PE's bounding box list, update my entry in it
                 lock_bounding_box_list(p, ctx);
 
-                shmem_putmem(ctx->bounding_boxes + (2 * ctx->pe),
-                        ctx->bounding_boxes + (2 * ctx->pe),
-                        2 * sizeof(hvr_sparse_vec_t), p);
+                shmem_getmem(ctx->bounding_boxes_buffer,
+                        ctx->bounding_boxes,
+                        2 * ctx->npes * sizeof(hvr_sparse_vec_t), p);
+                shmem_getmem(ctx->bounding_boxes_timestamps_buffer,
+                        ctx->bounding_boxes_timestamps,
+                        ctx->npes * sizeof(long long), p);
+
+                for (unsigned pp = 0; pp < ctx->npes; pp++) {
+                    if (ctx->bounding_boxes_timestamps[pp] >
+                            ctx->bounding_boxes_timestamps_buffer[pp]) {
+                        shmem_putmem(ctx->bounding_boxes + (2 * pp),
+                                ctx->bounding_boxes + (2 * pp),
+                                2 * sizeof(hvr_sparse_vec_t), p);
+                    }
+                }
 
                 shmem_fence();
 

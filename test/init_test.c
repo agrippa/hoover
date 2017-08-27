@@ -17,10 +17,26 @@ long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 
 void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
         size_t *out_local_offset) {
-    const unsigned row = vertex / grid_dim;
-    const unsigned grid_rows_per_pe = (grid_dim + npes - 1) / npes;
-    *out_pe = row / grid_rows_per_pe;
-    *out_local_offset = vertex - (*out_pe * grid_rows_per_pe * grid_dim);
+    const unsigned grid_size = grid_dim * grid_dim;
+    const unsigned cells_per_pe = grid_size / npes;
+    unsigned leftover = grid_size - (npes * cells_per_pe);
+
+    if (vertex < leftover) {
+        *out_pe = vertex / (cells_per_pe + 1);
+        const unsigned base_pe_offset = *out_pe * (cells_per_pe + 1);
+        *out_local_offset = vertex - base_pe_offset;
+    } else {
+        unsigned new_vertex = vertex - (leftover * (cells_per_pe + 1));
+        *out_pe = leftover + (new_vertex / cells_per_pe);
+        const unsigned base_pe_offset =
+            (leftover * (cells_per_pe + 1)) +
+            ((new_vertex / cells_per_pe) * cells_per_pe);
+        *out_local_offset = vertex - base_pe_offset;
+    }
+    if (*out_pe >= npes) {
+        fprintf(stderr, "HOWDY %u %lu %u %u %u %lu\n", *out_pe, *out_local_offset,
+                grid_size, cells_per_pe, leftover, vertex);
+    }
 }
 
 void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
@@ -90,31 +106,41 @@ int main(int argc, char **argv) {
     pe = shmem_my_pe();
     npes = shmem_n_pes();
 
-    const unsigned grid_points = grid_dim * grid_dim;
-    const unsigned grid_rows_per_pe = (grid_dim + npes - 1) / npes;
-    unsigned grid_row_start = pe * grid_rows_per_pe;
-    if (grid_row_start > grid_dim) grid_row_start = grid_dim;
-    unsigned grid_row_end = (pe + 1) * grid_rows_per_pe;
-    if (grid_row_end > grid_dim) grid_row_end = grid_dim;
-    const unsigned n_local_grid_rows = grid_row_end - grid_row_start;
+    const unsigned grid_size = grid_dim * grid_dim;
+    const unsigned cells_per_pe = grid_size / npes;
+    unsigned leftover = grid_size - (npes * cells_per_pe);
+    unsigned grid_cell_start, grid_cell_end;
+    if (pe < leftover) {
+        grid_cell_start = pe * (cells_per_pe + 1);
+        grid_cell_end = grid_cell_start + cells_per_pe + 1;
+    } else {
+        unsigned base = leftover * (cells_per_pe + 1);
+        grid_cell_start = base + (pe - leftover) * cells_per_pe;
+        grid_cell_end = grid_cell_start + cells_per_pe;
+    }
+    const unsigned grid_cells_this_pe = grid_cell_end - grid_cell_start;
 
     if (pe == 0) {
-        fprintf(stderr, "%d PEs, %u x %u = %u grid points, %u grid rows per "
-                "PE\n", npes, grid_dim, grid_dim, grid_points,
-                grid_rows_per_pe);
+        fprintf(stderr, "%d PEs, %u x %u = %u grid points, %u grid cells per "
+                "PE\n", npes, grid_dim, grid_dim, grid_dim * grid_dim,
+                cells_per_pe);
+    }
+    // fprintf(stderr, "PE %d has %u -> %u (%u grid rows)\n", pe, grid_row_start,
+    //         grid_row_end, grid_rows_this_pe);
+    if (grid_cells_this_pe == 0) {
+        fprintf(stderr, "WARNING PE %d has no grid cells\n", pe);
     }
 
-    hvr_sparse_vec_t *vertices = hvr_sparse_vec_create_n(grid_rows_per_pe *
-            grid_dim);
-    for (unsigned i = 0; i < n_local_grid_rows * grid_dim; i++) {
-        const vertex_id_t vertex = pe * grid_rows_per_pe * grid_dim + i;
+    hvr_sparse_vec_t *vertices = hvr_sparse_vec_create_n(cells_per_pe + 1);
+    for (vertex_id_t vertex = grid_cell_start; vertex < grid_cell_end;
+            vertex++) {
         const vertex_id_t row = vertex / grid_dim;
         const vertex_id_t col = vertex % grid_dim;
 
-        vertices[i].id = vertex;
-        hvr_sparse_vec_set(0, (double)row, &vertices[i], hvr_ctx);
-        hvr_sparse_vec_set(1, (double)col, &vertices[i], hvr_ctx);
-        hvr_sparse_vec_set(2, 0.0, &vertices[i], hvr_ctx);
+        vertices[vertex - grid_cell_start].id = vertex;
+        hvr_sparse_vec_set(0, (double)row, &vertices[vertex - grid_cell_start], hvr_ctx);
+        hvr_sparse_vec_set(1, (double)col, &vertices[vertex - grid_cell_start], hvr_ctx);
+        hvr_sparse_vec_set(2, 0.0, &vertices[vertex - grid_cell_start], hvr_ctx);
     }
     if (pe == 0) {
         hvr_sparse_vec_set(2, 1.0, &vertices[0], hvr_ctx);
@@ -129,7 +155,7 @@ int main(int argc, char **argv) {
 #endif
 
     hvr_edge_set_t *edges = hvr_create_empty_edge_set();
-    for (unsigned i = 0; i < n_local_grid_rows * grid_dim; i++) {
+    for (unsigned i = 0; i < grid_cells_this_pe; i++) {
         const vertex_id_t vertex = vertices[i].id;
         const vertex_id_t row = vertex / grid_dim;
         const vertex_id_t col = vertex % grid_dim;
@@ -166,7 +192,7 @@ int main(int argc, char **argv) {
         hvr_pe_neighbors_set_insert(pe + 1, neighbors);
     }
 
-    hvr_init(n_local_grid_rows * grid_dim, vertices, edges,
+    hvr_init(grid_cells_this_pe, vertices, edges,
             update_metadata, check_abort,
             vertex_owner, 1.1, 0, 1, hvr_ctx);
 

@@ -169,6 +169,9 @@ typedef struct _hvr_internal_ctx_t {
     int *strict_counter_src;
 
     hvr_sparse_vec_t *bounding_boxes;
+    long long *bounding_boxes_timestamps;
+    hvr_sparse_vec_t *bounding_boxes_buffer;
+    long long *bounding_boxes_timestamps_buffer;
     int *bounding_boxes_lock;
     hvr_pe_neighbors_set_t *my_neighbors;
 } hvr_internal_ctx_t;
