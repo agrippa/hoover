@@ -17,10 +17,10 @@ long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 
 void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
         size_t *out_local_offset) {
-    const unsigned grid_points = grid_dim * grid_dim;
-    const unsigned grid_points_per_pe = (grid_points + npes - 1) / npes;
-    *out_pe = vertex / grid_points_per_pe;
-    *out_local_offset = vertex % grid_points_per_pe;
+    const unsigned row = vertex / grid_dim;
+    const unsigned grid_rows_per_pe = (grid_dim + npes - 1) / npes;
+    *out_pe = row / grid_rows_per_pe;
+    *out_local_offset = vertex - (*out_pe * grid_rows_per_pe * grid_dim);
 }
 
 void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
