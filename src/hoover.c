@@ -608,7 +608,11 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         ctx->timestep += 1;
 
-        // Update my bounding box
+        /*
+         * Update my bounding box. TODO at some point it will probably be useful
+         * to allow PEs to advertise multiple bounding boxes, to produce more
+         * precise bounds.
+         */
         update_bounding_box(ctx->bounding_boxes + (2 * ctx->pe),
                 ctx->bounding_boxes  + (2 * ctx->pe + 1), ctx);
 
