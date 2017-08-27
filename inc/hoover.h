@@ -154,9 +154,9 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_update_metadata_func update_metadata;
     hvr_check_abort_func check_abort;
-    hvr_sparse_vec_distance_measure_func distance_measure;
     hvr_vertex_owner_func vertex_owner;
     double connectivity_threshold;
+    unsigned min_spatial_feature, max_spatial_feature;
 
     hvr_sparse_vec_t *buffer;
 
@@ -168,10 +168,9 @@ typedef struct _hvr_internal_ctx_t {
     int *strict_counter_dest;
     int *strict_counter_src;
 
-    hvr_sparse_vec_t *bounding_box;
-
-    unsigned char *global_neighbors;
-    size_t global_neighbors_nbytes_per_row;
+    hvr_sparse_vec_t *bounding_boxes;
+    int *bounding_boxes_lock;
+    hvr_pe_neighbors_set_t *my_neighbors;
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init
@@ -179,12 +178,11 @@ extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
 
 extern void hvr_init(const vertex_id_t n_local_vertices,
         hvr_sparse_vec_t *vertices, hvr_edge_set_t *edges,
-        hvr_pe_neighbors_set_t *pe_neighbors,
         hvr_update_metadata_func update_metadata,
-        hvr_sparse_vec_distance_measure_func distance_measure,
         hvr_check_abort_func check_abort,
         hvr_vertex_owner_func vertex_owner,
-        const double connectivity_threshold, hvr_ctx_t ctx);
+        const double connectivity_threshold, const unsigned min_spatial_feature,
+        const unsigned max_spatial_feature, hvr_ctx_t ctx);
 
 extern void hvr_body(hvr_ctx_t ctx);
 

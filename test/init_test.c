@@ -35,15 +35,6 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     }
 }
 
-double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
-        hvr_sparse_vec_t *b, hvr_ctx_t ctx) {
-    const double row_delta = hvr_sparse_vec_get(0, b, ctx) -
-        hvr_sparse_vec_get(0, a, ctx);
-    const double col_delta = hvr_sparse_vec_get(1, b, ctx) -
-        hvr_sparse_vec_get(1, a, ctx);
-    return sqrt(row_delta * row_delta + col_delta * col_delta);
-}
-
 static unsigned long long last_time = 0;
 
 int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
@@ -175,9 +166,9 @@ int main(int argc, char **argv) {
         hvr_pe_neighbors_set_insert(pe + 1, neighbors);
     }
 
-    hvr_init(n_local_grid_rows * grid_dim, vertices, edges, neighbors,
-            update_metadata, sparse_vec_distance_measure, check_abort,
-            vertex_owner, 1.1, hvr_ctx);
+    hvr_init(n_local_grid_rows * grid_dim, vertices, edges,
+            update_metadata, check_abort,
+            vertex_owner, 1.1, 0, 1, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);

@@ -3,7 +3,7 @@ CFLAGS=-Wall -Werror -g -O0 -Iinc
 all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test bin/pe_neighbors_set_test
 
 bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c
-	oshcc $(CFLAGS) $^ -o $@ -shared -fPIC
+	oshcc $(CFLAGS) $^ -o $@ -shared -fPIC -lm
 
 bin/init_test: test/init_test.c
 	oshcc $(CFLAGS) $^ -o $@ -Lbin -lhoover -lm
