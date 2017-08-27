@@ -172,6 +172,7 @@ typedef struct _hvr_internal_ctx_t {
     size_t global_neighbors_nbytes_per_row;
 } hvr_internal_ctx_t;
 
+// Must be called after shmem_init
 extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
 
 extern void hvr_init(const vertex_id_t n_local_vertices,
