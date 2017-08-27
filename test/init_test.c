@@ -21,7 +21,7 @@ void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
     const unsigned cells_per_pe = grid_size / npes;
     unsigned leftover = grid_size - (npes * cells_per_pe);
 
-    if (vertex < leftover) {
+    if (vertex < (leftover * (cells_per_pe + 1))) {
         *out_pe = vertex / (cells_per_pe + 1);
         const unsigned base_pe_offset = *out_pe * (cells_per_pe + 1);
         *out_local_offset = vertex - base_pe_offset;
@@ -32,10 +32,6 @@ void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
             (leftover * (cells_per_pe + 1)) +
             ((new_vertex / cells_per_pe) * cells_per_pe);
         *out_local_offset = vertex - base_pe_offset;
-    }
-    if (*out_pe >= npes) {
-        fprintf(stderr, "HOWDY %u %lu %u %u %u %lu\n", *out_pe, *out_local_offset,
-                grid_size, cells_per_pe, leftover, vertex);
     }
 }
 
@@ -212,8 +208,9 @@ int main(int argc, char **argv) {
     shmem_finalize();
 
     if (pe == 0) {
-        printf("%d PEs, total CPU time = %f ms, max elapsed = %f ms\n", npes,
-                (double)total_time / 1000.0, (double)max_elapsed / 1000.0);
+        printf("%d PEs, total CPU time = %f ms, max elapsed = %f ms, ~%u cells "
+                "per PE\n", npes, (double)total_time / 1000.0,
+                (double)max_elapsed / 1000.0, cells_per_pe);
     }
 
     return 0;
