@@ -91,6 +91,25 @@ extern void hvr_release_edge_set(hvr_edge_set_t *set);
 extern void hvr_print_edge_set(hvr_edge_set_t *set);
 
 /*
+ * PE neighbors utilities.
+ */
+typedef struct _hvr_pe_neighbors_set_t {
+    unsigned char *bit_vector;
+    int nbytes;
+} hvr_pe_neighbors_set_t;
+
+extern hvr_pe_neighbors_set_t *hvr_create_empty_pe_neighbors_set(hvr_ctx_t ctx);
+extern void hvr_pe_neighbors_set_insert(int pe, hvr_pe_neighbors_set_t *set);
+extern void hvr_pe_neighbors_set_clear(int pe, hvr_pe_neighbors_set_t *set);
+extern int hvr_pe_neighbors_set_contains(int pe, hvr_pe_neighbors_set_t *set);
+
+typedef struct _hvr_pe_neighbors_t {
+    hvr_avl_tree_node_t *tree;
+} hvr_pe_neighbors_t;
+
+extern hvr_pe_neighbors_t *hvr_create_empty_pe_neighbors();
+
+/*
  * Callback type definitions to be defined by the user for the HOOVER runtime to
  * call into.
  */
@@ -146,12 +165,18 @@ typedef struct _hvr_internal_ctx_t {
     int strict_mode;
     int *strict_counter_dest;
     int *strict_counter_src;
+
+    hvr_sparse_vec_t *bounding_box;
+
+    unsigned char *global_neighbors;
+    size_t global_neighbors_nbytes_per_row;
 } hvr_internal_ctx_t;
 
 extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
 
 extern void hvr_init(const vertex_id_t n_local_vertices,
         hvr_sparse_vec_t *vertices, hvr_edge_set_t *edges,
+        hvr_pe_neighbors_set_t *pe_neighbors,
         hvr_update_metadata_func update_metadata,
         hvr_sparse_vec_distance_measure_func distance_measure,
         hvr_check_abort_func check_abort,

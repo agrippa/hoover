@@ -1,7 +1,7 @@
 CFLAGS=-Wall -Werror -g -O0 -Iinc -std=c99
 SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -L$(OPENSHMEM_INSTALL)/lib64 -lsma
 
-all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test
+all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test bin/pe_neighbors_set_test
 
 bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c
 	gcc $(CFLAGS) $^ -o $@ -shared -fPIC $(SHMEM_FLAGS)
@@ -13,6 +13,9 @@ bin/edge_set_test: test/edge_set_test.c
 	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin
 
 bin/sparse_vec_test: test/sparse_vec_test.c
+	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+
+bin/pe_neighbors_set_test: test/pe_neighbors_set_test.c
 	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 clean:

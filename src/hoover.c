@@ -55,12 +55,10 @@ void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
     }
 }
 
-void hvr_sparse_vec_set(const unsigned feature, const double val,
-        hvr_sparse_vec_t *vec, hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-
+static void hvr_sparse_vec_set_internal(const unsigned feature, const double val,
+        hvr_sparse_vec_t *vec, const uint64_t timestep) {
     for (int i = 0; i < vec->nfeatures; i++) {
-        if (vec->features[i] == feature && vec->timestamp[i] == ctx->timestep) {
+        if (vec->features[i] == feature && vec->timestamp[i] == timestep) {
             // Only one element per timestep ever present
             vec->values[i] = val;
             return;
@@ -71,7 +69,7 @@ void hvr_sparse_vec_set(const unsigned feature, const double val,
     if (nfeatures < HVR_MAX_SPARSE_VEC_CAPACITY) {
         vec->features[nfeatures] = feature;
         vec->values[nfeatures] = val;
-        vec->timestamp[nfeatures] = ctx->timestep;
+        vec->timestamp[nfeatures] = timestep;
         vec->nfeatures = nfeatures + 1;
     } else {
         // Find an old value of this feature to replace
@@ -95,15 +93,18 @@ void hvr_sparse_vec_set(const unsigned feature, const double val,
          */
         assert(index_of_oldest > 0);
         vec->values[index_of_oldest] = val;
-        vec->timestamp[index_of_oldest] = ctx->timestep;
+        vec->timestamp[index_of_oldest] = timestep;
     }
 }
 
-double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
-        hvr_ctx_t in_ctx) {
+void hvr_sparse_vec_set(const unsigned feature, const double val,
+        hvr_sparse_vec_t *vec, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    const uint64_t curr_timestamp = ctx->timestep;
+    hvr_sparse_vec_set_internal(feature, val, vec, ctx->timestep);
+}
 
+static double hvr_sparse_vec_get_internal(const unsigned feature,
+        const hvr_sparse_vec_t *vec, const uint64_t curr_timestamp) {
     uint64_t best_timestamp_delta = 0;
     double value = 0.0;
     int found = 0;
@@ -131,12 +132,81 @@ double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
     }
 }
 
+double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
+        hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    return hvr_sparse_vec_get_internal(feature, vec, ctx->timestep);
+}
+
+static int hvr_sparse_vec_contains(const unsigned feature,
+        hvr_sparse_vec_t *vec) {
+    for (unsigned i = 0; i < vec->nfeatures; i++) {
+        if (vec->features[i] == feature) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+hvr_pe_neighbors_set_t *hvr_create_empty_pe_neighbors_set(hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    hvr_pe_neighbors_set_t *set = (hvr_pe_neighbors_set_t *)malloc(
+            sizeof(*set));
+    assert(set);
+
+    const int nbytes = (ctx->npes + 8 - 1) / 8;
+    set->bit_vector = (unsigned char *)malloc(nbytes);
+    assert(set->bit_vector);
+    memset(set->bit_vector, 0x00, nbytes);
+    set->nbytes = nbytes;
+
+    return set;
+}
+
+static void hvr_pe_neighbors_set_insert_internal(int pe,
+        unsigned char *bit_vector) {
+    const int byte = pe / 8;
+    const int bit = pe % 8;
+    const unsigned char old_val = bit_vector[byte];
+    bit_vector[byte] = (old_val | (1 << bit));
+}
+
+void hvr_pe_neighbors_set_insert(int pe, hvr_pe_neighbors_set_t *set) {
+    hvr_pe_neighbors_set_insert_internal(pe, set->bit_vector);
+}
+
+static void hvr_pe_neighbors_set_clear_internal(int pe,
+        unsigned char *bit_vector) {
+    const int byte = pe / 8;
+    const int bit = pe % 8;
+    const unsigned char old_val = bit_vector[byte];
+    bit_vector[byte] = (old_val & ~(1 << bit));
+}
+
+void hvr_pe_neighbors_set_clear(int pe, hvr_pe_neighbors_set_t *set) {
+    hvr_pe_neighbors_set_clear_internal(pe, set->bit_vector);
+}
+
+int hvr_pe_neighbors_set_contains_internal(int pe,
+        unsigned char *bit_vector) {
+    const int byte = pe / 8;
+    const int bit = pe % 8;
+    const unsigned char old_val = bit_vector[byte];
+    if (old_val & (1 << bit)) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int hvr_pe_neighbors_set_contains(int pe, hvr_pe_neighbors_set_t *set) {
+    return hvr_pe_neighbors_set_contains_internal(pe, set->bit_vector);
+}
+
 hvr_edge_set_t *hvr_create_empty_edge_set() {
     hvr_edge_set_t *new_set = (hvr_edge_set_t *)malloc(sizeof(*new_set));
     assert(new_set);
-
     new_set->tree = NULL;
-
     return new_set;
 }
 
@@ -205,8 +275,36 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
     *out_ctx = new_ctx;
 }
 
+static void update_bounding_box(hvr_internal_ctx_t *ctx) {
+    hvr_sparse_vec_t *mins = ctx->bounding_box + 0;
+    hvr_sparse_vec_t *maxs = ctx->bounding_box + 1;
+
+    mins->nfeatures = 0;
+    maxs->nfeatures = 0;
+
+    for (unsigned i = 0; i < ctx->n_local_vertices; i++) {
+        hvr_sparse_vec_t *curr = ctx->vertices + i;
+
+        for (unsigned j = 0; j < curr->nfeatures; j++) {
+            if (!hvr_sparse_vec_contains(curr->features[j], mins) ||
+                    curr->values[j] < hvr_sparse_vec_get_internal(
+                        curr->features[j], mins, 1)) {
+                hvr_sparse_vec_set_internal(curr->features[j], curr->values[j],
+                        mins, 0);
+            }
+
+            if (!hvr_sparse_vec_contains(curr->features[j], maxs) ||
+                    curr->values[j] > hvr_sparse_vec_get_internal(
+                        curr->features[j], maxs, 1)) {
+                hvr_sparse_vec_set_internal(curr->features[j], curr->values[j],
+                        maxs, 0);
+            }
+        }
+    }
+}
+
 void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
-        hvr_edge_set_t *edges,
+        hvr_edge_set_t *edges, hvr_pe_neighbors_set_t *pe_neighbors,
         hvr_update_metadata_func update_metadata,
         hvr_sparse_vec_distance_measure_func distance_measure,
         hvr_check_abort_func check_abort, hvr_vertex_owner_func vertex_owner,
@@ -243,7 +341,13 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         shmem_longlong_p(&(new_ctx->vertices_per_pe[new_ctx->pe]),
                 n_local_vertices, p);
     }
+
+    /*
+     * Need a barrier to ensure everyone has done their puts before summing into
+     * n_global_vertices.
+     */
     shmem_barrier_all();
+
     new_ctx->n_global_vertices = 0;
     for (unsigned p = 0; p < new_ctx->npes; p++) {
         new_ctx->n_global_vertices += new_ctx->vertices_per_pe[p];
@@ -269,6 +373,31 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         new_ctx->strict_counter_dest = (int *)shmem_malloc(sizeof(int));
         assert(new_ctx->strict_counter_src && new_ctx->strict_counter_dest);
     }
+
+    // Construct a global view of the PEs that talk to each other
+    unsigned char *global_neighbors = (unsigned char *)shmem_malloc(
+            new_ctx->npes * pe_neighbors->nbytes);
+    assert(global_neighbors);
+    for (int p = 0; p < new_ctx->npes; p++) {
+        shmem_putmem(global_neighbors + (new_ctx->pe * pe_neighbors->nbytes),
+                pe_neighbors->bit_vector, pe_neighbors->nbytes, p);
+    }
+    shmem_barrier_all();
+    for (int p1 = 0; p1 < new_ctx->npes; p1++) {
+        unsigned char *curr_bit_vector = global_neighbors +
+            (p1 * pe_neighbors->nbytes);
+        for (int p2 = 0; p2 < new_ctx->npes; p2++) {
+            if (hvr_pe_neighbors_set_contains_internal(p2, curr_bit_vector)) {
+                hvr_pe_neighbors_set_insert_internal(p1,
+                        global_neighbors + (p2 * pe_neighbors->nbytes));
+            }
+        }
+    }
+    new_ctx->global_neighbors = global_neighbors;
+    new_ctx->global_neighbors_nbytes_per_row = pe_neighbors->nbytes;
+
+    new_ctx->bounding_box = hvr_sparse_vec_create_n(2);
+    update_bounding_box(new_ctx);
 }
 
 void hvr_body(hvr_ctx_t in_ctx) {
@@ -323,9 +452,18 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         ctx->timestep += 1;
 
+        update_bounding_box(ctx);
+
+        unsigned char *my_neighbors = ctx->global_neighbors +
+            (ctx->pe * ctx->global_neighbors_nbytes_per_row);
+
         // For each PE
         for (unsigned p = 0; p < ctx->npes; p++) {
             const unsigned target_pe = (ctx->pe + p) % ctx->npes;
+            if (!hvr_pe_neighbors_set_contains_internal(target_pe,
+                        my_neighbors)) {
+                continue;
+            }
 
             // For each vertex stored on the other PE
             for (vertex_id_t j = 0; j < ctx->vertices_per_pe[target_pe]; j++) {
@@ -376,8 +514,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_check_abort = hvr_current_time_us();
 
-        printf("PE %d - metadata %f ms - edges %f ms - abort %f ms\n",
-                ctx->pe, (double)(finished_updates - start_iter) / 1000.0,
+        printf("PE %d - total %f ms - metadata %f ms - edges %f ms - abort %f "
+                "ms\n", ctx->pe,
+                (double)(finished_check_abort - start_iter) / 1000.0,
+                (double)(finished_updates - start_iter) / 1000.0,
                 (double)(finished_edge_adds - finished_updates) / 1000.0,
                 (double)(finished_check_abort - finished_edge_adds) / 1000.0);
 
