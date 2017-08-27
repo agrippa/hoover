@@ -167,6 +167,7 @@ int main(int argc, char **argv) {
 
     hvr_pe_neighbors_set_t *neighbors = hvr_create_empty_pe_neighbors_set(
             hvr_ctx);
+    hvr_pe_neighbors_set_insert(pe, neighbors);
     if (pe > 0) {
         hvr_pe_neighbors_set_insert(pe - 1, neighbors);
     }

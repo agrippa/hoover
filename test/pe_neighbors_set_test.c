@@ -8,8 +8,14 @@ int main(int argc, char **argv) {
 
     hvr_ctx_t ctx;
     hvr_ctx_create(&ctx);
-    ((hvr_internal_ctx_t *)ctx)->npes = NPES;
 
+    ((hvr_internal_ctx_t *)ctx)->npes = 1;
+    hvr_pe_neighbors_set_t *singleton_set =
+        hvr_create_empty_pe_neighbors_set(ctx);
+    hvr_pe_neighbors_set_insert(0, singleton_set);
+    assert(hvr_pe_neighbors_set_contains(0, singleton_set) == 1);
+
+    ((hvr_internal_ctx_t *)ctx)->npes = NPES;
     hvr_pe_neighbors_set_t *set = hvr_create_empty_pe_neighbors_set(ctx);
 
     for (int i = 0; i < NPES; i++) {

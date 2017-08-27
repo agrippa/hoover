@@ -388,8 +388,11 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
             (p1 * pe_neighbors->nbytes);
         for (int p2 = 0; p2 < new_ctx->npes; p2++) {
             if (hvr_pe_neighbors_set_contains_internal(p2, curr_bit_vector)) {
+                fprintf(stderr, "initially found edge between %d %d\n", p1, p2);
                 hvr_pe_neighbors_set_insert_internal(p1,
                         global_neighbors + (p2 * pe_neighbors->nbytes));
+            } else {
+                fprintf(stderr, "no edge between %d %d\n", p1, p2);
             }
         }
     }
@@ -462,8 +465,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
             const unsigned target_pe = (ctx->pe + p) % ctx->npes;
             if (!hvr_pe_neighbors_set_contains_internal(target_pe,
                         my_neighbors)) {
+                fprintf(stderr, "PE %d not communicating with PE %d\n", ctx->pe, target_pe);
                 continue;
             }
+            fprintf(stderr, "PE %d communicating with PE %d\n", ctx->pe, target_pe);
 
             // For each vertex stored on the other PE
             for (vertex_id_t j = 0; j < ctx->vertices_per_pe[target_pe]; j++) {
