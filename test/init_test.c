@@ -150,34 +150,6 @@ int main(int argc, char **argv) {
     }
 #endif
 
-    hvr_edge_set_t *edges = hvr_create_empty_edge_set();
-    for (unsigned i = 0; i < grid_cells_this_pe; i++) {
-        const vertex_id_t vertex = vertices[i].id;
-        const vertex_id_t row = vertex / grid_dim;
-        const vertex_id_t col = vertex % grid_dim;
-
-        if (row > 0) {
-            const vertex_id_t down_vertex = (row - 1) * grid_dim + col;
-            hvr_add_edge(vertex, down_vertex, edges);
-        }
-        if (row < grid_dim - 1) {
-            const vertex_id_t up_vertex = (row + 1) * grid_dim + col;
-            hvr_add_edge(vertex, up_vertex, edges);
-        }
-        if (col > 0) {
-            const vertex_id_t left_vertex = row * grid_dim + (col - 1);
-            hvr_add_edge(vertex, left_vertex, edges);
-        }
-        if (col < grid_dim - 1) {
-            const vertex_id_t right_vertex = row * grid_dim + (col + 1);
-            hvr_add_edge(vertex, right_vertex, edges);
-        }
-#ifdef  VERBOSE
-        printf("PE %d - vertex %lu - # neighbors %lu\n", pe, vertex,
-                hvr_count_edges(vertex, edges));
-#endif
-    }
-
     hvr_pe_neighbors_set_t *neighbors = hvr_create_empty_pe_neighbors_set(
             hvr_ctx);
     hvr_pe_neighbors_set_insert(pe, neighbors);
@@ -188,7 +160,7 @@ int main(int argc, char **argv) {
         hvr_pe_neighbors_set_insert(pe + 1, neighbors);
     }
 
-    hvr_init(grid_cells_this_pe, vertices, edges,
+    hvr_init(grid_cells_this_pe, vertices,
             update_metadata, check_abort,
             vertex_owner, 1.1, 0, 1, hvr_ctx);
 

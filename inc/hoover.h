@@ -180,7 +180,7 @@ typedef struct _hvr_internal_ctx_t {
 extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
 
 extern void hvr_init(const vertex_id_t n_local_vertices,
-        hvr_sparse_vec_t *vertices, hvr_edge_set_t *edges,
+        hvr_sparse_vec_t *vertices,
         hvr_update_metadata_func update_metadata,
         hvr_check_abort_func check_abort,
         hvr_vertex_owner_func vertex_owner,

@@ -447,8 +447,71 @@ static void update_bounding_box(hvr_sparse_vec_t *mins, hvr_sparse_vec_t *maxs,
     ctx->bounding_boxes_timestamps[ctx->pe] = ctx->timestep - 1;
 }
 
+static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
+        hvr_sparse_vec_t *b, hvr_internal_ctx_t *ctx) {
+    double acc = 0.0;
+    for (unsigned f = ctx->min_spatial_feature; f <= ctx->max_spatial_feature;
+            f++) {
+        const double delta = hvr_sparse_vec_get(f, b, ctx) -
+            hvr_sparse_vec_get(f, a, ctx);
+        acc = acc + (delta * delta);
+    }
+    return sqrt(acc);
+}
+
+static void update_edges(hvr_internal_ctx_t *ctx) {
+    // For each PE
+    for (unsigned p = 0; p < ctx->npes; p++) {
+        const unsigned target_pe = (ctx->pe + p) % ctx->npes;
+        if (!hvr_pe_neighbors_set_contains(target_pe, ctx->my_neighbors)) {
+            continue;
+        }
+
+        // For each vertex stored on the other PE
+        for (vertex_id_t j = 0; j < ctx->vertices_per_pe[target_pe]; j++) {
+            hvr_sparse_vec_t *other = &(ctx->vertices[j]);
+
+            // Fetch this vertex using getmem
+            shmem_getmem(ctx->buffer, other, sizeof(*other), target_pe);
+
+            /*
+             * For each local vertex, check if we want to add an edge from
+             * other to this.
+             */
+            for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
+                /*
+                 * Never want to add an edge from a node to itself (at
+                 * least, we don't have a use case for this yet).
+                 */
+                if (target_pe == ctx->pe && i == j) continue;
+
+                hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
+
+                const double distance = sparse_vec_distance_measure(curr,
+                        ctx->buffer, ctx);
+#ifdef VERBOSE
+                char buf1[1024];
+                char buf2[1024];
+                hvr_sparse_vec_dump(curr, buf1, 1024);
+                hvr_sparse_vec_dump(ctx->buffer, buf2, 1024);
+
+                printf("%s edge from %lu (%s) -> %lu (%s), dist = %f "
+                        "threshold = %f, timestep %lu\n",
+                        (distance < ctx->connectivity_threshold) ?
+                        "Adding" : "Not adding", curr->id, buf1,
+                        ctx->buffer->id, buf2, distance,
+                        ctx->connectivity_threshold, ctx->timestep);
+#endif
+                if (distance < ctx->connectivity_threshold) {
+                    // Add edge
+                    hvr_add_edge(curr->id, ctx->buffer->id, ctx->edges);
+                }
+            }
+        }
+    }
+}
+
 void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
-        hvr_edge_set_t *edges,
         hvr_update_metadata_func update_metadata,
         hvr_check_abort_func check_abort, hvr_vertex_owner_func vertex_owner,
         const double connectivity_threshold, const unsigned min_spatial_feature,
@@ -496,8 +559,6 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
 
     new_ctx->vertices = vertices;
 
-    new_ctx->edges = edges;
-
     new_ctx->update_metadata = update_metadata;
     new_ctx->check_abort = check_abort;
     new_ctx->vertex_owner = vertex_owner;
@@ -542,19 +603,11 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     shmem_barrier_all();
 
     update_neighbors_based_on_bounding_boxes(1, new_ctx);
+
+    new_ctx->edges = hvr_create_empty_edge_set();
+    update_edges(new_ctx);
 }
 
-static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
-        hvr_sparse_vec_t *b, hvr_internal_ctx_t *ctx) {
-    double acc = 0.0;
-    for (unsigned f = ctx->min_spatial_feature; f <= ctx->max_spatial_feature;
-            f++) {
-        const double delta = hvr_sparse_vec_get(f, b, ctx) -
-            hvr_sparse_vec_get(f, a, ctx);
-        acc = acc + (delta * delta);
-    }
-    return sqrt(acc);
-}
 
 void hvr_body(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
@@ -604,8 +657,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_updates = hvr_current_time_us();
 
-        hvr_clear_edge_set(ctx->edges);
-
         ctx->timestep += 1;
 
         /*
@@ -647,55 +698,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
             }
         }
 
-        // For each PE
-        for (unsigned p = 0; p < ctx->npes; p++) {
-            const unsigned target_pe = (ctx->pe + p) % ctx->npes;
-            if (!hvr_pe_neighbors_set_contains(target_pe, ctx->my_neighbors)) {
-                continue;
-            }
-
-            // For each vertex stored on the other PE
-            for (vertex_id_t j = 0; j < ctx->vertices_per_pe[target_pe]; j++) {
-                hvr_sparse_vec_t *other = &(ctx->vertices[j]);
-
-                // Fetch this vertex using getmem
-                shmem_getmem(ctx->buffer, other, sizeof(*other), target_pe);
-
-                /*
-                 * For each local vertex, check if we want to add an edge from
-                 * other to this.
-                 */
-                for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
-                    /*
-                     * Never want to add an edge from a node to itself (at
-                     * least, we don't have a use case for this yet).
-                     */
-                    if (target_pe == ctx->pe && i == j) continue;
-
-                    hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
-
-                    const double distance = sparse_vec_distance_measure(curr,
-                            ctx->buffer, ctx);
-#ifdef VERBOSE
-                    char buf1[1024];
-                    char buf2[1024];
-                    hvr_sparse_vec_dump(curr, buf1, 1024);
-                    hvr_sparse_vec_dump(ctx->buffer, buf2, 1024);
-
-                    printf("%s edge from %lu (%s) -> %lu (%s), dist = %f "
-                            "threshold = %f, timestep %lu\n",
-                            (distance < ctx->connectivity_threshold) ?
-                            "Adding" : "Not adding", curr->id, buf1,
-                            ctx->buffer->id, buf2, distance,
-                            ctx->connectivity_threshold, ctx->timestep);
-#endif
-                    if (distance < ctx->connectivity_threshold) {
-                        // Add edge
-                        hvr_add_edge(curr->id, ctx->buffer->id, ctx->edges);
-                    }
-                }
-            }
-        }
+        hvr_clear_edge_set(ctx->edges);
+        update_edges(ctx);
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
