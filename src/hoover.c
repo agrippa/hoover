@@ -127,6 +127,7 @@ static double hvr_sparse_vec_get_internal(const unsigned feature,
          * i.e., do we grab whatever value we can even if its timestamp is
          * newer? Do we throw an error?
          */
+        assert(0);
         return 0.0;
     } else {
         return value;
@@ -454,7 +455,7 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
             f++) {
         const double delta = hvr_sparse_vec_get(f, b, ctx) -
             hvr_sparse_vec_get(f, a, ctx);
-        acc = acc + (delta * delta);
+        acc += (delta * delta);
     }
     return sqrt(acc);
 }
@@ -603,9 +604,6 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     shmem_barrier_all();
 
     update_neighbors_based_on_bounding_boxes(1, new_ctx);
-
-    new_ctx->edges = hvr_create_empty_edge_set();
-    update_edges(new_ctx);
 }
 
 
@@ -622,6 +620,11 @@ void hvr_body(hvr_ctx_t in_ctx) {
     assert(neighbors && neighbor_data);
 
     ctx->timestep = 1;
+
+    // Initialize edges
+    ctx->edges = hvr_create_empty_edge_set();
+    update_edges(ctx);
+
     int abort = 0;
     while (!abort) {
         const unsigned long long start_iter = hvr_current_time_us();
