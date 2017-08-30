@@ -47,6 +47,24 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     }
 }
 
+int might_interact(hvr_sparse_vec_t *other_mins,
+        hvr_sparse_vec_t *other_maxs, hvr_sparse_vec_t *my_mins,
+        hvr_sparse_vec_t *my_maxs, const double connectivity_threshold,
+        hvr_ctx_t ctx) {
+
+    if (hvr_sparse_vec_get(0, other_maxs, ctx) >=
+            hvr_sparse_vec_get(0, my_mins, ctx) - 1.0 &&
+            hvr_sparse_vec_get(0, my_maxs, ctx) + 1.0 >=
+            hvr_sparse_vec_get(0, other_mins, ctx) &&
+            hvr_sparse_vec_get(1, other_maxs, ctx) >=
+            hvr_sparse_vec_get(1, my_mins, ctx) - 1.0 &&
+            hvr_sparse_vec_get(1, my_maxs, ctx) + 1.0 >=
+            hvr_sparse_vec_get(1, other_mins, ctx)) {
+        return 1;
+    }
+    return 0;
+}
+
 static unsigned long long last_time = 0;
 
 int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
@@ -161,7 +179,7 @@ int main(int argc, char **argv) {
     }
 
     hvr_init(grid_cells_this_pe, vertices,
-            update_metadata, check_abort,
+            update_metadata, might_interact, check_abort,
             vertex_owner, 1.1, 0, 1, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();

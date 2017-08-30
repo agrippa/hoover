@@ -157,7 +157,7 @@ static int unsigned_int_cmp(const void *a_in, const void *b_in) {
 }
 
 // features must be an array of at least length HVR_MAX_SPARSE_VEC_CAPACITY
-static void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
+void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
         const uint64_t timestep, unsigned *nfeatures_out, unsigned *features) {
     unsigned nfeatures = 0;
     for (unsigned i = 0; i < vec->nfeatures; i++) {
@@ -336,53 +336,6 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
     *out_ctx = new_ctx;
 }
 
-static int boxes_within_range(hvr_sparse_vec_t *min1, hvr_sparse_vec_t *max1,
-        hvr_sparse_vec_t *min2, hvr_sparse_vec_t *max2, const double range,
-        const uint64_t timestep, const unsigned min_spatial_feature,
-        const unsigned max_spatial_feature) {
-    unsigned min1_features[HVR_MAX_SPARSE_VEC_CAPACITY];
-    unsigned max1_features[HVR_MAX_SPARSE_VEC_CAPACITY];
-    unsigned min2_features[HVR_MAX_SPARSE_VEC_CAPACITY];
-    unsigned max2_features[HVR_MAX_SPARSE_VEC_CAPACITY];
-    unsigned min1_nfeatures, max1_nfeatures, min2_nfeatures, max2_nfeatures;
-
-    hvr_sparse_vec_unique_features(min1, timestep, &min1_nfeatures,
-            min1_features);
-    hvr_sparse_vec_unique_features(max1, timestep, &max1_nfeatures,
-            max1_features);
-    hvr_sparse_vec_unique_features(min2, timestep, &min2_nfeatures,
-            min2_features);
-    hvr_sparse_vec_unique_features(max2, timestep, &max2_nfeatures,
-            max2_features);
-
-    /*
-     * Assert that all bounding boxes have the same dimensionality across the
-     * same dimensions.
-     */
-    assert(min1_nfeatures == max1_nfeatures);
-    assert(min1_nfeatures == min2_nfeatures);
-    assert(min1_nfeatures == max2_nfeatures);
-
-    for (unsigned i = 0; i < min1_nfeatures; i++) {
-        assert(min1_features[i] == max1_features[i]);
-        assert(min1_features[i] == min2_features[i]);
-        assert(min1_features[i] == max2_features[i]);
-    }
-
-    for (unsigned feature = min_spatial_feature; feature <= max_spatial_feature;
-            feature++) {
-        const int overlapping = 
-            (hvr_sparse_vec_get_internal(feature, max1, timestep) + range) >=
-            (hvr_sparse_vec_get_internal(feature, min2, timestep)) &&
-            (hvr_sparse_vec_get_internal(feature, max2, timestep)) >=
-            (hvr_sparse_vec_get_internal(feature, min1, timestep) - range);
-        if (!overlapping) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 static void lock_bounding_box_list(const int pe, hvr_internal_ctx_t *ctx) {
     int old_val;
     do {
@@ -394,8 +347,7 @@ static void unlock_bounding_box_list(const int pe, hvr_internal_ctx_t *ctx) {
     shmem_int_cswap(ctx->bounding_boxes_lock, 1, 0, pe);
 }
 
-static void update_neighbors_based_on_bounding_boxes(const uint64_t timestep,
-        hvr_internal_ctx_t *ctx) {
+static void update_neighbors_based_on_bounding_boxes(hvr_internal_ctx_t *ctx) {
     hvr_sparse_vec_t *my_mins = ctx->bounding_boxes + (2 * ctx->pe);
     hvr_sparse_vec_t *my_maxs = ctx->bounding_boxes + (2 * ctx->pe + 1);
 
@@ -407,17 +359,18 @@ static void update_neighbors_based_on_bounding_boxes(const uint64_t timestep,
         hvr_sparse_vec_t *mins = ctx->bounding_boxes + (2 * p);
         hvr_sparse_vec_t *maxs = ctx->bounding_boxes + (2 * p + 1);
 
-        if (boxes_within_range(my_mins, my_maxs, mins, maxs,
-                    ctx->connectivity_threshold, timestep,
-                    ctx->min_spatial_feature, ctx->max_spatial_feature)) {
+        if (ctx->might_interact(mins, maxs, my_mins, my_maxs,
+                    ctx->connectivity_threshold, ctx)) {
             hvr_pe_neighbors_set_insert(p, ctx->my_neighbors);
         }
     }
 
     unlock_bounding_box_list(ctx->pe, ctx);
 
+#ifdef VERBOSE
     printf("PE %d is talking to %d other PEs\n", ctx->pe,
             hvr_pe_neighbor_set_count(ctx->my_neighbors));
+#endif
 }
 
 static void update_bounding_box(hvr_sparse_vec_t *mins, hvr_sparse_vec_t *maxs,
@@ -425,6 +378,7 @@ static void update_bounding_box(hvr_sparse_vec_t *mins, hvr_sparse_vec_t *maxs,
     mins->nfeatures = 0;
     maxs->nfeatures = 0;
 
+    // For each vertex on this PE
     for (unsigned i = 0; i < ctx->n_local_vertices; i++) {
         hvr_sparse_vec_t *curr = ctx->vertices + i;
 
@@ -514,6 +468,7 @@ static void update_edges(hvr_internal_ctx_t *ctx) {
 
 void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         hvr_update_metadata_func update_metadata,
+        hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort, hvr_vertex_owner_func vertex_owner,
         const double connectivity_threshold, const unsigned min_spatial_feature,
         const unsigned max_spatial_feature, hvr_ctx_t in_ctx) {
@@ -561,6 +516,7 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     new_ctx->vertices = vertices;
 
     new_ctx->update_metadata = update_metadata;
+    new_ctx->might_interact = might_interact;
     new_ctx->check_abort = check_abort;
     new_ctx->vertex_owner = vertex_owner;
     new_ctx->connectivity_threshold = connectivity_threshold;
@@ -602,8 +558,6 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         (new_ctx->bounding_boxes_timestamps)[p] = 0;
     }
     shmem_barrier_all();
-
-    update_neighbors_based_on_bounding_boxes(1, new_ctx);
 }
 
 
@@ -620,6 +574,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
     assert(neighbors && neighbor_data);
 
     ctx->timestep = 1;
+
+    // Determine neighboring PEs
+    update_neighbors_based_on_bounding_boxes(ctx);
 
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
@@ -671,7 +628,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 ctx->bounding_boxes  + (2 * ctx->pe + 1), ctx);
 
         // Update who I think my neighbors are
-        update_neighbors_based_on_bounding_boxes(ctx->timestep, ctx);
+        update_neighbors_based_on_bounding_boxes(ctx);
 
         // Share my updates with my neighbors
         for (unsigned p = 0; p < ctx->npes; p++) {
