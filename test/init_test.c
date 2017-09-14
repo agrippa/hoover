@@ -15,6 +15,10 @@ long long elapsed_time = 0;
 long long p_wrk[SHMEM_REDUCE_MIN_WRKDATA_SIZE];
 long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 
+/*
+ * Callback for the HOOVER runtime to use to determine the PE owning a given
+ * vertex, and that vertex's local offset on the owner PE.
+ */
 void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
         size_t *out_local_offset) {
     const unsigned grid_size = grid_dim * grid_dim;
@@ -35,8 +39,16 @@ void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
     }
 }
 
+/*
+ * Callback for the HOOVER runtime for updating positional or logical metadata
+ * attached to each vertex based on the updated neighbors on each time step.
+ */
 void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
         const size_t n_neighbors, hvr_ctx_t ctx) {
+    /*
+     * If vertex is not already infected, update it to be infected if any of its
+     * neighbors are.
+     */
     if (hvr_sparse_vec_get(2, vertex, ctx) == 0.0) {
         for (int i = 0; i < n_neighbors; i++) {
             if (hvr_sparse_vec_get(2, &neighbors[i], ctx)) {
@@ -47,6 +59,10 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     }
 }
 
+/*
+ * Callback used to check if this PE might interact with another PE based on the
+ * maximums and minimums of all vertices owned by each PE.
+ */
 int might_interact(hvr_sparse_vec_t *other_mins,
         hvr_sparse_vec_t *other_maxs, hvr_sparse_vec_t *my_mins,
         hvr_sparse_vec_t *my_maxs, const double connectivity_threshold,
@@ -67,8 +83,13 @@ int might_interact(hvr_sparse_vec_t *other_mins,
 
 static unsigned long long last_time = 0;
 
+/*
+ * Callback used by the HOOVER runtime to check if this PE can abort out of the
+ * simulation.
+ */
 int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
         hvr_ctx_t ctx) {
+    // Abort if all of my member vertices are infected
     size_t nset = 0;
     for (int i = 0; i < n_vertices; i++) {
         if (hvr_sparse_vec_get(2, &vertices[i], ctx) > 0.0) {
@@ -120,6 +141,7 @@ int main(int argc, char **argv) {
     pe = shmem_my_pe();
     npes = shmem_n_pes();
 
+    // Partition cells of a 2D grid as evenly as posbible across all PEs
     const unsigned grid_size = grid_dim * grid_dim;
     const unsigned cells_per_pe = grid_size / npes;
     unsigned leftover = grid_size - (npes * cells_per_pe);
@@ -139,12 +161,17 @@ int main(int argc, char **argv) {
                 "PE\n", npes, grid_dim, grid_dim, grid_dim * grid_dim,
                 cells_per_pe);
     }
-    // fprintf(stderr, "PE %d has %u -> %u (%u grid rows)\n", pe, grid_row_start,
-    //         grid_row_end, grid_rows_this_pe);
     if (grid_cells_this_pe == 0) {
         fprintf(stderr, "WARNING PE %d has no grid cells\n", pe);
     }
 
+    /*
+     * Create each vertex owned by this PE. Each vertex has three attributes:
+     *
+     *  0: row of this cell
+     *  1: column of this cell
+     *  2: whether this cell has been "infected" by its neighbors
+     */
     hvr_sparse_vec_t *vertices = hvr_sparse_vec_create_n(cells_per_pe + 1);
     for (vertex_id_t vertex = grid_cell_start; vertex < grid_cell_end;
             vertex++) {
@@ -152,10 +179,14 @@ int main(int argc, char **argv) {
         const vertex_id_t col = vertex % grid_dim;
 
         vertices[vertex - grid_cell_start].id = vertex;
-        hvr_sparse_vec_set(0, (double)row, &vertices[vertex - grid_cell_start], hvr_ctx);
-        hvr_sparse_vec_set(1, (double)col, &vertices[vertex - grid_cell_start], hvr_ctx);
-        hvr_sparse_vec_set(2, 0.0, &vertices[vertex - grid_cell_start], hvr_ctx);
+        hvr_sparse_vec_set(0, (double)row, &vertices[vertex - grid_cell_start],
+                hvr_ctx);
+        hvr_sparse_vec_set(1, (double)col, &vertices[vertex - grid_cell_start],
+                hvr_ctx);
+        hvr_sparse_vec_set(2, 0.0, &vertices[vertex - grid_cell_start],
+                hvr_ctx);
     }
+    // Initialze just the cell at (0, 0) as infected.
     if (pe == 0) {
         hvr_sparse_vec_set(2, 1.0, &vertices[0], hvr_ctx);
     }
@@ -167,16 +198,6 @@ int main(int argc, char **argv) {
         printf("%u - %s\n", i, buf);
     }
 #endif
-
-    hvr_pe_neighbors_set_t *neighbors = hvr_create_empty_pe_neighbors_set(
-            hvr_ctx);
-    hvr_pe_neighbors_set_insert(pe, neighbors);
-    if (pe > 0) {
-        hvr_pe_neighbors_set_insert(pe - 1, neighbors);
-    }
-    if (pe < npes - 1) {
-        hvr_pe_neighbors_set_insert(pe + 1, neighbors);
-    }
 
     hvr_init(grid_cells_this_pe, vertices,
             update_metadata, might_interact, check_abort,
