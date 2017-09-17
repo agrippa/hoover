@@ -73,6 +73,11 @@ void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
         const uint64_t timestep, unsigned *nfeatures_out, unsigned *features);
 
 /*
+ * Check if the provided vector contains an entry for the provided feature.
+ */
+int hvr_sparse_vec_contains(const unsigned feature, hvr_sparse_vec_t *vec);
+
+/*
  * Write the contents of this sparse vector to buf as a human-readable string.
  */
 void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
@@ -147,10 +152,16 @@ typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
  * API for checking if this PE might have any vertices that interact with
  * vertices on another PE.
  */
-typedef int (*hvr_might_interact_func)(hvr_sparse_vec_t *other_mins,
-        hvr_sparse_vec_t *other_maxs, hvr_sparse_vec_t *my_mins,
-        hvr_sparse_vec_t *my_maxs, const double connectivity_threshold,
+typedef int (*hvr_might_interact_func)(void *other_summary, void *my_summary,
         hvr_ctx_t ctx);
+
+/*
+ * API for updating user-defined summary information which can be used by
+ * hvr_might_interact_func to determine whether one PE might want to interact
+ * with any of the graph owned by the other PE.
+ */
+typedef void (*hvr_update_summary_data)(void *_summary,
+        hvr_sparse_vec_t *actors, const int nactors, hvr_ctx_t ctx);
 
 typedef struct _hvr_internal_ctx_t {
     int initialized;
@@ -168,11 +179,13 @@ typedef struct _hvr_internal_ctx_t {
     uint64_t timestep;
 
     hvr_update_metadata_func update_metadata;
+    hvr_update_summary_data update_summary_data;
     hvr_might_interact_func might_interact;
     hvr_check_abort_func check_abort;
     hvr_vertex_owner_func vertex_owner;
     double connectivity_threshold;
     unsigned min_spatial_feature, max_spatial_feature;
+    unsigned summary_data_size;
 
     hvr_sparse_vec_t *buffer;
 
@@ -184,11 +197,11 @@ typedef struct _hvr_internal_ctx_t {
     int *strict_counter_dest;
     int *strict_counter_src;
 
-    hvr_sparse_vec_t *bounding_boxes;
-    long long *bounding_boxes_timestamps;
-    hvr_sparse_vec_t *bounding_boxes_buffer;
-    long long *bounding_boxes_timestamps_buffer;
-    int *bounding_boxes_lock;
+    unsigned char *summary_data;
+    void *summary_data_buffer;
+    long long *summary_data_timestamps;
+    long long *summary_data_timestamps_buffer;
+    int *summary_data_lock;
     hvr_pe_neighbors_set_t *my_neighbors;
 } hvr_internal_ctx_t;
 
@@ -198,11 +211,14 @@ extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
 extern void hvr_init(const vertex_id_t n_local_vertices,
         hvr_sparse_vec_t *vertices,
         hvr_update_metadata_func update_metadata,
+        hvr_update_summary_data update_summary_data,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort,
         hvr_vertex_owner_func vertex_owner,
-        const double connectivity_threshold, const unsigned min_spatial_feature,
-        const unsigned max_spatial_feature, hvr_ctx_t ctx);
+        const double connectivity_threshold,
+        const unsigned min_spatial_feature_inclusive,
+        const unsigned max_spatial_feature_inclusive,
+        const unsigned summary_data_size, hvr_ctx_t ctx);
 
 extern void hvr_body(hvr_ctx_t ctx);
 

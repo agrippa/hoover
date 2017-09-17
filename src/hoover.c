@@ -92,7 +92,7 @@ static void hvr_sparse_vec_set_internal(const unsigned feature, const double val
          * item to replace and you replace an old value that somewhere will
          * later request? If nothing else, the user might want an error emitted.
          */
-        assert(index_of_oldest > 0);
+        assert(index_of_oldest >= 0);
         vec->values[index_of_oldest] = val;
         vec->timestamp[index_of_oldest] = timestep;
     }
@@ -127,6 +127,12 @@ static double hvr_sparse_vec_get_internal(const unsigned feature,
          * i.e., do we grab whatever value we can even if its timestamp is
          * newer? Do we throw an error?
          */
+        // fprintf(stderr, "Looking for feature = %u before time %lu\n", feature,
+        //         curr_timestamp);
+        // for (unsigned i = 0; i < vec->nfeatures; i++) {
+        //     fprintf(stderr, "  feature %u timestamp %lu -> %f\n",
+        //             vec->features[i], vec->timestamp[i], vec->values[i]);
+        // }
         assert(0);
         return 0.0;
     } else {
@@ -138,16 +144,6 @@ double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     return hvr_sparse_vec_get_internal(feature, vec, ctx->timestep);
-}
-
-static int hvr_sparse_vec_contains(const unsigned feature,
-        hvr_sparse_vec_t *vec) {
-    for (unsigned i = 0; i < vec->nfeatures; i++) {
-        if (vec->features[i] == feature) {
-            return 1;
-        }
-    }
-    return 0;
 }
 
 static int unsigned_int_cmp(const void *a_in, const void *b_in) {
@@ -177,6 +173,15 @@ void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
 
     qsort(features, nfeatures, sizeof(*features), unsigned_int_cmp);
     *nfeatures_out = nfeatures;
+}
+
+int hvr_sparse_vec_contains(const unsigned feature, hvr_sparse_vec_t *vec) {
+    for (unsigned i = 0; i < vec->nfeatures; i++) {
+        if (vec->features[i] == feature) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 hvr_pe_neighbors_set_t *hvr_create_empty_pe_neighbors_set(hvr_ctx_t in_ctx) {
@@ -336,36 +341,44 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
     *out_ctx = new_ctx;
 }
 
-static void lock_bounding_box_list(const int pe, hvr_internal_ctx_t *ctx) {
+static void lock_summary_data_list(const int pe, hvr_internal_ctx_t *ctx) {
     int old_val;
     do {
-        old_val = shmem_int_cswap(ctx->bounding_boxes_lock, 0, 1, pe);
+        old_val = shmem_int_cswap(ctx->summary_data_lock, 0, 1, pe);
     } while (old_val != 0);
 }
 
-static void unlock_bounding_box_list(const int pe, hvr_internal_ctx_t *ctx) {
-    shmem_int_cswap(ctx->bounding_boxes_lock, 1, 0, pe);
+static void unlock_summary_data_list(const int pe, hvr_internal_ctx_t *ctx) {
+    shmem_int_cswap(ctx->summary_data_lock, 1, 0, pe);
 }
 
-static void update_neighbors_based_on_bounding_boxes(hvr_internal_ctx_t *ctx) {
-    hvr_sparse_vec_t *my_mins = ctx->bounding_boxes + (2 * ctx->pe);
-    hvr_sparse_vec_t *my_maxs = ctx->bounding_boxes + (2 * ctx->pe + 1);
+static void update_neighbors_based_on_summary_data(hvr_internal_ctx_t *ctx) {
+    unsigned char *my_summary_data = ctx->summary_data +
+        (ctx->pe * ctx->summary_data_size);
 
     hvr_pe_neighbor_set_wipe(ctx->my_neighbors);
 
-    lock_bounding_box_list(ctx->pe, ctx);
+    lock_summary_data_list(ctx->pe, ctx);
+
+    /*
+     * This can be approximate, so we just allow this PE to get whatever data it
+     * can.
+     */
+    uint64_t save_timestep = ctx->timestep;
+    ctx->timestep = UINT64_MAX;
 
     for (int p = 0; p < ctx->npes; p++) {
-        hvr_sparse_vec_t *mins = ctx->bounding_boxes + (2 * p);
-        hvr_sparse_vec_t *maxs = ctx->bounding_boxes + (2 * p + 1);
+        unsigned char *other_summary_data = ctx->summary_data +
+            (p * ctx->summary_data_size);
 
-        if (ctx->might_interact(mins, maxs, my_mins, my_maxs,
-                    ctx->connectivity_threshold, ctx)) {
+        if (ctx->might_interact(other_summary_data, my_summary_data, ctx)) {
             hvr_pe_neighbors_set_insert(p, ctx->my_neighbors);
         }
     }
 
-    unlock_bounding_box_list(ctx->pe, ctx);
+    ctx->timestep = save_timestep;
+
+    unlock_summary_data_list(ctx->pe, ctx);
 
 #ifdef VERBOSE
     printf("PE %d is talking to %d other PEs\n", ctx->pe,
@@ -373,33 +386,12 @@ static void update_neighbors_based_on_bounding_boxes(hvr_internal_ctx_t *ctx) {
 #endif
 }
 
-static void update_bounding_box(hvr_sparse_vec_t *mins, hvr_sparse_vec_t *maxs,
+static void update_my_summary_data(unsigned char *summary_data,
         hvr_internal_ctx_t *ctx) {
-    mins->nfeatures = 0;
-    maxs->nfeatures = 0;
 
-    // For each vertex on this PE
-    for (unsigned i = 0; i < ctx->n_local_vertices; i++) {
-        hvr_sparse_vec_t *curr = ctx->vertices + i;
-
-        for (unsigned j = 0; j < curr->nfeatures; j++) {
-            if (!hvr_sparse_vec_contains(curr->features[j], mins) ||
-                    curr->values[j] < hvr_sparse_vec_get_internal(
-                        curr->features[j], mins, 1)) {
-                hvr_sparse_vec_set_internal(curr->features[j], curr->values[j],
-                        mins, 0);
-            }
-
-            if (!hvr_sparse_vec_contains(curr->features[j], maxs) ||
-                    curr->values[j] > hvr_sparse_vec_get_internal(
-                        curr->features[j], maxs, 1)) {
-                hvr_sparse_vec_set_internal(curr->features[j], curr->values[j],
-                        maxs, 0);
-            }
-        }
-    }
-
-    ctx->bounding_boxes_timestamps[ctx->pe] = ctx->timestep - 1;
+    ctx->update_summary_data(summary_data, ctx->vertices, ctx->n_local_vertices,
+            ctx);
+    ctx->summary_data_timestamps[ctx->pe] = ctx->timestep - 1;
 }
 
 static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
@@ -468,10 +460,12 @@ static void update_edges(hvr_internal_ctx_t *ctx) {
 
 void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         hvr_update_metadata_func update_metadata,
+        hvr_update_summary_data update_summary_data,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort, hvr_vertex_owner_func vertex_owner,
         const double connectivity_threshold, const unsigned min_spatial_feature,
-        const unsigned max_spatial_feature, hvr_ctx_t in_ctx) {
+        const unsigned max_spatial_feature, const unsigned summary_data_size,
+        hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *new_ctx = (hvr_internal_ctx_t *)in_ctx;
 
     assert(new_ctx->initialized == 0);
@@ -516,6 +510,7 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     new_ctx->vertices = vertices;
 
     new_ctx->update_metadata = update_metadata;
+    new_ctx->update_summary_data = update_summary_data;
     new_ctx->might_interact = might_interact;
     new_ctx->check_abort = check_abort;
     new_ctx->vertex_owner = vertex_owner;
@@ -523,6 +518,7 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     assert(min_spatial_feature <= max_spatial_feature);
     new_ctx->min_spatial_feature = min_spatial_feature;
     new_ctx->max_spatial_feature = max_spatial_feature;
+    new_ctx->summary_data_size = summary_data_size;
 
     if (getenv("HVR_STRICT")) {
         if (new_ctx->pe == 0) {
@@ -536,30 +532,28 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     }
 
     new_ctx->my_neighbors = hvr_create_empty_pe_neighbors_set(new_ctx);
-    new_ctx->bounding_boxes_lock = (int *)shmem_malloc(sizeof(int));
-    assert(new_ctx->bounding_boxes_lock);
-    *(new_ctx->bounding_boxes_lock) = 0;
-    new_ctx->bounding_boxes = hvr_sparse_vec_create_n(new_ctx->npes * 2);
-    new_ctx->bounding_boxes_buffer = hvr_sparse_vec_create_n(new_ctx->npes * 2);
-    new_ctx->bounding_boxes_timestamps = (long long *)shmem_malloc(
-            new_ctx->npes * sizeof(long long));
-    new_ctx->bounding_boxes_timestamps_buffer = (long long *)shmem_malloc(
-            new_ctx->npes * sizeof(long long));
-    assert(new_ctx->bounding_boxes_timestamps &&
-            new_ctx->bounding_boxes_timestamps_buffer);
-    update_bounding_box(new_ctx->bounding_boxes + (2 * new_ctx->pe),
-            new_ctx->bounding_boxes  + (2 * new_ctx->pe + 1), new_ctx);
 
-    for (int p = 0; p < new_ctx->npes; p++) {
-        if (p == new_ctx->pe) continue;
-        shmem_putmem(new_ctx->bounding_boxes + (2 * new_ctx->pe),
-                new_ctx->bounding_boxes + (2 * new_ctx->pe),
-                2 * sizeof(hvr_sparse_vec_t), p);
-        (new_ctx->bounding_boxes_timestamps)[p] = 0;
-    }
+    new_ctx->summary_data = (unsigned char *)shmem_malloc(
+            new_ctx->npes * new_ctx->summary_data_size);
+    assert(new_ctx->summary_data);
+
+    new_ctx->summary_data_buffer = (unsigned char *)shmem_malloc(
+            new_ctx->npes * new_ctx->summary_data_size);
+    assert(new_ctx->summary_data_buffer);
+
+    new_ctx->summary_data_lock = (int *)shmem_malloc(sizeof(int));
+    assert(new_ctx->summary_data_lock);
+    *(new_ctx->summary_data_lock) = 0;
+
+    new_ctx->summary_data_timestamps = (long long *)shmem_malloc(
+            new_ctx->npes * sizeof(long long));
+    new_ctx->summary_data_timestamps_buffer = (long long *)shmem_malloc(
+            new_ctx->npes * sizeof(long long));
+    assert(new_ctx->summary_data_timestamps &&
+            new_ctx->summary_data_timestamps_buffer);
+
     shmem_barrier_all();
 }
-
 
 void hvr_body(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
@@ -575,8 +569,24 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     ctx->timestep = 1;
 
+    update_my_summary_data(
+            ctx->summary_data + (ctx->pe * ctx->summary_data_size),
+            ctx);
+
+    for (int p = 0; p < ctx->npes; p++) {
+        if (p == ctx->pe) continue;
+        const size_t pe_data_offset = ctx->pe * ctx->summary_data_size;
+
+        shmem_putmem(ctx->summary_data + pe_data_offset,
+                ctx->summary_data + pe_data_offset,
+                ctx->summary_data_size, p);
+        (ctx->summary_data_timestamps)[p] = 0;
+    }
+
+    shmem_barrier_all();
+
     // Determine neighboring PEs
-    update_neighbors_based_on_bounding_boxes(ctx);
+    update_neighbors_based_on_summary_data(ctx);
 
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
@@ -590,29 +600,35 @@ void hvr_body(hvr_ctx_t in_ctx) {
             hvr_avl_tree_node_t *vertex_edge_tree = hvr_tree_find(
                     ctx->edges->tree, ctx->vertices[i].id);
 
-            const size_t old_neighbors_capacity = neighbors_capacity;
-            const size_t n_neighbors = hvr_tree_linearize(&neighbors,
-                    &neighbors_capacity, vertex_edge_tree->subtree);
-            if (neighbors_capacity != old_neighbors_capacity) {
-                free(neighbor_data);
-                neighbor_data = (hvr_sparse_vec_t *)malloc(
-                        neighbors_capacity * sizeof(*neighbor_data));
-                assert(neighbor_data);
+            if (vertex_edge_tree != NULL) {
+                // This vertex has edges
+                const size_t old_neighbors_capacity = neighbors_capacity;
+                const size_t n_neighbors = hvr_tree_linearize(&neighbors,
+                        &neighbors_capacity, vertex_edge_tree->subtree);
+                if (neighbors_capacity != old_neighbors_capacity) {
+                    free(neighbor_data);
+                    neighbor_data = (hvr_sparse_vec_t *)malloc(
+                            neighbors_capacity * sizeof(*neighbor_data));
+                    assert(neighbor_data);
+                }
+
+                for (unsigned n = 0; n < n_neighbors; n++) {
+                    unsigned other_pe;
+                    size_t local_offset;
+                    ctx->vertex_owner(neighbors[n], &other_pe, &local_offset);
+
+                    hvr_sparse_vec_t *other = &(ctx->vertices[local_offset]);
+                    shmem_getmem(ctx->buffer, other, sizeof(*other), other_pe);
+
+                    memcpy(neighbor_data + n, ctx->buffer, sizeof(*neighbor_data));
+                }
+
+                ctx->update_metadata(&(ctx->vertices[i]), neighbor_data,
+                        n_neighbors, ctx);
+            } else {
+                // This vertex has no edges
+                ctx->update_metadata(&(ctx->vertices[i]), NULL, 0, ctx);
             }
-
-            for (unsigned n = 0; n < n_neighbors; n++) {
-                unsigned other_pe;
-                size_t local_offset;
-                ctx->vertex_owner(neighbors[n], &other_pe, &local_offset);
-
-                hvr_sparse_vec_t *other = &(ctx->vertices[local_offset]);
-                shmem_getmem(ctx->buffer, other, sizeof(*other), other_pe);
-
-                memcpy(neighbor_data + n, ctx->buffer, sizeof(*neighbor_data));
-            }
-
-            ctx->update_metadata(&(ctx->vertices[i]), neighbor_data,
-                    n_neighbors, ctx);
         }
 
         const unsigned long long finished_updates = hvr_current_time_us();
@@ -624,37 +640,37 @@ void hvr_body(hvr_ctx_t in_ctx) {
          * to allow PEs to advertise multiple bounding boxes, to produce more
          * precise bounds.
          */
-        update_bounding_box(ctx->bounding_boxes + (2 * ctx->pe),
-                ctx->bounding_boxes  + (2 * ctx->pe + 1), ctx);
+        update_my_summary_data(
+                ctx->summary_data + (ctx->pe * ctx->summary_data_size), ctx);
 
         // Update who I think my neighbors are
-        update_neighbors_based_on_bounding_boxes(ctx);
+        update_neighbors_based_on_summary_data(ctx);
 
         // Share my updates with my neighbors
         for (unsigned p = 0; p < ctx->npes; p++) {
             if (hvr_pe_neighbors_set_contains(p, ctx->my_neighbors)) {
                 // Lock the other PE's bounding box list, update my entry in it
-                lock_bounding_box_list(p, ctx);
+                lock_summary_data_list(p, ctx);
 
-                shmem_getmem(ctx->bounding_boxes_buffer,
-                        ctx->bounding_boxes,
-                        2 * ctx->npes * sizeof(hvr_sparse_vec_t), p);
-                shmem_getmem(ctx->bounding_boxes_timestamps_buffer,
-                        ctx->bounding_boxes_timestamps,
+                shmem_getmem(ctx->summary_data_buffer, ctx->summary_data,
+                        ctx->npes * ctx->summary_data_size, p);
+                shmem_getmem(ctx->summary_data_timestamps_buffer,
+                        ctx->summary_data_timestamps,
                         ctx->npes * sizeof(long long), p);
 
                 for (unsigned pp = 0; pp < ctx->npes; pp++) {
-                    if (ctx->bounding_boxes_timestamps[pp] >
-                            ctx->bounding_boxes_timestamps_buffer[pp]) {
-                        shmem_putmem(ctx->bounding_boxes + (2 * pp),
-                                ctx->bounding_boxes + (2 * pp),
-                                2 * sizeof(hvr_sparse_vec_t), p);
+                    if (ctx->summary_data_timestamps[pp] >
+                            ctx->summary_data_timestamps_buffer[pp]) {
+                        shmem_putmem(
+                                ctx->summary_data + (pp * ctx->summary_data_size),
+                                ctx->summary_data + (pp * ctx->summary_data_size),
+                                ctx->summary_data_size, p);
                     }
                 }
 
                 shmem_fence();
 
-                unlock_bounding_box_list(p, ctx);
+                unlock_summary_data_list(p, ctx);
             }
         }
 

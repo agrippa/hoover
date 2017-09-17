@@ -59,14 +59,47 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     }
 }
 
+void update_summary_data(void *summary, hvr_sparse_vec_t *actors,
+        const int nactors, hvr_ctx_t ctx) {
+    hvr_sparse_vec_t *mins = ((hvr_sparse_vec_t *)summary) + 0;
+    hvr_sparse_vec_t *maxs = ((hvr_sparse_vec_t *)summary) + 1;
+
+    mins->nfeatures = 0;
+    maxs->nfeatures = 0;
+
+    assert(nactors > 0);
+    double minx = hvr_sparse_vec_get(0, &actors[0], ctx);
+    double maxx = minx;
+    double miny = hvr_sparse_vec_get(1, &actors[0], ctx);
+    double maxy = miny;
+
+    // For each vertex on this PE
+    for (unsigned i = 1; i < nactors; i++) {
+        hvr_sparse_vec_t *curr = actors + i;
+        double currx = hvr_sparse_vec_get(0, curr, ctx);
+        double curry = hvr_sparse_vec_get(1, curr, ctx);
+
+        if (currx < minx) minx = currx;
+        if (currx > maxx) maxx = currx;
+        if (curry < miny) miny = curry;
+        if (curry > maxy) maxy = curry;
+    }
+
+    hvr_sparse_vec_set(0, minx, mins, ctx);
+    hvr_sparse_vec_set(1, miny, mins, ctx);
+    hvr_sparse_vec_set(0, maxx, maxs, ctx);
+    hvr_sparse_vec_set(1, maxy, maxs, ctx);
+}
+
 /*
  * Callback used to check if this PE might interact with another PE based on the
  * maximums and minimums of all vertices owned by each PE.
  */
-int might_interact(hvr_sparse_vec_t *other_mins,
-        hvr_sparse_vec_t *other_maxs, hvr_sparse_vec_t *my_mins,
-        hvr_sparse_vec_t *my_maxs, const double connectivity_threshold,
-        hvr_ctx_t ctx) {
+int might_interact(void *other_summary, void *my_summary, hvr_ctx_t ctx) {
+    hvr_sparse_vec_t *other_mins = ((hvr_sparse_vec_t *)other_summary) + 0;
+    hvr_sparse_vec_t *other_maxs = ((hvr_sparse_vec_t *)other_summary) + 1;
+    hvr_sparse_vec_t *my_mins = ((hvr_sparse_vec_t *)my_summary) + 0;
+    hvr_sparse_vec_t *my_maxs = ((hvr_sparse_vec_t *)my_summary) + 1;
 
     if (hvr_sparse_vec_get(0, other_maxs, ctx) >=
             hvr_sparse_vec_get(0, my_mins, ctx) - 1.0 &&
@@ -199,9 +232,9 @@ int main(int argc, char **argv) {
     }
 #endif
 
-    hvr_init(grid_cells_this_pe, vertices,
-            update_metadata, might_interact, check_abort,
-            vertex_owner, 1.1, 0, 1, hvr_ctx);
+    hvr_init(grid_cells_this_pe, vertices, update_metadata,
+            update_summary_data, might_interact, check_abort,
+            vertex_owner, 1.1, 0, 1, 2 * sizeof(hvr_sparse_vec_t), hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);
