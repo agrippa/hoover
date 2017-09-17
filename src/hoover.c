@@ -9,6 +9,9 @@
 
 #include "hoover.h"
 
+static int have_default_sparse_vec_val = 0;
+static double default_sparse_vec_val = 0.0;
+
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
     hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc(
             nvecs * sizeof(*new_vecs));
@@ -19,53 +22,73 @@ hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
     return new_vecs;
 }
 
-void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
-        const size_t buf_size) {
-    char *iter = buf;
-    int first = 1;
+static int uint_compare(const void *_a, const void *_b) {
+    unsigned a = *((unsigned *)_a);
+    unsigned b = *((unsigned *)_b);
+    if (a < b) {
+        return -1;
+    } else if (a > b) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+// out_features must be at least of size HVR_MAX_SPARSE_VEC_CAPACITY
+static void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
+        unsigned *out_features, unsigned *n_out_features) {
+    *n_out_features = 0;
 
     for (unsigned i = 0; i < vec->nfeatures; i++) {
-        unsigned feat = vec->features[i];
-        uint64_t timestamp = vec->timestamp[i];
-
-        int is_max = 1;
-        for (unsigned j = 0; j < vec->nfeatures; j++) {
-            if (vec->features[j] == feat && vec->timestamp[j] > timestamp) {
-                is_max = 0;
+        int already_have = 0;
+        for (unsigned j = 0; j < *n_out_features; j++) {
+            if (out_features[j] == vec->features[i]) {
+                already_have = 1;
                 break;
             }
         }
 
-        if (is_max) {
-            const int capacity = buf_size - (iter - buf);
-            int written;
-            if (first) { 
-                written = snprintf(iter, capacity, "%u: %f", feat,
-                        vec->values[i]);
-            } else {
-                written = snprintf(iter, capacity, ", %u: %f", feat,
-                        vec->values[i]);
-            }
-            if (written <= 0 || written > capacity) {
-                assert(0);
-            }
-
-            iter += written;
-            first = 0;
+        if (!already_have) {
+            out_features[*n_out_features] = vec->features[i];
+            *n_out_features += 1;
         }
+    }
+
+    qsort(out_features, *n_out_features, sizeof(*out_features), uint_compare);
+}
+
+void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
+        const size_t buf_size, hvr_ctx_t ctx) {
+    char *iter = buf;
+    int first = 1;
+
+    unsigned n_features;
+    unsigned features[HVR_MAX_SPARSE_VEC_CAPACITY];
+    hvr_sparse_vec_unique_features(vec, features, &n_features);
+
+    for (unsigned i = 0; i < n_features; i++) {
+        const unsigned feat = features[i];
+
+        const int capacity = buf_size - (iter - buf);
+        int written;
+        if (first) { 
+            written = snprintf(iter, capacity, "%u: %f", feat,
+                    hvr_sparse_vec_get(feat, vec, ctx));
+        } else {
+            written = snprintf(iter, capacity, ", %u: %f", feat,
+                    hvr_sparse_vec_get(feat, vec, ctx));
+        }
+        if (written <= 0 || written > capacity) {
+            assert(0);
+        }
+
+        iter += written;
+        first = 0;
     }
 }
 
-static void hvr_sparse_vec_set_internal(const unsigned feature, const double val,
-        hvr_sparse_vec_t *vec, const uint64_t timestep) {
-    for (int i = 0; i < vec->nfeatures; i++) {
-        if (vec->features[i] == feature && vec->timestamp[i] == timestep) {
-            // Only one element per timestep ever present
-            vec->values[i] = val;
-            return;
-        }
-    }
-
+static void hvr_sparse_vec_set_internal(const unsigned feature,
+        const double val, hvr_sparse_vec_t *vec, const uint64_t timestep) {
     const unsigned nfeatures = vec->nfeatures;
     if (nfeatures < HVR_MAX_SPARSE_VEC_CAPACITY) {
         vec->features[nfeatures] = feature;
@@ -74,17 +97,19 @@ static void hvr_sparse_vec_set_internal(const unsigned feature, const double val
         vec->nfeatures = nfeatures + 1;
     } else {
         // Find an old value of this feature to replace
-        uint64_t oldest_timestamp = 0;
-        int index_of_oldest = -1;
+        uint64_t oldest_timestamp_for_same_feature = 0;
+        int index_of_oldest_for_same_feature = -1;
+
         for (int i = 0; i < HVR_MAX_SPARSE_VEC_CAPACITY; i++) {
             if (vec->features[i] == feature) {
-                if (index_of_oldest < 0 ||
-                        oldest_timestamp > vec->timestamp[i]) {
-                    index_of_oldest = i;
-                    oldest_timestamp = vec->timestamp[i];
+                if (index_of_oldest_for_same_feature < 0 ||
+                        oldest_timestamp_for_same_feature > vec->timestamp[i]) {
+                    index_of_oldest_for_same_feature = i;
+                    oldest_timestamp_for_same_feature = vec->timestamp[i];
                 }
             }
         }
+
         /*
          * TODO For now we just always assert that we've found at least one item
          * to replace. Realistically, this should probably be tunable behavior
@@ -92,9 +117,9 @@ static void hvr_sparse_vec_set_internal(const unsigned feature, const double val
          * item to replace and you replace an old value that somewhere will
          * later request? If nothing else, the user might want an error emitted.
          */
-        assert(index_of_oldest >= 0);
-        vec->values[index_of_oldest] = val;
-        vec->timestamp[index_of_oldest] = timestep;
+        assert(index_of_oldest_for_same_feature >= 0);
+        vec->values[index_of_oldest_for_same_feature] = val;
+        vec->timestamp[index_of_oldest_for_same_feature] = timestep;
     }
 }
 
@@ -125,16 +150,13 @@ static double hvr_sparse_vec_get_internal(const unsigned feature,
         /*
          * TODO What to do in this situation should probably be also tunable.
          * i.e., do we grab whatever value we can even if its timestamp is
-         * newer? Do we throw an error?
+         * newer? Do we throw an error? Do we return 0.0?
          */
-        // fprintf(stderr, "Looking for feature = %u before time %lu\n", feature,
-        //         curr_timestamp);
-        // for (unsigned i = 0; i < vec->nfeatures; i++) {
-        //     fprintf(stderr, "  feature %u timestamp %lu -> %f\n",
-        //             vec->features[i], vec->timestamp[i], vec->values[i]);
-        // }
-        assert(0);
-        return 0.0;
+        if (have_default_sparse_vec_val) {
+            return default_sparse_vec_val;
+        }  else {
+            assert(0);
+        }
     } else {
         return value;
     }
@@ -144,44 +166,6 @@ double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     return hvr_sparse_vec_get_internal(feature, vec, ctx->timestep);
-}
-
-static int unsigned_int_cmp(const void *a_in, const void *b_in) {
-    int *a = (int *)a_in;
-    int *b = (int *)b_in;
-    return *a - *b;
-}
-
-// features must be an array of at least length HVR_MAX_SPARSE_VEC_CAPACITY
-void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
-        const uint64_t timestep, unsigned *nfeatures_out, unsigned *features) {
-    unsigned nfeatures = 0;
-    for (unsigned i = 0; i < vec->nfeatures; i++) {
-        int already_have = 0;
-        for (unsigned j = 0; j < nfeatures; j++) {
-            if (vec->timestamp[i] < timestep &&
-                    vec->features[i] == features[j]) {
-                already_have = 1;
-                break;
-            }
-        }
-
-        if (!already_have) {
-            features[nfeatures++] = vec->features[i];
-        }
-    }
-
-    qsort(features, nfeatures, sizeof(*features), unsigned_int_cmp);
-    *nfeatures_out = nfeatures;
-}
-
-int hvr_sparse_vec_contains(const unsigned feature, hvr_sparse_vec_t *vec) {
-    for (unsigned i = 0; i < vec->nfeatures; i++) {
-        if (vec->features[i] == feature) {
-            return 1;
-        }
-    }
-    return 0;
 }
 
 hvr_pe_neighbors_set_t *hvr_create_empty_pe_neighbors_set(hvr_ctx_t in_ctx) {
@@ -338,6 +322,11 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
     new_ctx->pe = shmem_my_pe();
     new_ctx->npes = shmem_n_pes();
 
+    if (getenv("HVR_DEFAULT_SPARSE_VEC_VAL")) {
+        have_default_sparse_vec_val = 1;
+        default_sparse_vec_val = atof(getenv("HVR_DEFAULT_SPARSE_VEC_VAL"));
+    }
+
     *out_ctx = new_ctx;
 }
 
@@ -439,8 +428,8 @@ static void update_edges(hvr_internal_ctx_t *ctx) {
 #ifdef VERBOSE
                 char buf1[1024];
                 char buf2[1024];
-                hvr_sparse_vec_dump(curr, buf1, 1024);
-                hvr_sparse_vec_dump(ctx->buffer, buf2, 1024);
+                hvr_sparse_vec_dump(curr, buf1, 1024, ctx);
+                hvr_sparse_vec_dump(ctx->buffer, buf2, 1024, ctx);
 
                 printf("%s edge from %lu (%s) -> %lu (%s), dist = %f "
                         "threshold = %f, timestep %lu\n",
@@ -465,7 +454,7 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         hvr_check_abort_func check_abort, hvr_vertex_owner_func vertex_owner,
         const double connectivity_threshold, const unsigned min_spatial_feature,
         const unsigned max_spatial_feature, const unsigned summary_data_size,
-        hvr_ctx_t in_ctx) {
+        const uint64_t max_timestep, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *new_ctx = (hvr_internal_ctx_t *)in_ctx;
 
     assert(new_ctx->initialized == 0);
@@ -519,6 +508,7 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     new_ctx->min_spatial_feature = min_spatial_feature;
     new_ctx->max_spatial_feature = max_spatial_feature;
     new_ctx->summary_data_size = summary_data_size;
+    new_ctx->max_timestep = max_timestep;
 
     if (getenv("HVR_STRICT")) {
         if (new_ctx->pe == 0) {
@@ -593,7 +583,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
     update_edges(ctx);
 
     int abort = 0;
-    while (!abort) {
+    while (!abort && ctx->timestep < ctx->max_timestep) {
         const unsigned long long start_iter = hvr_current_time_us();
 
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {

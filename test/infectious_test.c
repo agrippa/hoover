@@ -256,20 +256,6 @@ int main(int argc, char **argv) {
             (n_global_portals * sizeof(*portals)) / 4, 0, 0, 0, npes, p_sync);
     shmem_barrier_all();
 
-    // Seed the location of local actors.
-    hvr_sparse_vec_t *actors = hvr_sparse_vec_create_n(actors_per_cell);
-    for (int a = 0; a < actors_per_cell; a++) {
-        const double x = random_double_in_range(PE_COL_CELL_START(pe),
-                PE_COL_CELL_START(pe) + cell_dim);
-        const double y = random_double_in_range(PE_ROW_CELL_START(pe),
-                PE_ROW_CELL_START(pe) + cell_dim);
-
-        actors[a].id = pe * actors_per_cell + a;
-        hvr_sparse_vec_set(0, x, &actors[a], hvr_ctx);
-        hvr_sparse_vec_set(1, y, &actors[a], hvr_ctx);
-        hvr_sparse_vec_set(2, 0.0, &actors[a], hvr_ctx);
-    }
-
     // Seed the initial infected actors.
     int *initial_infected = (int *)shmem_malloc(
             n_initial_infected * sizeof(*initial_infected));
@@ -284,19 +270,42 @@ int main(int argc, char **argv) {
             0, 0, npes, p_sync);
     shmem_barrier_all();
 
-    for (int i = 0; i < n_initial_infected; i++) {
-        int owner_pe = initial_infected[i] / actors_per_cell;
-        if (owner_pe == pe) {
-            int local_offset = initial_infected[i] % actors_per_cell;
-            assert(local_offset < actors_per_cell);
-            hvr_sparse_vec_set(2, 1.0, &actors[local_offset], hvr_ctx);
+    // Seed the location of local actors.
+    hvr_sparse_vec_t *actors = hvr_sparse_vec_create_n(actors_per_cell);
+    for (int a = 0; a < actors_per_cell; a++) {
+        const double x = random_double_in_range(PE_COL_CELL_START(pe),
+                PE_COL_CELL_START(pe) + cell_dim);
+        const double y = random_double_in_range(PE_ROW_CELL_START(pe),
+                PE_ROW_CELL_START(pe) + cell_dim);
+
+        actors[a].id = pe * actors_per_cell + a;
+        hvr_sparse_vec_set(0, x, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(1, y, &actors[a], hvr_ctx);
+
+        int is_infected = 0;
+        for (int i = 0; i < n_initial_infected; i++) {
+            int owner_pe = initial_infected[i] / actors_per_cell;
+            if (owner_pe == pe) {
+                int local_offset = initial_infected[i] % actors_per_cell;
+                assert(local_offset < actors_per_cell);
+                if (local_offset == a)  {
+                    is_infected = 1;
+                    break;
+                }
+            }
+        }
+
+        if (is_infected) {
+            hvr_sparse_vec_set(2, 1.0, &actors[a], hvr_ctx);
+        } else {
+            hvr_sparse_vec_set(2, 0.0, &actors[a], hvr_ctx);
         }
     }
 
     hvr_init(actors_per_cell, actors,
             update_metadata, update_summary_data, might_interact, check_abort,
             vertex_owner, 1.1, 0, 1, ((pe_rows * pe_cols) + 8 - 1) / 8,
-            hvr_ctx);
+            10, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);

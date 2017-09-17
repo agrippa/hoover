@@ -234,7 +234,8 @@ int main(int argc, char **argv) {
 
     hvr_init(grid_cells_this_pe, vertices, update_metadata,
             update_summary_data, might_interact, check_abort,
-            vertex_owner, 1.1, 0, 1, 2 * sizeof(hvr_sparse_vec_t), hvr_ctx);
+            vertex_owner, 1.1, 0, 1, 2 * sizeof(hvr_sparse_vec_t), UINT64_MAX,
+            hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);

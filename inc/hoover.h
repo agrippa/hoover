@@ -67,21 +67,10 @@ double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
         hvr_ctx_t in_ctx);
 
 /*
- * Collect the features present in this sparse vector.
- */
-void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
-        const uint64_t timestep, unsigned *nfeatures_out, unsigned *features);
-
-/*
- * Check if the provided vector contains an entry for the provided feature.
- */
-int hvr_sparse_vec_contains(const unsigned feature, hvr_sparse_vec_t *vec);
-
-/*
  * Write the contents of this sparse vector to buf as a human-readable string.
  */
 void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
-        const size_t buf_size);
+        const size_t buf_size, hvr_ctx_t in_ctx);
 
 /*
  * Edge set utilities.
@@ -186,6 +175,7 @@ typedef struct _hvr_internal_ctx_t {
     double connectivity_threshold;
     unsigned min_spatial_feature, max_spatial_feature;
     unsigned summary_data_size;
+    uint64_t max_timestep;
 
     hvr_sparse_vec_t *buffer;
 
@@ -218,7 +208,8 @@ extern void hvr_init(const vertex_id_t n_local_vertices,
         const double connectivity_threshold,
         const unsigned min_spatial_feature_inclusive,
         const unsigned max_spatial_feature_inclusive,
-        const unsigned summary_data_size, hvr_ctx_t ctx);
+        const unsigned summary_data_size, const uint64_t max_timestep,
+        hvr_ctx_t ctx);
 
 extern void hvr_body(hvr_ctx_t ctx);
 
