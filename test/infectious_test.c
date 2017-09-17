@@ -14,6 +14,7 @@
 #define PE_COL_CELL_START(this_pe) ((double)PE_COL(this_pe) * cell_dim)
 #define CELL_ROW(y_coord) ((y_coord) / cell_dim)
 #define CELL_COL(x_coord) ((x_coord) / cell_dim)
+#define CELL_INDEX(cell_row, cell_col) ((cell_row) * pe_cols + (cell_col))
 
 typedef struct _portal_t {
     int pes[2];
@@ -141,11 +142,42 @@ int might_interact(void *_other_summary, void *_my_summary, hvr_ctx_t ctx) {
     unsigned char *other_summary = (unsigned char *)_other_summary;
     unsigned char *my_summary = (unsigned char *)_my_summary;
     const int nbytes = ((pe_rows * pe_cols) + 8 - 1) / 8;
+
+    /*
+     * This assumes that the connectivity threshold cannot expand beyond one
+     * cell.
+     */
+    char *my_summary_with_neighbors = (char *)malloc(nbytes);
+    assert(my_summary_with_neighbors);
+    for (int row = 0; row < pe_rows; row++) {
+        for (int col = 0; col < pe_cols; col++) {
+            int cell_index = CELL_INDEX(row, col);
+            unsigned byte_index = cell_index / 8;
+            unsigned char bit_mask = (1 << (cell_index % 8));
+            if (my_summary[byte_index] & bit_mask) {
+                for (int row_delta = -1; row_delta <= 1; row_delta++) {
+                    for (int col_delta = -1; col_delta <= 1; col_delta++) {
+                        int other_cell_index = CELL_INDEX(row + row_delta,
+                                col + col_delta);
+                        if (other_cell_index >= 0 &&
+                                other_cell_index < pe_rows * pe_cols) {
+                            byte_index = other_cell_index / 8;
+                            bit_mask = (1 << (other_cell_index % 8));
+                            my_summary_with_neighbors[byte_index] |= bit_mask;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     for (int i = 0; i < nbytes; i++) {
-        if ((other_summary[i] & my_summary[i]) > 0) {
+        if ((other_summary[i] & my_summary_with_neighbors[i]) > 0) {
             return 1;
         }
     }
+
+    free(my_summary_with_neighbors);
 
     return 0;
 }
@@ -296,6 +328,7 @@ int main(int argc, char **argv) {
         }
 
         if (is_infected) {
+            fprintf(stderr, "PE %d - local offset %d infected\n", pe, a);
             hvr_sparse_vec_set(2, 1.0, &actors[a], hvr_ctx);
         } else {
             hvr_sparse_vec_set(2, 0.0, &actors[a], hvr_ctx);
@@ -304,7 +337,7 @@ int main(int argc, char **argv) {
 
     hvr_init(actors_per_cell, actors,
             update_metadata, update_summary_data, might_interact, check_abort,
-            vertex_owner, 1.1, 0, 1, ((pe_rows * pe_cols) + 8 - 1) / 8,
+            vertex_owner, 50.0, 0, 1, ((pe_rows * pe_cols) + 8 - 1) / 8,
             10, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();

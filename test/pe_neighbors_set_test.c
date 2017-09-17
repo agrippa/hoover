@@ -1,10 +1,12 @@
 #include <stdio.h>
 #include <assert.h>
 #include <hoover.h>
+#include <shmem.h>
 
 #define NPES 100
 
 int main(int argc, char **argv) {
+    shmem_init();
 
     hvr_ctx_t ctx;
     hvr_ctx_create(&ctx);
@@ -46,6 +48,8 @@ int main(int argc, char **argv) {
     hvr_pe_neighbor_set_destroy(set);
 
     printf("Passed!\n");
+
+    shmem_finalize();
 
     return 0;
 }

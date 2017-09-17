@@ -216,12 +216,14 @@ int main(int argc, char **argv) {
                 hvr_ctx);
         hvr_sparse_vec_set(1, (double)col, &vertices[vertex - grid_cell_start],
                 hvr_ctx);
-        hvr_sparse_vec_set(2, 0.0, &vertices[vertex - grid_cell_start],
-                hvr_ctx);
-    }
-    // Initialze just the cell at (0, 0) as infected.
-    if (pe == 0) {
-        hvr_sparse_vec_set(2, 1.0, &vertices[0], hvr_ctx);
+        if (pe == 0 && vertex == grid_cell_start) {
+            // Initialze just the cell at (0, 0) as infected.
+            hvr_sparse_vec_set(2, 1.0, &vertices[vertex - grid_cell_start],
+                    hvr_ctx);
+        } else {
+            hvr_sparse_vec_set(2, 0.0, &vertices[vertex - grid_cell_start],
+                    hvr_ctx);
+        }
     }
 
 #ifdef VERBOSE
