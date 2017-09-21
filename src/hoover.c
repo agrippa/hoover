@@ -521,6 +521,15 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         assert(new_ctx->strict_counter_src && new_ctx->strict_counter_dest);
     }
 
+    if (getenv("HVR_TRACE_DUMP")) {
+        char dump_file_name[256];
+        sprintf(dump_file_name, "%d.csv", new_ctx->pe);
+
+        new_ctx->dump_mode = 1;
+        new_ctx->dump_file = fopen(dump_file_name, "w");
+        assert(new_ctx->dump_file);
+    }
+
     new_ctx->my_neighbors = hvr_create_empty_pe_neighbors_set(new_ctx);
 
     new_ctx->summary_data = (unsigned char *)shmem_malloc(
@@ -674,6 +683,23 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_check_abort = hvr_current_time_us();
 
+        if (ctx->dump_mode) {
+            // Assume that all vertices have the same features.
+            unsigned nfeatures;
+            unsigned features[HVR_MAX_SPARSE_VEC_CAPACITY];
+            hvr_sparse_vec_unique_features(ctx->vertices, features, &nfeatures);
+            for (unsigned v = 0; v < ctx->n_local_vertices; v++) {
+                hvr_sparse_vec_t *vertex = ctx->vertices + v;
+                fprintf(ctx->dump_file, "%lu,%u,%lu,%d", vertex->id, nfeatures,
+                        ctx->timestep, ctx->pe);
+                for (unsigned f = 0; f < nfeatures; f++) {
+                    fprintf(ctx->dump_file, ",%u,%f", features[f],
+                            hvr_sparse_vec_get(features[f], vertex, ctx));
+                }
+                fprintf(ctx->dump_file, ",,\n");
+            }
+        }
+
         printf("PE %d - total %f ms - metadata %f ms - edges %f ms - abort %f "
                 "ms\n", ctx->pe,
                 (double)(finished_check_abort - start_iter) / 1000.0,
@@ -708,6 +734,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
 void hvr_finalize(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    if (ctx->dump_mode) {
+        fclose(ctx->dump_file);
+    }
     free(ctx);
 }
 

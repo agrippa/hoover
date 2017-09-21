@@ -92,8 +92,10 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     }
 
     // Update location of this cell
-    double delta_x = random_double_in_range(-1.0, 1.0);
-    double delta_y = random_double_in_range(-1.0, 1.0);
+    double delta_vx = random_double_in_range(-0.1, 0.1);
+    double delta_vy = random_double_in_range(-0.1, 0.1);
+    double delta_x = hvr_sparse_vec_get(3, vertex, ctx);
+    double delta_y = hvr_sparse_vec_get(4, vertex, ctx);
     double new_x = hvr_sparse_vec_get(0, vertex, ctx) + delta_x;
     double new_y = hvr_sparse_vec_get(1, vertex, ctx) + delta_y;
 
@@ -119,6 +121,8 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
 
     hvr_sparse_vec_set(0, new_x, vertex, ctx);
     hvr_sparse_vec_set(1, new_y, vertex, ctx);
+    hvr_sparse_vec_set(3, delta_vx, vertex, ctx);
+    hvr_sparse_vec_set(4, delta_vy, vertex, ctx);
 }
 
 void update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
@@ -228,10 +232,10 @@ int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc != 7) {
+    if (argc != 9) {
         fprintf(stderr, "usage: %s <cell-dim> <# global portals> "
-                "<actors per cell> <pe-rows> <pe-cols> <n-initial-infected>\n",
-                argv[0]);
+                "<actors per cell> <pe-rows> <pe-cols> <n-initial-infected> "
+                "<max-num-timesteps> <infection-radius>\n", argv[0]);
         return 1;
     }
 
@@ -241,6 +245,8 @@ int main(int argc, char **argv) {
     pe_rows = atoi(argv[4]);
     pe_cols = atoi(argv[5]);
     const int n_initial_infected = atoi(argv[6]);
+    const int max_num_timesteps = atoi(argv[7]);
+    const double infection_radius = atof(argv[8]);
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
         p_sync[i] = SHMEM_SYNC_VALUE;
@@ -267,6 +273,7 @@ int main(int argc, char **argv) {
             n_global_portals * sizeof(*portals));
     assert(portals);
     if (pe == 0) {
+        fprintf(stderr, "Creating %d portals\n", n_global_portals);
         for (int p = 0; p < n_global_portals; p++) {
             const int pe0 = (rand() % npes);
             const int pe1 = (rand() % npes);
@@ -281,6 +288,9 @@ int main(int argc, char **argv) {
                     PE_COL_CELL_START(pe1), PE_COL_CELL_START(pe1) + cell_dim);
             portals[p].locations[1].y = random_double_in_range(
                     PE_ROW_CELL_START(pe1), PE_ROW_CELL_START(pe1) + cell_dim);
+            fprintf(stderr, "  %d - %d : (%f, %f) - (%f, %f)\n", pe0, pe1,
+                    portals[p].locations[0].x, portals[p].locations[0].y,
+                    portals[p].locations[1].x, portals[p].locations[1].y);
         }
     }
     assert((n_global_portals * sizeof(*portals)) % 4 == 0);
@@ -309,10 +319,14 @@ int main(int argc, char **argv) {
                 PE_COL_CELL_START(pe) + cell_dim);
         const double y = random_double_in_range(PE_ROW_CELL_START(pe),
                 PE_ROW_CELL_START(pe) + cell_dim);
+        const double vx = random_double_in_range(-10.0, 10.0);
+        const double vy = random_double_in_range(-10.0, 10.0);
 
         actors[a].id = pe * actors_per_cell + a;
         hvr_sparse_vec_set(0, x, &actors[a], hvr_ctx);
         hvr_sparse_vec_set(1, y, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(3, vx, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(4, vy, &actors[a], hvr_ctx);
 
         int is_infected = 0;
         for (int i = 0; i < n_initial_infected; i++) {
@@ -337,8 +351,8 @@ int main(int argc, char **argv) {
 
     hvr_init(actors_per_cell, actors,
             update_metadata, update_summary_data, might_interact, check_abort,
-            vertex_owner, 50.0, 0, 1, ((pe_rows * pe_cols) + 8 - 1) / 8,
-            10, hvr_ctx);
+            vertex_owner, infection_radius /* threshold */, 0, 1,
+            ((pe_rows * pe_cols) + 8 - 1) / 8, max_num_timesteps, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);
