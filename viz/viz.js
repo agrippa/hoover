@@ -48,6 +48,12 @@ var Particle = function (set_x, set_y, set_label) {
 function readSingleFile(e) {
     var fileInput = document.getElementById('fileInput');
     fileInput.addEventListener('change', function(e) {
+        curr_simulation_step = 1000000;
+        label_colors = {};
+        min_x = null; max_x = null;
+        min_y = null; max_y = null;
+        simulation_data = {};
+
         var file = fileInput.files[0];
 
         var reader = new FileReader();
@@ -89,6 +95,10 @@ function readSingleFile(e) {
                 }
             }
 
+            console.log('min = (' + min_x + ', ' + min_y + ') max = (' +
+                        max_x + ', ' + max_y + ')');
+            console.log('labels = ' + JSON.stringify(label_colors));
+
             var curr_timestep = curr_simulation_step + 1;
             while (curr_timestep in simulation_data) {
                 var particles = simulation_data[curr_timestep];
@@ -101,11 +111,11 @@ function readSingleFile(e) {
                 curr_timestep += 1;
             }
 
-            curr_timestep = curr_simulation_step;
-            while (curr_timestep in simulation_data) {
-                console.log('Loaded ' + Object.keys(simulation_data[curr_timestep]).length + ' actors for timestep ' + curr_timestep);
-                curr_timestep += 1;
-            }
+            // curr_timestep = curr_simulation_step;
+            // while (curr_timestep in simulation_data) {
+            //     console.log('Loaded ' + Object.keys(simulation_data[curr_timestep]).length + ' actors for timestep ' + curr_timestep);
+            //     curr_timestep += 1;
+            // }
 
             loop();
         };
