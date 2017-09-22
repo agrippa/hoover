@@ -224,7 +224,7 @@ static void hvr_pe_set_insert_internal(int pe,
     const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
     const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
-    bit_vector[element] = (old_val | (1 << bit));
+    bit_vector[element] = (old_val | ((bit_vec_element_type)1 << bit));
 }
 
 void hvr_pe_set_insert(int pe, hvr_pe_set_t *set) {
@@ -236,7 +236,7 @@ static void hvr_pe_set_clear_internal(int pe,
     const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
     const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
-    bit_vector[element] = (old_val & ~(1 << bit));
+    bit_vector[element] = (old_val & ~((bit_vec_element_type)1 << bit));
 }
 
 void hvr_pe_set_clear(int pe, hvr_pe_set_t *set) {
@@ -251,7 +251,7 @@ int hvr_pe_set_contains_internal(int pe, bit_vec_element_type *bit_vector) {
     const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
     const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
-    if (old_val & (1 << bit)) {
+    if (old_val & ((bit_vec_element_type)1 << bit)) {
         return 1;
     } else {
         return 0;
@@ -267,7 +267,7 @@ static unsigned hvr_pe_set_count_internal(bit_vec_element_type *bit_vector,
     unsigned count = 0;
     for (int element = 0; element < nelements; element++) {
         for (int bit = 0; bit < sizeof(*bit_vector) * BITS_PER_BYTE; bit++) {
-            if (bit_vector[element] & (1 << bit)) {
+            if (bit_vector[element] & ((bit_vec_element_type)1 << bit)) {
                 count++;
             }
         }
