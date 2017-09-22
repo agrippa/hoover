@@ -263,6 +263,14 @@ void hvr_pe_set_destroy(hvr_pe_set_t *set) {
     free(set);
 }
 
+void hvr_pe_set_merge(hvr_pe_set_t *set, hvr_pe_set_t *other) {
+    assert(set->nbytes == other->nbytes);
+
+    for (int i = 0; i < set->nbytes; i++) {
+        (set->bit_vector)[i] |= (other->bit_vector)[i];
+    }
+}
+
 hvr_edge_set_t *hvr_create_empty_edge_set() {
     hvr_edge_set_t *new_set = (hvr_edge_set_t *)malloc(sizeof(*new_set));
     assert(new_set);
@@ -565,6 +573,13 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     assert(new_ctx->summary_data_timestamps &&
             new_ctx->summary_data_timestamps_buffer);
 
+    new_ctx->coupled_pes = (long long *)shmem_malloc(
+            new_ctx->npes * sizeof(*(new_ctx->coupled_pes)));
+    new_ctx->num_coupled_pes = (int *)shmem_malloc(
+            sizeof(*(new_ctx->num_coupled_pes)));
+    assert(new_ctx->coupled_pes && new_ctx->num_coupled_pes);
+    *(new_ctx->num_coupled_pes) = 0;
+
     shmem_barrier_all();
 }
 
@@ -605,13 +620,14 @@ void hvr_body(hvr_ctx_t in_ctx) {
     ctx->edges = hvr_create_empty_edge_set();
     update_edges(ctx);
 
-    hvr_pe_set_t *couple_with = hvr_create_empty_pe_set(ctx);
+    hvr_pe_set_t *coupled_with = hvr_create_empty_pe_set(ctx);
+    hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
 
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
         const unsigned long long start_iter = hvr_current_time_us();
 
-        hvr_pe_set_wipe(couple_with);
+        hvr_pe_set_wipe(to_couple_with);
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
             hvr_avl_tree_node_t *vertex_edge_tree = hvr_tree_find(
                     ctx->edges->tree, ctx->vertices[i].id);
@@ -641,13 +657,21 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 }
 
                 ctx->update_metadata(&(ctx->vertices[i]), neighbor_data,
-                        n_neighbors, couple_with, ctx);
+                        n_neighbors, to_couple_with, ctx);
             } else {
                 // This vertex has no edges
-                ctx->update_metadata(&(ctx->vertices[i]), NULL, 0, couple_with,
-                        ctx);
+                ctx->update_metadata(&(ctx->vertices[i]), NULL, 0,
+                        to_couple_with, ctx);
             }
         }
+
+        // TODO use to_couple_with to tell other PEs we are coupled, and wait on our couplings.
+
+        /*
+         * Keep a global list of all PEs I am coupled to by OR-ing the new ones
+         * with the existing ones.
+         */
+        hvr_pe_set_merge(coupled_with, to_couple_with);
 
         const unsigned long long finished_updates = hvr_current_time_us();
 
@@ -735,7 +759,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         }
     }
 
-    hvr_pe_set_destroy(couple_with);
+    hvr_pe_set_destroy(coupled_with);
+    hvr_pe_set_destroy(to_couple_with);
     free(neighbors);
 
     if (ctx->strict_mode) {

@@ -45,6 +45,26 @@ int main(int argc, char **argv) {
     }
     assert(hvr_pe_set_count(set) == 2);
 
+    hvr_pe_set_t *or_set = hvr_create_empty_pe_set(ctx);
+    hvr_pe_set_insert(0, set);
+    hvr_pe_set_insert(1, set);
+    hvr_pe_set_merge(set, or_set);
+
+    for (int i = 0; i < NPES; i++) {
+        if (i == 2 || i == 8 || i == 0 || i == 1) {
+            assert(hvr_pe_set_contains(i, set) == 1);
+        } else {
+            assert(hvr_pe_set_contains(i, set) == 0);
+        }
+    }
+    assert(hvr_pe_set_count(set) == 4);
+
+    hvr_pe_set_wipe(set);
+    for (int i = 0; i < NPES; i++) {
+        assert(hvr_pe_set_contains(i, set) == 0);
+    }
+
+
     hvr_pe_set_destroy(set);
 
     printf("Passed!\n");

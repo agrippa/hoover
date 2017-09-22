@@ -117,6 +117,7 @@ extern void hvr_pe_set_clear(int pe, hvr_pe_set_t *set);
 extern int hvr_pe_set_contains(int pe, hvr_pe_set_t *set);
 extern unsigned hvr_pe_set_count(hvr_pe_set_t *set);
 extern void hvr_pe_set_wipe(hvr_pe_set_t *set);
+extern void hvr_pe_set_merge(hvr_pe_set_t *set, hvr_pe_set_t *other);
 extern void hvr_pe_set_destroy(hvr_pe_set_t *set);
 
 /*
@@ -205,6 +206,9 @@ typedef struct _hvr_internal_ctx_t {
     long long *summary_data_timestamps_buffer;
     int *summary_data_lock;
     hvr_pe_set_t *my_neighbors;
+
+    long long *coupled_pes;
+    int *num_coupled_pes;
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init
