@@ -182,27 +182,48 @@ int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec) {
     return vec->pe;
 }
 
-hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t in_ctx) {
+static hcr_pe_set_t *hvr_create_empty_pe_set_helper(hvr_internal_ctx_t *ctx,
+        const int nelements, bit_vec_element_type *bit_vector) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    hvr_pe_set_t *set = (hvr_pe_set_t *)malloc(
-            sizeof(*set));
+    hvr_pe_set_t *set = (hvr_pe_set_t *)malloc(sizeof(*set));
     assert(set);
 
-    const int nbytes = (ctx->npes + 8 - 1) / 8;
-    set->bit_vector = (unsigned char *)malloc(nbytes);
-    assert(set->bit_vector);
-    memset(set->bit_vector, 0x00, nbytes);
+    set->bit_vector = bit_vector;
     set->nbytes = nbytes;
+
+    memset(set->bit_vector, 0x00, nelements * sizeof(bit_vec_element_type));
 
     return set;
 }
 
+hvr_pe_set_t *hvr_create_empty_pe_set_symmetric(hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    const int nelements = (ctx->npes + (sizeof(bit_vec_element_type) *
+                BITS_PER_BYTE) - 1) / (sizeof(bit_vec_element_type) *
+                BITS_PER_BYTE);
+    bit_vec_element_type *bit_vector = (bit_vec_element_type *)shmem_malloc(
+            nelements * sizeof(bit_vec_element_type));
+    assert(bit_vector);
+    return hvr_create_empty_pe_set_helper(ctx, nelements, bit_vector);
+}
+
+hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    const int nelements = (ctx->npes + (sizeof(bit_vec_element_type) *
+                BITS_PER_BYTE) - 1) / (sizeof(bit_vec_element_type) *
+                BITS_PER_BYTE);
+    bit_vec_element_type *bit_vector = (bit_vec_element_type *)malloc(
+            nelements * sizeof(bit_vec_element_type));
+    assert(bit_vector);
+    return hvr_create_empty_pe_set_helper(ctx, nelements, bit_vector);
+}
+
 static void hvr_pe_set_insert_internal(int pe,
         unsigned char *bit_vector) {
-    const int byte = pe / 8;
-    const int bit = pe % 8;
-    const unsigned char old_val = bit_vector[byte];
-    bit_vector[byte] = (old_val | (1 << bit));
+    const int element = pe / (sizeof(bit_vec_element_type) * BITS_PER_BYTE);
+    const int bit = pe % (sizeof(bit_vec_element_type) * BITS_PER_BYTE);
+    const bit_vec_element_type old_val = bit_vector[element];
+    bit_vector[element] = (old_val | (1 << bit));
 }
 
 void hvr_pe_set_insert(int pe, hvr_pe_set_t *set) {
@@ -573,12 +594,10 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     assert(new_ctx->summary_data_timestamps &&
             new_ctx->summary_data_timestamps_buffer);
 
-    new_ctx->coupled_pes = (long long *)shmem_malloc(
-            new_ctx->npes * sizeof(*(new_ctx->coupled_pes)));
-    new_ctx->num_coupled_pes = (int *)shmem_malloc(
-            sizeof(*(new_ctx->num_coupled_pes)));
-    assert(new_ctx->coupled_pes && new_ctx->num_coupled_pes);
-    *(new_ctx->num_coupled_pes) = 0;
+    new_ctx->coupled_pes = hvr_create_empty_pe_set_symmetric(new_ctx);
+    new_ctx->coupled_pes_timesteps = (long long *)shmem_malloc(
+            new_ctx->npes * sizeof(*(new_ctx->coupled_pes_timesteps)));
+    assert(new_ctx->coupled_pes_timesteps);
 
     shmem_barrier_all();
 }
@@ -620,12 +639,24 @@ void hvr_body(hvr_ctx_t in_ctx) {
     ctx->edges = hvr_create_empty_edge_set();
     update_edges(ctx);
 
-    hvr_pe_set_t *coupled_with = hvr_create_empty_pe_set(ctx);
     hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
 
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
         const unsigned long long start_iter = hvr_current_time_us();
+
+        /*
+         * TODO Wait for all of my coupled PEs to signal ready for this timestep
+         * before starting it.
+         */
+        int all_ready;
+        do {
+            all_ready = 1;
+            for (int i = 0; i < *num_coupled_pes; i++) {
+                if (
+            }
+
+        } while (!all_ready);
 
         hvr_pe_set_wipe(to_couple_with);
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
@@ -664,14 +695,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
                         to_couple_with, ctx);
             }
         }
-
-        // TODO use to_couple_with to tell other PEs we are coupled, and wait on our couplings.
-
-        /*
-         * Keep a global list of all PEs I am coupled to by OR-ing the new ones
-         * with the existing ones.
-         */
-        hvr_pe_set_merge(coupled_with, to_couple_with);
 
         const unsigned long long finished_updates = hvr_current_time_us();
 
@@ -723,6 +746,27 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
                 ctx);
+
+        /*
+         * Keep a global list of all PEs I am coupled to by OR-ing the new ones
+         * with the existing ones.
+         */
+        hvr_pe_set_merge(coupled_pes, to_couple_with);
+
+
+        // TODO start by updating my local coupled set from to_couple_with
+        // TODO then perform puts of my next timestep to everyone in my local coupled_with
+        // TODO finally, atomically update other PEs with their new coupled with
+
+        for (int p = 0; p < npes; p++) {
+            // New coupling
+            if (hvr_pe_set_contains(p, to_couple_with) &&
+                    !hvr_pe_set_contains(p, coupled_with)) {
+                // Tell myself and the other that we are now coupled
+                kkkkkk
+            }
+        }
+
 
         const unsigned long long finished_check_abort = hvr_current_time_us();
 

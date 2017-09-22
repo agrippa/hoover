@@ -102,13 +102,16 @@ extern void hvr_clear_edge_set(hvr_edge_set_t *set);
 extern void hvr_release_edge_set(hvr_edge_set_t *set);
 extern void hvr_print_edge_set(hvr_edge_set_t *set);
 
+#define BITS_PER_BYTE 8e
+typedef long long bit_vec_element_type;
+
 /*
  * Utilities used for storing a set of PEs. This class is used for storing both
  * neighbor PE lists and PE coupling lists.
  */
 typedef struct _hvr_pe_set_t {
-    unsigned char *bit_vector;
-    int nbytes;
+    bit_vec_element_type *bit_vector;
+    int nelements;
 } hvr_pe_set_t;
 
 extern hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t ctx);
@@ -207,8 +210,8 @@ typedef struct _hvr_internal_ctx_t {
     int *summary_data_lock;
     hvr_pe_set_t *my_neighbors;
 
-    long long *coupled_pes;
-    int *num_coupled_pes;
+    hvr_pe_set *coupled_pes;
+    long long *coupled_pes_timesteps;
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init
