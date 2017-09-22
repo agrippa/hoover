@@ -31,7 +31,7 @@ export CORES_PER_SOCKET=12
 export SOCKETS_PER_NODE=2
 export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
-export HVR_TRACE_DUMP=1
+# export HVR_TRACE_DUMP=1
 
 # export HVR_DEFAULT_SPARSE_VEC_VAL=0.0
 # srun --ntasks=1 ./bin/sparse_vec_test

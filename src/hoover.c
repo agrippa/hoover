@@ -13,11 +13,13 @@ static int have_default_sparse_vec_val = 0;
 static double default_sparse_vec_val = 0.0;
 
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
+    const int pe = shmem_my_pe();
     hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc(
             nvecs * sizeof(*new_vecs));
     assert(new_vecs);
     for (size_t i = 0; i < nvecs; i++) {
         new_vecs[i].nfeatures = 0;
+        new_vecs[i].pe = pe;
     }
     return new_vecs;
 }
@@ -168,9 +170,21 @@ double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
     return hvr_sparse_vec_get_internal(feature, vec, ctx->timestep);
 }
 
-hvr_pe_neighbors_set_t *hvr_create_empty_pe_neighbors_set(hvr_ctx_t in_ctx) {
+void hvr_sparse_vec_set_id(const vertex_id_t id, hvr_sparse_vec_t *vec) {
+    vec->id = id;
+}
+
+vertex_id_t hvr_sparse_vec_get_id(hvr_sparse_vec_t *vec) {
+    return vec->id;
+}
+
+int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec) {
+    return vec->pe;
+}
+
+hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    hvr_pe_neighbors_set_t *set = (hvr_pe_neighbors_set_t *)malloc(
+    hvr_pe_set_t *set = (hvr_pe_set_t *)malloc(
             sizeof(*set));
     assert(set);
 
@@ -183,7 +197,7 @@ hvr_pe_neighbors_set_t *hvr_create_empty_pe_neighbors_set(hvr_ctx_t in_ctx) {
     return set;
 }
 
-static void hvr_pe_neighbors_set_insert_internal(int pe,
+static void hvr_pe_set_insert_internal(int pe,
         unsigned char *bit_vector) {
     const int byte = pe / 8;
     const int bit = pe % 8;
@@ -191,11 +205,11 @@ static void hvr_pe_neighbors_set_insert_internal(int pe,
     bit_vector[byte] = (old_val | (1 << bit));
 }
 
-void hvr_pe_neighbors_set_insert(int pe, hvr_pe_neighbors_set_t *set) {
-    hvr_pe_neighbors_set_insert_internal(pe, set->bit_vector);
+void hvr_pe_set_insert(int pe, hvr_pe_set_t *set) {
+    hvr_pe_set_insert_internal(pe, set->bit_vector);
 }
 
-static void hvr_pe_neighbors_set_clear_internal(int pe,
+static void hvr_pe_set_clear_internal(int pe,
         unsigned char *bit_vector) {
     const int byte = pe / 8;
     const int bit = pe % 8;
@@ -203,11 +217,15 @@ static void hvr_pe_neighbors_set_clear_internal(int pe,
     bit_vector[byte] = (old_val & ~(1 << bit));
 }
 
-void hvr_pe_neighbors_set_clear(int pe, hvr_pe_neighbors_set_t *set) {
-    hvr_pe_neighbors_set_clear_internal(pe, set->bit_vector);
+void hvr_pe_set_clear(int pe, hvr_pe_set_t *set) {
+    hvr_pe_set_clear_internal(pe, set->bit_vector);
 }
 
-int hvr_pe_neighbors_set_contains_internal(int pe,
+void hvr_pe_set_wipe(hvr_pe_set_t *set) {
+    memset(set->bit_vector, 0x00, set->nbytes);
+}
+
+int hvr_pe_set_contains_internal(int pe,
         unsigned char *bit_vector) {
     const int byte = pe / 8;
     const int bit = pe % 8;
@@ -219,11 +237,11 @@ int hvr_pe_neighbors_set_contains_internal(int pe,
     }
 }
 
-int hvr_pe_neighbors_set_contains(int pe, hvr_pe_neighbors_set_t *set) {
-    return hvr_pe_neighbors_set_contains_internal(pe, set->bit_vector);
+int hvr_pe_set_contains(int pe, hvr_pe_set_t *set) {
+    return hvr_pe_set_contains_internal(pe, set->bit_vector);
 }
 
-static unsigned hvr_pe_neighbor_set_count_internal(unsigned char *bit_vector,
+static unsigned hvr_pe_set_count_internal(unsigned char *bit_vector,
         unsigned nbytes) {
     unsigned count = 0;
     for (int byte = 0; byte < nbytes; byte++) {
@@ -236,17 +254,13 @@ static unsigned hvr_pe_neighbor_set_count_internal(unsigned char *bit_vector,
     return count;
 }
 
-unsigned hvr_pe_neighbor_set_count(hvr_pe_neighbors_set_t *set) {
-    return hvr_pe_neighbor_set_count_internal(set->bit_vector, set->nbytes);
+unsigned hvr_pe_set_count(hvr_pe_set_t *set) {
+    return hvr_pe_set_count_internal(set->bit_vector, set->nbytes);
 }
 
-void hvr_pe_neighbor_set_destroy(hvr_pe_neighbors_set_t *set) {
+void hvr_pe_set_destroy(hvr_pe_set_t *set) {
     free(set->bit_vector);
     free(set);
-}
-
-static void hvr_pe_neighbor_set_wipe(hvr_pe_neighbors_set_t *set) {
-    memset(set->bit_vector, 0x00, set->nbytes);
 }
 
 hvr_edge_set_t *hvr_create_empty_edge_set() {
@@ -345,7 +359,7 @@ static void update_neighbors_based_on_summary_data(hvr_internal_ctx_t *ctx) {
     unsigned char *my_summary_data = ctx->summary_data +
         (ctx->pe * ctx->summary_data_size);
 
-    hvr_pe_neighbor_set_wipe(ctx->my_neighbors);
+    hvr_pe_set_wipe(ctx->my_neighbors);
 
     lock_summary_data_list(ctx->pe, ctx);
 
@@ -361,7 +375,7 @@ static void update_neighbors_based_on_summary_data(hvr_internal_ctx_t *ctx) {
             (p * ctx->summary_data_size);
 
         if (ctx->might_interact(other_summary_data, my_summary_data, ctx)) {
-            hvr_pe_neighbors_set_insert(p, ctx->my_neighbors);
+            hvr_pe_set_insert(p, ctx->my_neighbors);
         }
     }
 
@@ -371,7 +385,7 @@ static void update_neighbors_based_on_summary_data(hvr_internal_ctx_t *ctx) {
 
 #ifdef VERBOSE
     printf("PE %d is talking to %d other PEs\n", ctx->pe,
-            hvr_pe_neighbor_set_count(ctx->my_neighbors));
+            hvr_pe_set_count(ctx->my_neighbors));
 #endif
 }
 
@@ -399,7 +413,7 @@ static void update_edges(hvr_internal_ctx_t *ctx) {
     // For each PE
     for (unsigned p = 0; p < ctx->npes; p++) {
         const unsigned target_pe = (ctx->pe + p) % ctx->npes;
-        if (!hvr_pe_neighbors_set_contains(target_pe, ctx->my_neighbors)) {
+        if (!hvr_pe_set_contains(target_pe, ctx->my_neighbors)) {
             continue;
         }
 
@@ -530,7 +544,7 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         assert(new_ctx->dump_file);
     }
 
-    new_ctx->my_neighbors = hvr_create_empty_pe_neighbors_set(new_ctx);
+    new_ctx->my_neighbors = hvr_create_empty_pe_set(new_ctx);
 
     new_ctx->summary_data = (unsigned char *)shmem_malloc(
             new_ctx->npes * new_ctx->summary_data_size);
@@ -591,10 +605,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
     ctx->edges = hvr_create_empty_edge_set();
     update_edges(ctx);
 
+    hvr_pe_set_t *couple_with = hvr_create_empty_pe_set(ctx);
+
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
         const unsigned long long start_iter = hvr_current_time_us();
 
+        hvr_pe_set_wipe(couple_with);
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
             hvr_avl_tree_node_t *vertex_edge_tree = hvr_tree_find(
                     ctx->edges->tree, ctx->vertices[i].id);
@@ -619,14 +636,16 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     hvr_sparse_vec_t *other = &(ctx->vertices[local_offset]);
                     shmem_getmem(ctx->buffer, other, sizeof(*other), other_pe);
 
-                    memcpy(neighbor_data + n, ctx->buffer, sizeof(*neighbor_data));
+                    memcpy(neighbor_data + n, ctx->buffer,
+                            sizeof(*neighbor_data));
                 }
 
                 ctx->update_metadata(&(ctx->vertices[i]), neighbor_data,
-                        n_neighbors, ctx);
+                        n_neighbors, couple_with, ctx);
             } else {
                 // This vertex has no edges
-                ctx->update_metadata(&(ctx->vertices[i]), NULL, 0, ctx);
+                ctx->update_metadata(&(ctx->vertices[i]), NULL, 0, couple_with,
+                        ctx);
             }
         }
 
@@ -647,7 +666,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         // Share my updates with my neighbors
         for (unsigned p = 0; p < ctx->npes; p++) {
-            if (hvr_pe_neighbors_set_contains(p, ctx->my_neighbors)) {
+            if (hvr_pe_set_contains(p, ctx->my_neighbors)) {
                 // Lock the other PE's bounding box list, update my entry in it
                 lock_summary_data_list(p, ctx);
 
@@ -716,6 +735,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         }
     }
 
+    hvr_pe_set_destroy(couple_with);
     free(neighbors);
 
     if (ctx->strict_mode) {

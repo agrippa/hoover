@@ -36,6 +36,9 @@ typedef struct _hvr_sparse_vec_t {
     // Globally unique ID for this node
     vertex_id_t id;
 
+    // PE that owns this vertex
+    int pe;
+
     // Values for each feature
     double values[HVR_MAX_SPARSE_VEC_CAPACITY];
 
@@ -72,6 +75,15 @@ double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
 void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
         const size_t buf_size, hvr_ctx_t in_ctx);
 
+// Set the globally unique ID of this sparse vector
+void hvr_sparse_vec_set_id(const vertex_id_t id, hvr_sparse_vec_t *vec);
+
+// Get the globally unique ID of this sparse vector
+vertex_id_t hvr_sparse_vec_get_id(hvr_sparse_vec_t *vec);
+
+// Get the PE that is responsible for this sparse vector
+int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec);
+
 /*
  * Edge set utilities.
  */
@@ -91,32 +103,29 @@ extern void hvr_release_edge_set(hvr_edge_set_t *set);
 extern void hvr_print_edge_set(hvr_edge_set_t *set);
 
 /*
- * PE neighbors utilities.
+ * Utilities used for storing a set of PEs. This class is used for storing both
+ * neighbor PE lists and PE coupling lists.
  */
-typedef struct _hvr_pe_neighbors_set_t {
+typedef struct _hvr_pe_set_t {
     unsigned char *bit_vector;
     int nbytes;
-} hvr_pe_neighbors_set_t;
+} hvr_pe_set_t;
 
-extern hvr_pe_neighbors_set_t *hvr_create_empty_pe_neighbors_set(hvr_ctx_t ctx);
-extern void hvr_pe_neighbors_set_insert(int pe, hvr_pe_neighbors_set_t *set);
-extern void hvr_pe_neighbors_set_clear(int pe, hvr_pe_neighbors_set_t *set);
-extern int hvr_pe_neighbors_set_contains(int pe, hvr_pe_neighbors_set_t *set);
-extern unsigned hvr_pe_neighbor_set_count(hvr_pe_neighbors_set_t *set);
-extern void hvr_pe_neighbor_set_destroy(hvr_pe_neighbors_set_t *set);
-
-typedef struct _hvr_pe_neighbors_t {
-    hvr_avl_tree_node_t *tree;
-} hvr_pe_neighbors_t;
-
-extern hvr_pe_neighbors_t *hvr_create_empty_pe_neighbors();
+extern hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t ctx);
+extern void hvr_pe_set_insert(int pe, hvr_pe_set_t *set);
+extern void hvr_pe_set_clear(int pe, hvr_pe_set_t *set);
+extern int hvr_pe_set_contains(int pe, hvr_pe_set_t *set);
+extern unsigned hvr_pe_set_count(hvr_pe_set_t *set);
+extern void hvr_pe_set_wipe(hvr_pe_set_t *set);
+extern void hvr_pe_set_destroy(hvr_pe_set_t *set);
 
 /*
  * Callback type definitions to be defined by the user for the HOOVER runtime to
  * call into.
  */
 typedef void (*hvr_update_metadata_func)(hvr_sparse_vec_t *metadata,
-        hvr_sparse_vec_t *neighbors, const size_t n_neighbors, hvr_ctx_t ctx);
+        hvr_sparse_vec_t *neighbors, const size_t n_neighbors,
+        hvr_pe_set_t *couple_with, hvr_ctx_t ctx);
 /*
  * Signature for measuring the distance between two points of metadata. Used for
  * updating the graph's structure.
@@ -195,7 +204,7 @@ typedef struct _hvr_internal_ctx_t {
     long long *summary_data_timestamps;
     long long *summary_data_timestamps_buffer;
     int *summary_data_lock;
-    hvr_pe_neighbors_set_t *my_neighbors;
+    hvr_pe_set_t *my_neighbors;
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init

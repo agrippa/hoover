@@ -77,7 +77,7 @@ void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
  * attached to each vertex based on the updated neighbors on each time step.
  */
 void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
-        const size_t n_neighbors, hvr_ctx_t ctx) {
+        const size_t n_neighbors, hvr_pe_set_t *couple_with, hvr_ctx_t ctx) {
     /*
      * If vertex is not already infected, update it to be infected if any of its
      * neighbors are.
@@ -85,6 +85,9 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     if (hvr_sparse_vec_get(2, vertex, ctx) == 0.0) {
         for (int i = 0; i < n_neighbors; i++) {
             if (hvr_sparse_vec_get(2, &neighbors[i], ctx) > 0.0) {
+                const int infected_by = hvr_sparse_vec_get_owning_pe(
+                        &neighbors[i]);
+                hvr_pe_set_insert(infected_by, couple_with);
                 hvr_sparse_vec_set(2, 1.0, vertex, ctx);
                 break;
             }
@@ -337,7 +340,7 @@ int main(int argc, char **argv) {
         const double vx = random_double_in_range(-0.3, 0.3);
         const double vy = random_double_in_range(-0.3, 0.3);
 
-        actors[a].id = pe * actors_per_cell + a;
+        hvr_sparse_vec_set_id(pe * actors_per_cell + a, &actors[a]);
         hvr_sparse_vec_set(0, x, &actors[a], hvr_ctx);
         hvr_sparse_vec_set(1, y, &actors[a], hvr_ctx);
         hvr_sparse_vec_set(3, vx, &actors[a], hvr_ctx);
