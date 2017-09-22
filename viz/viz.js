@@ -73,8 +73,8 @@ function readSingleFile(e) {
                         parseFloat(line[4 + 2 * j + 1]);
                 }
 
-                // var label = pe; // Label by PE
-                var label = features[2]; // Label by infection state
+                var label = pe; // Label by PE
+                // var label = features[2]; // Label by infection state
 
                 addLabel(label);
 

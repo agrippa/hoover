@@ -102,8 +102,8 @@ extern void hvr_clear_edge_set(hvr_edge_set_t *set);
 extern void hvr_release_edge_set(hvr_edge_set_t *set);
 extern void hvr_print_edge_set(hvr_edge_set_t *set);
 
-#define BITS_PER_BYTE 8e
-typedef long long bit_vec_element_type;
+#define BITS_PER_BYTE 8
+typedef unsigned long long bit_vec_element_type;
 
 /*
  * Utilities used for storing a set of PEs. This class is used for storing both
@@ -210,7 +210,7 @@ typedef struct _hvr_internal_ctx_t {
     int *summary_data_lock;
     hvr_pe_set_t *my_neighbors;
 
-    hvr_pe_set *coupled_pes;
+    hvr_pe_set_t *coupled_pes;
     long long *coupled_pes_timesteps;
 } hvr_internal_ctx_t;
 

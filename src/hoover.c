@@ -2,10 +2,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <shmem.h>
 #include <time.h>
 #include <sys/time.h>
 #include <math.h>
+
+#include <shmem.h>
+#include <shmemx.h>
 
 #include "hoover.h"
 
@@ -182,14 +184,13 @@ int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec) {
     return vec->pe;
 }
 
-static hcr_pe_set_t *hvr_create_empty_pe_set_helper(hvr_internal_ctx_t *ctx,
+static hvr_pe_set_t *hvr_create_empty_pe_set_helper(hvr_internal_ctx_t *ctx,
         const int nelements, bit_vec_element_type *bit_vector) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     hvr_pe_set_t *set = (hvr_pe_set_t *)malloc(sizeof(*set));
     assert(set);
 
     set->bit_vector = bit_vector;
-    set->nbytes = nbytes;
+    set->nelements = nelements;
 
     memset(set->bit_vector, 0x00, nelements * sizeof(bit_vec_element_type));
 
@@ -219,9 +220,9 @@ hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t in_ctx) {
 }
 
 static void hvr_pe_set_insert_internal(int pe,
-        unsigned char *bit_vector) {
-    const int element = pe / (sizeof(bit_vec_element_type) * BITS_PER_BYTE);
-    const int bit = pe % (sizeof(bit_vec_element_type) * BITS_PER_BYTE);
+        bit_vec_element_type *bit_vector) {
+    const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
     bit_vector[element] = (old_val | (1 << bit));
 }
@@ -231,11 +232,11 @@ void hvr_pe_set_insert(int pe, hvr_pe_set_t *set) {
 }
 
 static void hvr_pe_set_clear_internal(int pe,
-        unsigned char *bit_vector) {
-    const int byte = pe / 8;
-    const int bit = pe % 8;
-    const unsigned char old_val = bit_vector[byte];
-    bit_vector[byte] = (old_val & ~(1 << bit));
+        bit_vec_element_type *bit_vector) {
+    const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const bit_vec_element_type old_val = bit_vector[element];
+    bit_vector[element] = (old_val & ~(1 << bit));
 }
 
 void hvr_pe_set_clear(int pe, hvr_pe_set_t *set) {
@@ -243,14 +244,13 @@ void hvr_pe_set_clear(int pe, hvr_pe_set_t *set) {
 }
 
 void hvr_pe_set_wipe(hvr_pe_set_t *set) {
-    memset(set->bit_vector, 0x00, set->nbytes);
+    memset(set->bit_vector, 0x00, set->nelements * sizeof(*(set->bit_vector)));
 }
 
-int hvr_pe_set_contains_internal(int pe,
-        unsigned char *bit_vector) {
-    const int byte = pe / 8;
-    const int bit = pe % 8;
-    const unsigned char old_val = bit_vector[byte];
+int hvr_pe_set_contains_internal(int pe, bit_vec_element_type *bit_vector) {
+    const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const bit_vec_element_type old_val = bit_vector[element];
     if (old_val & (1 << bit)) {
         return 1;
     } else {
@@ -262,12 +262,12 @@ int hvr_pe_set_contains(int pe, hvr_pe_set_t *set) {
     return hvr_pe_set_contains_internal(pe, set->bit_vector);
 }
 
-static unsigned hvr_pe_set_count_internal(unsigned char *bit_vector,
-        unsigned nbytes) {
+static unsigned hvr_pe_set_count_internal(bit_vec_element_type *bit_vector,
+        const unsigned nelements) {
     unsigned count = 0;
-    for (int byte = 0; byte < nbytes; byte++) {
-        for (int bit = 0; bit < 8; bit++) {
-            if (bit_vector[byte] & (1 << bit)) {
+    for (int element = 0; element < nelements; element++) {
+        for (int bit = 0; bit < sizeof(*bit_vector) * BITS_PER_BYTE; bit++) {
+            if (bit_vector[element] & (1 << bit)) {
                 count++;
             }
         }
@@ -276,7 +276,7 @@ static unsigned hvr_pe_set_count_internal(unsigned char *bit_vector,
 }
 
 unsigned hvr_pe_set_count(hvr_pe_set_t *set) {
-    return hvr_pe_set_count_internal(set->bit_vector, set->nbytes);
+    return hvr_pe_set_count_internal(set->bit_vector, set->nelements);
 }
 
 void hvr_pe_set_destroy(hvr_pe_set_t *set) {
@@ -285,10 +285,21 @@ void hvr_pe_set_destroy(hvr_pe_set_t *set) {
 }
 
 void hvr_pe_set_merge(hvr_pe_set_t *set, hvr_pe_set_t *other) {
-    assert(set->nbytes == other->nbytes);
+    assert(set->nelements == other->nelements);
 
-    for (int i = 0; i < set->nbytes; i++) {
+    for (int i = 0; i < set->nelements; i++) {
         (set->bit_vector)[i] |= (other->bit_vector)[i];
+    }
+}
+
+void hvr_pe_set_merge_atomic(hvr_pe_set_t *set, hvr_pe_set_t *other) {
+    assert(set->nelements == other->nelements);
+    // Assert that we can use the long long atomics
+    assert(sizeof(unsigned long long) == sizeof(bit_vec_element_type));
+
+    for (int i = 0; i < set->nelements; i++) {
+        shmemx_ulonglong_atomic_or(set->bit_vector + i, (other->bit_vector)[i],
+                shmem_my_pe());
     }
 }
 
@@ -652,8 +663,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
         int all_ready;
         do {
             all_ready = 1;
-            for (int i = 0; i < *num_coupled_pes; i++) {
-                if (
+            for (int p = 0; p < ctx->npes; p++) {
+                if (hvr_pe_set_contains(p, ctx->coupled_pes)) {
+                    if (ctx->coupled_pes_timesteps[p] < ctx->timestep) {
+                        all_ready = 0;
+                        break;
+                    }
+                }
             }
 
         } while (!all_ready);
@@ -747,26 +763,36 @@ void hvr_body(hvr_ctx_t in_ctx) {
         abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
                 ctx);
 
-        /*
-         * Keep a global list of all PEs I am coupled to by OR-ing the new ones
-         * with the existing ones.
-         */
-        hvr_pe_set_merge(coupled_pes, to_couple_with);
-
-
-        // TODO start by updating my local coupled set from to_couple_with
-        // TODO then perform puts of my next timestep to everyone in my local coupled_with
-        // TODO finally, atomically update other PEs with their new coupled with
-
-        for (int p = 0; p < npes; p++) {
-            // New coupling
-            if (hvr_pe_set_contains(p, to_couple_with) &&
-                    !hvr_pe_set_contains(p, coupled_with)) {
-                // Tell myself and the other that we are now coupled
-                kkkkkk
+        // Update remote timestep information for any PEs I am coupled with
+        for (int p = 0; p < ctx->npes; p++) {
+            if (hvr_pe_set_contains(p, ctx->coupled_pes) ||
+                    hvr_pe_set_contains(p, to_couple_with)) {
+                shmem_longlong_p(ctx->coupled_pes_timesteps + ctx->pe,
+                        ctx->timestep, p);
             }
         }
 
+        shmem_quiet(); // Make sure the timestep updates complete
+
+        // Atomically update other PEs to let them know they are coupled with me.
+        for (int p = 0; p < ctx->npes; p++) {
+            if (hvr_pe_set_contains(p, to_couple_with) &&
+                    !hvr_pe_set_contains(p, ctx->coupled_pes)) {
+                // New coupling
+                fprintf(stderr, "PE %d coupling with PE %d\n", ctx->pe, p);
+
+                const int element = ctx->pe /
+                    (sizeof(bit_vec_element_type) * BITS_PER_BYTE);
+                const int bit = ctx->pe %
+                    (sizeof(bit_vec_element_type) * BITS_PER_BYTE);
+                shmemx_ulonglong_atomic_or(
+                        ctx->coupled_pes->bit_vector + element,
+                        (bit_vec_element_type)1 << bit, p);   
+            }
+        }
+
+        // Update my local information on PEs I am coupled with.
+        hvr_pe_set_merge_atomic(ctx->coupled_pes, to_couple_with);
 
         const unsigned long long finished_check_abort = hvr_current_time_us();
 
@@ -803,7 +829,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
         }
     }
 
-    hvr_pe_set_destroy(coupled_with);
     hvr_pe_set_destroy(to_couple_with);
     free(neighbors);
 
