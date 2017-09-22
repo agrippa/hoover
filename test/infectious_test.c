@@ -92,12 +92,12 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     }
 
     // Update location of this cell
-    double delta_vx = random_double_in_range(-0.1, 0.1);
-    double delta_vy = random_double_in_range(-0.1, 0.1);
-    double delta_x = hvr_sparse_vec_get(3, vertex, ctx);
-    double delta_y = hvr_sparse_vec_get(4, vertex, ctx);
-    double new_x = hvr_sparse_vec_get(0, vertex, ctx) + delta_x;
-    double new_y = hvr_sparse_vec_get(1, vertex, ctx) + delta_y;
+    double delta_vx = random_double_in_range(-0.01, 0.01);
+    double delta_vy = random_double_in_range(-0.01, 0.01);
+    double vx = hvr_sparse_vec_get(3, vertex, ctx);
+    double vy = hvr_sparse_vec_get(4, vertex, ctx);
+    double new_x = hvr_sparse_vec_get(0, vertex, ctx) + vx;
+    double new_y = hvr_sparse_vec_get(1, vertex, ctx) + vy;
 
     for (int p = 0; p < n_global_portals; p++) {
         if (distance(new_x, new_y, portals[p].locations[0].x,
@@ -119,10 +119,25 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
         }
     }
 
+    double global_x_dim = (double)pe_cols * cell_dim;
+    double global_y_dim = (double)pe_rows * cell_dim;
+    if (new_x > global_x_dim) {
+        new_x -= global_x_dim;
+    }
+    if (new_y > global_y_dim) {
+        new_y -= global_y_dim;
+    }
+    if (new_x < 0.0) {
+        new_x += global_x_dim;
+    }
+    if (new_y < 0.0) {
+        new_y += global_y_dim;
+    }
+
     hvr_sparse_vec_set(0, new_x, vertex, ctx);
     hvr_sparse_vec_set(1, new_y, vertex, ctx);
-    hvr_sparse_vec_set(3, delta_vx, vertex, ctx);
-    hvr_sparse_vec_set(4, delta_vy, vertex, ctx);
+    hvr_sparse_vec_set(3, vx + delta_vx, vertex, ctx);
+    hvr_sparse_vec_set(4, vy + delta_vy, vertex, ctx);
 }
 
 void update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
@@ -319,8 +334,8 @@ int main(int argc, char **argv) {
                 PE_COL_CELL_START(pe) + cell_dim);
         const double y = random_double_in_range(PE_ROW_CELL_START(pe),
                 PE_ROW_CELL_START(pe) + cell_dim);
-        const double vx = random_double_in_range(-10.0, 10.0);
-        const double vy = random_double_in_range(-10.0, 10.0);
+        const double vx = random_double_in_range(-0.3, 0.3);
+        const double vy = random_double_in_range(-0.3, 0.3);
 
         actors[a].id = pe * actors_per_cell + a;
         hvr_sparse_vec_set(0, x, &actors[a], hvr_ctx);

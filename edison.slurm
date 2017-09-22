@@ -47,8 +47,8 @@ export ACTORS_PER_CELL=100
 export PE_ROWS=4
 export PE_COLS=6
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=300
-export INFECTION_RADIUS=5.0
+export MAX_NUM_TIMESTEPS=400
+export INFECTION_RADIUS=2.0
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/infectious_test \
     $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS

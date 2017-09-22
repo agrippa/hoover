@@ -23,7 +23,7 @@
  *     hvr_finalize();  // return to the user code, not a global barrier
  */
 
-#define HVR_MAX_SPARSE_VEC_CAPACITY 1024
+#define HVR_MAX_SPARSE_VEC_CAPACITY 2048
 
 typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
 typedef hvr_internal_ctx_t *hvr_ctx_t;
