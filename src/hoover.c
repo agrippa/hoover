@@ -5,6 +5,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <math.h>
+#include <limits.h>
 
 #include <shmem.h>
 #include <shmemx.h>
@@ -671,7 +672,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     }
                 }
             }
-
         } while (!all_ready);
 
         hvr_pe_set_wipe(to_couple_with);
@@ -767,14 +767,15 @@ void hvr_body(hvr_ctx_t in_ctx) {
         for (int p = 0; p < ctx->npes; p++) {
             if (hvr_pe_set_contains(p, ctx->coupled_pes) ||
                     hvr_pe_set_contains(p, to_couple_with)) {
-                shmem_longlong_p(ctx->coupled_pes_timesteps + ctx->pe,
+                shmem_longlong_p(
+                        (long long *)(ctx->coupled_pes_timesteps + ctx->pe),
                         ctx->timestep, p);
             }
         }
 
         shmem_quiet(); // Make sure the timestep updates complete
 
-        // Atomically update other PEs to let them know they are coupled with me.
+        // Atomically tell other PEs to let them know they are coupled with me.
         for (int p = 0; p < ctx->npes; p++) {
             if (hvr_pe_set_contains(p, to_couple_with) &&
                     !hvr_pe_set_contains(p, ctx->coupled_pes)) {
@@ -828,6 +829,17 @@ void hvr_body(hvr_ctx_t in_ctx) {
             shmem_barrier_all();
         }
     }
+
+    /*
+     * As I'm exiting, ensure that any PEs that are coupled with me (or may make
+     * themselves coupled with me in the future) never block on me.
+     */
+    for (int p = 0; p < ctx->npes; p++) {
+        shmem_longlong_p((long long *)(ctx->coupled_pes_timesteps + ctx->pe),
+                LLONG_MAX, p);
+    }
+
+    shmem_quiet(); // Make sure the timestep updates complete
 
     hvr_pe_set_destroy(to_couple_with);
     free(neighbors);

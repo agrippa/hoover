@@ -1,0 +1,24 @@
+CFLAGS=-Wall -Werror -g -O0 -Iinc -std=c99
+
+all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test bin/pe_neighbors_set_test bin/infectious_test
+
+bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -shared -fPIC -lm
+
+bin/init_test: test/init_test.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -Lbin -lhoover -lm
+
+bin/infectious_test: test/infectious_test.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -Lbin -lhoover -lm
+
+bin/edge_set_test: test/edge_set_test.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -Lbin -lhoover
+
+bin/sparse_vec_test: test/sparse_vec_test.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -Lbin -lhoover
+
+bin/pe_neighbors_set_test: test/pe_neighbors_set_test.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -Lbin -lhoover
+
+clean:
+	rm -f bin/*

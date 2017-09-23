@@ -211,7 +211,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_pe_set_t *my_neighbors;
 
     hvr_pe_set_t *coupled_pes;
-    long long *coupled_pes_timesteps;
+    volatile long long *coupled_pes_timesteps;
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init
