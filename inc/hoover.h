@@ -148,7 +148,7 @@ typedef void (*hvr_vertex_owner_func)(vertex_id_t vertex, unsigned *out_pe,
  * status of vertices on this PE.
  */
 typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
-        const size_t n_vertices, hvr_ctx_t ctx);
+        const size_t n_vertices, hvr_ctx_t ctx, long long *out_coupled_metric);
 
 /*
  * API for checking if this PE might have any vertices that interact with
@@ -212,6 +212,7 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_pe_set_t *coupled_pes;
     volatile long long *coupled_pes_timesteps;
+    long long *coupled_metrics;
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init

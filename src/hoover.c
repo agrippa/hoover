@@ -609,7 +609,11 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     new_ctx->coupled_pes = hvr_create_empty_pe_set_symmetric(new_ctx);
     new_ctx->coupled_pes_timesteps = (long long *)shmem_malloc(
             new_ctx->npes * sizeof(*(new_ctx->coupled_pes_timesteps)));
-    assert(new_ctx->coupled_pes_timesteps);
+    new_ctx->coupled_metrics = (long long *)shmem_malloc(
+            2 * sizeof(*(new_ctx->coupled_metrics)));
+    assert(new_ctx->coupled_pes_timesteps && new_ctx->coupled_metrics);
+    memset(new_ctx->coupled_metrics, 0x00,
+            2 * sizeof(*(new_ctx->coupled_metrics)));
 
     shmem_barrier_all();
 }
@@ -658,14 +662,16 @@ void hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long start_iter = hvr_current_time_us();
 
         /*
-         * TODO Wait for all of my coupled PEs to signal ready for this timestep
+         * Wait for all of my coupled PEs to signal ready for this timestep
          * before starting it.
          */
-        int all_ready;
+        int all_ready, n_coupled_with;
         do {
             all_ready = 1;
+            n_coupled_with = 0;
             for (int p = 0; p < ctx->npes; p++) {
                 if (hvr_pe_set_contains(p, ctx->coupled_pes)) {
+                    n_coupled_with++;
                     if (ctx->coupled_pes_timesteps[p] < ctx->timestep) {
                         all_ready = 0;
                         break;
@@ -673,6 +679,17 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 }
             }
         } while (!all_ready);
+
+        /*
+         * TODO If we want to use this value, it's available here (except for on
+         * the first iter).
+         */
+        if (n_coupled_with > 0) {
+            fprintf(stderr, "PE %d coupled with %d PEs, produced a metric of "
+                    "%lld.\n", ctx->pe, n_coupled_with,
+                    *(ctx->coupled_metrics + (ctx->timestep % 2)));
+        }
+        *(ctx->coupled_metrics + (ctx->timestep % 2)) = 0;
 
         hvr_pe_set_wipe(to_couple_with);
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
@@ -760,8 +777,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
+        long long coupled_metric;
         abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
-                ctx);
+                ctx, &coupled_metric);
 
         // Update remote timestep information for any PEs I am coupled with
         for (int p = 0; p < ctx->npes; p++) {
@@ -770,6 +788,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 shmem_longlong_p(
                         (long long *)(ctx->coupled_pes_timesteps + ctx->pe),
                         ctx->timestep, p);
+                shmem_longlong_add(ctx->coupled_metrics + (ctx->timestep % 2),
+                        coupled_metric, p);
             }
         }
 
@@ -786,9 +806,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     (sizeof(bit_vec_element_type) * BITS_PER_BYTE);
                 const int bit = ctx->pe %
                     (sizeof(bit_vec_element_type) * BITS_PER_BYTE);
+                unsigned long long mask = (bit_vec_element_type)1 << bit;
                 shmemx_ulonglong_atomic_or(
-                        ctx->coupled_pes->bit_vector + element,
-                        (bit_vec_element_type)1 << bit, p);   
+                        ctx->coupled_pes->bit_vector + element, mask, p);
             }
         }
 
