@@ -211,7 +211,7 @@ static unsigned long long last_time = 0;
  * simulation.
  */
 int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
-        hvr_ctx_t ctx, long long *out_coupled_metric) {
+        hvr_ctx_t ctx, double *out_coupled_metric) {
     // Abort if all of my member vertices are infected
     size_t nset = 0;
     for (int i = 0; i < n_vertices; i++) {

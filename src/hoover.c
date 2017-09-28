@@ -134,8 +134,9 @@ void hvr_sparse_vec_set(const unsigned feature, const double val,
     hvr_sparse_vec_set_internal(feature, val, vec, ctx->timestep);
 }
 
-static double hvr_sparse_vec_get_internal(const unsigned feature,
-        const hvr_sparse_vec_t *vec, const uint64_t curr_timestamp) {
+static int hvr_sparse_vec_get_internal(const unsigned feature,
+        const hvr_sparse_vec_t *vec, const uint64_t curr_timestamp,
+        double *out_val) {
     uint64_t best_timestamp_delta = 0;
     double value = 0.0;
     int found = 0;
@@ -152,25 +153,32 @@ static double hvr_sparse_vec_get_internal(const unsigned feature,
     }
 
     if (found == 0) {
-        /*
-         * TODO What to do in this situation should probably be also tunable.
-         * i.e., do we grab whatever value we can even if its timestamp is
-         * newer? Do we throw an error? Do we return 0.0?
-         */
         if (have_default_sparse_vec_val) {
-            return default_sparse_vec_val;
+            *out_val = default_sparse_vec_val;
+            return 1;
         }  else {
-            assert(0);
+            return 0;
         }
     } else {
-        return value;
+        *out_val = value;
+        return 1;
     }
 }
 
 double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    return hvr_sparse_vec_get_internal(feature, vec, ctx->timestep);
+    double result;
+    if (hvr_sparse_vec_get_internal(feature, vec, ctx->timestep, &result)) {
+        return result;
+    } else {
+        /*
+         * TODO What to do in this situation should probably be also tunable.
+         * i.e., do we grab whatever value we can even if its timestamp is
+         * newer? Do we throw an error? Do we return 0.0?
+         */
+        assert(0);
+    }
 }
 
 void hvr_sparse_vec_set_id(const vertex_id_t id, hvr_sparse_vec_t *vec) {
@@ -183,6 +191,47 @@ vertex_id_t hvr_sparse_vec_get_id(hvr_sparse_vec_t *vec) {
 
 int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec) {
     return vec->pe;
+}
+
+void hvr_sparse_vec_feature_bounds(hvr_sparse_vec_t *vec, unsigned *out_min,
+        unsigned *out_max) {
+    assert(vec->nfeatures > 0);
+    unsigned max_feature = vec->features[0];
+    unsigned min_feature = vec->features[0];
+    for (unsigned i = 1; i < vec->nfeatures; i++) {
+        if (vec->features[i] > max_feature) {
+            max_feature = vec->features[i];
+        }
+        if (vec->features[i] < min_feature) {
+            min_feature = vec->features[i];
+        }
+    }
+
+    *out_min = min_feature;
+    *out_max = max_feature;
+}
+
+static int hvr_sparse_vec_timestamp_bounds(hvr_sparse_vec_t *vec,
+        uint64_t *out_min, uint64_t *out_max) {
+    if (vec->nfeatures == 0) {
+        return 0;
+    }
+    uint64_t max_timestamp = vec->timestamp[0];
+    uint64_t min_timestamp = vec->timestamp[0];
+
+    for (int i = 1; i < vec->nfeatures; i++) {
+        if (vec->timestamp[i] > max_timestamp) {
+            max_timestamp = vec->timestamp[i];
+        }
+        if (vec->timestamp[i] < min_timestamp) {
+            min_timestamp = vec->timestamp[i];
+        }
+    }
+
+    *out_min = min_timestamp;
+    *out_max = max_timestamp;
+    return 1;
+
 }
 
 static hvr_pe_set_t *hvr_create_empty_pe_set_helper(hvr_internal_ctx_t *ctx,
@@ -607,13 +656,14 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
             new_ctx->summary_data_timestamps_buffer);
 
     new_ctx->coupled_pes = hvr_create_empty_pe_set_symmetric(new_ctx);
-    new_ctx->coupled_pes_timesteps = (long long *)shmem_malloc(
-            new_ctx->npes * sizeof(*(new_ctx->coupled_pes_timesteps)));
-    new_ctx->coupled_metrics = (long long *)shmem_malloc(
-            2 * sizeof(*(new_ctx->coupled_metrics)));
-    assert(new_ctx->coupled_pes_timesteps && new_ctx->coupled_metrics);
-    memset(new_ctx->coupled_metrics, 0x00,
-            2 * sizeof(*(new_ctx->coupled_metrics)));
+    hvr_pe_set_insert(new_ctx->pe, new_ctx->coupled_pes);
+    new_ctx->coupled_pes_values = hvr_sparse_vec_create_n(new_ctx->npes);
+    new_ctx->coupled_pes_values_buffer = hvr_sparse_vec_create_n(new_ctx->npes);
+    new_ctx->coupled_locks = (long *)shmem_malloc(
+            new_ctx->npes * sizeof(*(new_ctx->coupled_locks)));
+    assert(new_ctx->coupled_locks);
+    memset((long *)new_ctx->coupled_locks, 0x00,
+            new_ctx->npes * sizeof(*(new_ctx->coupled_locks)));
 
     shmem_barrier_all();
 }
@@ -656,40 +706,12 @@ void hvr_body(hvr_ctx_t in_ctx) {
     update_edges(ctx);
 
     hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
+    double coupled_metric;
 
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
         const unsigned long long start_iter = hvr_current_time_us();
 
-        /*
-         * Wait for all of my coupled PEs to signal ready for this timestep
-         * before starting it.
-         */
-        int all_ready, n_coupled_with;
-        do {
-            all_ready = 1;
-            n_coupled_with = 0;
-            for (int p = 0; p < ctx->npes; p++) {
-                if (hvr_pe_set_contains(p, ctx->coupled_pes)) {
-                    n_coupled_with++;
-                    if (ctx->coupled_pes_timesteps[p] < ctx->timestep) {
-                        all_ready = 0;
-                        break;
-                    }
-                }
-            }
-        } while (!all_ready);
-
-        /*
-         * TODO If we want to use this value, it's available here (except for on
-         * the first iter).
-         */
-        if (n_coupled_with > 0) {
-            fprintf(stderr, "PE %d coupled with %d PEs, produced a metric of "
-                    "%lld.\n", ctx->pe, n_coupled_with,
-                    *(ctx->coupled_metrics + (ctx->timestep % 2)));
-        }
-        *(ctx->coupled_metrics + (ctx->timestep % 2)) = 0;
 
         hvr_pe_set_wipe(to_couple_with);
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
@@ -777,43 +799,101 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
-        long long coupled_metric;
         abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
                 ctx, &coupled_metric);
 
-        // Update remote timestep information for any PEs I am coupled with
-        for (int p = 0; p < ctx->npes; p++) {
-            if (hvr_pe_set_contains(p, ctx->coupled_pes) ||
-                    hvr_pe_set_contains(p, to_couple_with)) {
-                shmem_longlong_p(
-                        (long long *)(ctx->coupled_pes_timesteps + ctx->pe),
-                        ctx->timestep, p);
-                shmem_longlong_add(ctx->coupled_metrics + (ctx->timestep % 2),
-                        coupled_metric, p);
-            }
-        }
-
-        shmem_quiet(); // Make sure the timestep updates complete
-
-        // Atomically tell other PEs to let them know they are coupled with me.
-        for (int p = 0; p < ctx->npes; p++) {
-            if (hvr_pe_set_contains(p, to_couple_with) &&
-                    !hvr_pe_set_contains(p, ctx->coupled_pes)) {
-                // New coupling
-                fprintf(stderr, "PE %d coupling with PE %d\n", ctx->pe, p);
-
-                const int element = ctx->pe /
-                    (sizeof(bit_vec_element_type) * BITS_PER_BYTE);
-                const int bit = ctx->pe %
-                    (sizeof(bit_vec_element_type) * BITS_PER_BYTE);
-                unsigned long long mask = (bit_vec_element_type)1 << bit;
-                shmemx_ulonglong_atomic_or(
-                        ctx->coupled_pes->bit_vector + element, mask, p);
-            }
-        }
-
         // Update my local information on PEs I am coupled with.
         hvr_pe_set_merge_atomic(ctx->coupled_pes, to_couple_with);
+
+        // Atomically update other PEs that I am coupled with.
+        for (int p = 0; p < ctx->npes; p++) {
+            if (p != ctx->pe && hvr_pe_set_contains(p, ctx->coupled_pes)) {
+                for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
+                    shmemx_ulonglong_atomic_or(
+                            ctx->coupled_pes->bit_vector + i,
+                            (ctx->coupled_pes->bit_vector)[i], p);
+                }
+            }
+        }
+
+        shmem_set_lock(ctx->coupled_locks + ctx->pe);
+        hvr_sparse_vec_set_internal(0, coupled_metric,
+                ctx->coupled_pes_values + ctx->pe, ctx->timestep - 1);
+        shmem_clear_lock(ctx->coupled_locks + ctx->pe);
+
+        /*
+         * For each PE I know I'm coupled with, lock their coupled_timesteps
+         * list and update my copy with any newer entries in my
+         * coupled_timesteps list.
+         */
+        double acc_val = coupled_metric;
+        int ncoupled = 1; // include myself
+        for (int p = 0; p < ctx->npes; p++) {
+            if (p == ctx->pe) continue;
+
+            if (hvr_pe_set_contains(p, ctx->coupled_pes)) {
+
+                /*
+                 * Wait until we've found an update to p's coupled value that is
+                 * for this timestep.
+                 */
+                while (1) {
+                    uint64_t min_timestamp, max_timestamp;
+                    const int success = hvr_sparse_vec_timestamp_bounds(
+                            ctx->coupled_pes_values + p, &min_timestamp,
+                            &max_timestamp);
+                    if (success && min_timestamp <= ctx->timestep - 1 &&
+                            max_timestamp >= ctx->timestep - 1) {
+                        acc_val += hvr_sparse_vec_get(0,
+                                ctx->coupled_pes_values + p, ctx);
+                        break;
+                    }
+
+                    shmem_set_lock(ctx->coupled_locks + p);
+
+                    // Pull in the coupled PEs current values
+                    shmem_getmem(ctx->coupled_pes_values_buffer,
+                            ctx->coupled_pes_values,
+                            ctx->npes * sizeof(hvr_sparse_vec_t), p);
+
+                    for (int i = 0; i < ctx->npes; i++) {
+                        hvr_sparse_vec_t *other =
+                            ctx->coupled_pes_values_buffer + i;
+                        hvr_sparse_vec_t *mine = ctx->coupled_pes_values + i;
+
+                        uint64_t other_min_timestamp, other_max_timestamp;
+                        uint64_t mine_min_timestamp, mine_max_timestamp;
+                        const int other_success =
+                            hvr_sparse_vec_timestamp_bounds(other,
+                                &other_min_timestamp, &other_max_timestamp);
+                        const int mine_success =
+                            hvr_sparse_vec_timestamp_bounds(mine,
+                                &mine_min_timestamp, &mine_max_timestamp);
+
+                        if (other_success) {
+                            if (!mine_success) {
+                                memcpy(mine, other, sizeof(*mine));
+                            } else if (other_max_timestamp > mine_max_timestamp) {
+                                memcpy(mine, other, sizeof(*mine));
+                            }
+                        }
+                    }
+
+                    shmem_clear_lock(ctx->coupled_locks + p);
+                }
+
+                ncoupled++;
+            }
+        }
+
+        /*
+         * TODO acc_val here contains the aggregate values over all coupled PEs,
+         * including this one.
+         */
+        if (ncoupled > 0) {
+            fprintf(stderr, "PE %d computed coupled value %f from %d coupled "
+                    "PEs\n", ctx->pe, acc_val, ncoupled);
+        }
 
         const unsigned long long finished_check_abort = hvr_current_time_us();
 
@@ -854,10 +934,14 @@ void hvr_body(hvr_ctx_t in_ctx) {
      * As I'm exiting, ensure that any PEs that are coupled with me (or may make
      * themselves coupled with me in the future) never block on me.
      */
-    for (int p = 0; p < ctx->npes; p++) {
-        shmem_longlong_p((long long *)(ctx->coupled_pes_timesteps + ctx->pe),
-                LLONG_MAX, p);
-    }
+    shmem_set_lock(ctx->coupled_locks + ctx->pe);
+    double last_val;
+    int success = hvr_sparse_vec_get_internal(0,
+            ctx->coupled_pes_values + ctx->pe, ctx->timestep + 1, &last_val);
+    assert(success == 1);
+    hvr_sparse_vec_set_internal(0, last_val, ctx->coupled_pes_values + ctx->pe,
+            UINT64_MAX);
+    shmem_clear_lock(ctx->coupled_locks + ctx->pe);
 
     shmem_quiet(); // Make sure the timestep updates complete
 

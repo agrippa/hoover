@@ -85,6 +85,13 @@ vertex_id_t hvr_sparse_vec_get_id(hvr_sparse_vec_t *vec);
 int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec);
 
 /*
+ * Get the minimum and maximum feature stored in this sparse vector, regardless
+ * of timestamp.
+ */
+void hvr_sparse_vec_feature_bounds(hvr_sparse_vec_t *vec, unsigned *out_min,
+        unsigned *out_max);
+
+/*
  * Edge set utilities.
  */
 typedef struct _hvr_edge_set_t {
@@ -148,7 +155,7 @@ typedef void (*hvr_vertex_owner_func)(vertex_id_t vertex, unsigned *out_pe,
  * status of vertices on this PE.
  */
 typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
-        const size_t n_vertices, hvr_ctx_t ctx, long long *out_coupled_metric);
+        const size_t n_vertices, hvr_ctx_t ctx, double *out_coupled_metric);
 
 /*
  * API for checking if this PE might have any vertices that interact with
@@ -211,8 +218,9 @@ typedef struct _hvr_internal_ctx_t {
     hvr_pe_set_t *my_neighbors;
 
     hvr_pe_set_t *coupled_pes;
-    volatile long long *coupled_pes_timesteps;
-    long long *coupled_metrics;
+    hvr_sparse_vec_t *coupled_pes_values;
+    hvr_sparse_vec_t *coupled_pes_values_buffer;
+    volatile long *coupled_locks;
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init
