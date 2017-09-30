@@ -155,7 +155,8 @@ typedef void (*hvr_vertex_owner_func)(vertex_id_t vertex, unsigned *out_pe,
  * status of vertices on this PE.
  */
 typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
-        const size_t n_vertices, hvr_ctx_t ctx, double *out_coupled_metric);
+        const size_t n_vertices, hvr_ctx_t ctx,
+        hvr_sparse_vec_t *out_coupled_metric);
 
 /*
  * API for checking if this PE might have any vertices that interact with

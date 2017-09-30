@@ -706,7 +706,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
     update_edges(ctx);
 
     hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
-    double coupled_metric;
 
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
@@ -799,6 +798,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
+        hvr_sparse_vec_t coupled_metric;
+        memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
+                sizeof(coupled_metric));
         abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
                 ctx, &coupled_metric);
 
@@ -817,8 +819,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         }
 
         shmem_set_lock(ctx->coupled_locks + ctx->pe);
-        hvr_sparse_vec_set_internal(0, coupled_metric,
-                ctx->coupled_pes_values + ctx->pe, ctx->timestep - 1);
+        memcpy(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
+                sizeof(coupled_metric));
         shmem_clear_lock(ctx->coupled_locks + ctx->pe);
 
         /*
