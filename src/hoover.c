@@ -244,7 +244,7 @@ static int hvr_sparse_vec_timestamp_bounds(hvr_sparse_vec_t *vec,
 }
 
 static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
-        hvr_sparse_vec_t *src) {
+        hvr_sparse_vec_t *src, const uint64_t target_timestamp) {
     unsigned n_dst_features, n_src_features;
     unsigned dst_features[HVR_MAX_SPARSE_VEC_CAPACITY];
     unsigned src_features[HVR_MAX_SPARSE_VEC_CAPACITY];
@@ -256,15 +256,14 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
         int j;
         unsigned feature = dst_features[i];
 
-        uint64_t dst_newest_timestamp, src_newest_timestamp;
         int dst_index = -1;
         int src_index = -1;
 
         // Find latest value in dst
         for (j = 0; j < dst->nfeatures; j++) {
-            if (dst->features[j] == feature && (dst_index < 0 ||
-                        dst_newest_timestamp < dst->timestamp[j])) {
-                dst_newest_timestamp = dst->timestamp[j];
+            if (dst->features[j] == feature &&
+                    dst->timestamp[j] == target_timestamp) {
+                assert(dst_index == -1);
                 dst_index = j;
             }
         }
@@ -272,15 +271,15 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
 
         // Find latest value in src
         for (j = 0; j < src->nfeatures; j++) {
-            if (src->features[j] == feature && (src_index < 0 ||
-                        src_newest_timestamp < src->timestamp[j])) {
-                src_newest_timestamp = src->timestamp[j];
+            if (src->features[j] == feature &&
+                    src->timestamp[j] == target_timestamp) {
+                assert(src_index == -1);
                 src_index = j;
             }
         }
         assert(src_index >= 0);
 
-        dst->values[dst_index] += dst->values[src_index];
+        dst->values[dst_index] += src->values[src_index];
     }
 }
 
@@ -896,7 +895,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     if (success && min_timestamp <= ctx->timestep - 1 &&
                             max_timestamp >= ctx->timestep - 1) {
                         hvr_sparse_vec_add_internal(&coupled_metric,
-                                ctx->coupled_pes_values + p);
+                                ctx->coupled_pes_values + p, ctx->timestep);
                         break;
                     }
 
