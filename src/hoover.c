@@ -818,6 +818,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         // Update who I think my neighbors are
         update_neighbors_based_on_summary_data(ctx);
 
+        const unsigned long long finished_summary_update = hvr_current_time_us();
+
         // Share my updates with my neighbors
         for (unsigned p = 0; p < ctx->npes; p++) {
             if (hvr_pe_set_contains(p, ctx->my_neighbors)) {
@@ -977,11 +979,12 @@ void hvr_body(hvr_ctx_t in_ctx) {
             }
         }
 
-        printf("PE %d - total %f ms - metadata %f ms - edges %f ms - abort %f "
+        printf("PE %d - total %f ms - metadata %f ms - summary %f ms - edges %f ms - abort %f "
                 "ms\n", ctx->pe,
                 (double)(finished_check_abort - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
-                (double)(finished_edge_adds - finished_updates) / 1000.0,
+                (double)(finished_summary_update - finished_updates) / 1000.0,
+                (double)(finished_edge_adds - finished_summary_update) / 1000.0,
                 (double)(finished_check_abort - finished_edge_adds) / 1000.0);
 
         if (ctx->strict_mode) {
