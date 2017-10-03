@@ -32,6 +32,7 @@ static double cell_dim;
 long long total_time = 0;
 long long max_elapsed = 0;
 long long elapsed_time = 0;
+static double max_delta_velocity;
 
 /*
  * Construct a 2D grid, with one grid cell per PE. Build connections between
@@ -95,8 +96,10 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     }
 
     // Update location of this cell
-    double delta_vx = random_double_in_range(-0.01, 0.01);
-    double delta_vy = random_double_in_range(-0.01, 0.01);
+    double delta_vx = random_double_in_range(-max_delta_velocity,
+            max_delta_velocity);
+    double delta_vy = random_double_in_range(-max_delta_velocity,
+            max_delta_velocity);
     double vx = hvr_sparse_vec_get(3, vertex, ctx);
     double vy = hvr_sparse_vec_get(4, vertex, ctx);
     double new_x = hvr_sparse_vec_get(0, vertex, ctx) + vx;
@@ -251,10 +254,11 @@ int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc != 9) {
+    if (argc != 10) {
         fprintf(stderr, "usage: %s <cell-dim> <# global portals> "
                 "<actors per cell> <pe-rows> <pe-cols> <n-initial-infected> "
-                "<max-num-timesteps> <infection-radius>\n", argv[0]);
+                "<max-num-timesteps> <infection-radius> <max-delta-velocity>\n",
+                argv[0]);
         return 1;
     }
 
@@ -266,6 +270,7 @@ int main(int argc, char **argv) {
     const int n_initial_infected = atoi(argv[6]);
     const int max_num_timesteps = atoi(argv[7]);
     const double infection_radius = atof(argv[8]);
+    max_delta_velocity = atof(argv[9]);
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
         p_sync[i] = SHMEM_SYNC_VALUE;
