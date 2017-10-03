@@ -12,6 +12,7 @@ var max_x = null;
 var max_y = null;
 
 var curr_simulation_step = 1000000;
+var starting_simulation_step;
 
 var label_colors = {};
 
@@ -64,7 +65,7 @@ function readSingleFile(e) {
         min_y = null; max_y = null;
         simulation_data = {};
         var offset = 0;
-        var fileChunkSize = 16 * 1024 * 1024;
+        var fileChunkSize = 32 * 1024 * 1024;
 
         var file = fileInput.files[0];
         var fileSize = file.size;
@@ -142,6 +143,8 @@ function readSingleFile(e) {
                         curr_timestep += 1;
                     }
 
+                    starting_simulation_step = curr_simulation_step;
+
                     // curr_timestep = curr_simulation_step;
                     // while (curr_timestep in simulation_data) {
                     //     console.log('Loaded ' + Object.keys(simulation_data[curr_timestep]).length + ' actors for timestep ' + curr_timestep);
@@ -184,7 +187,7 @@ Particle.prototype.Draw = function (ctx) {
 
 function loop() {
     if (!(curr_simulation_step in simulation_data)) {
-        return;
+        curr_simulation_step = starting_simulation_step;
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -194,6 +197,8 @@ function loop() {
     for (var key in particle_data) {
         particle_data[key].Draw(ctx);
     }
+
+    document.getElementById("timestep").innerHTML = curr_simulation_step;
     curr_simulation_step += 1;
 
     requestAnimationFrame(loop);
