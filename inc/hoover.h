@@ -212,7 +212,6 @@ typedef struct _hvr_internal_ctx_t {
     int *strict_counter_src;
 
     unsigned char *summary_data;
-    void *summary_data_buffer;
     long long *summary_data_timestamps;
     long long *summary_data_timestamps_buffer;
     int *summary_data_lock;

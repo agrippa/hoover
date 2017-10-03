@@ -693,10 +693,6 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
             new_ctx->npes * new_ctx->summary_data_size);
     assert(new_ctx->summary_data);
 
-    new_ctx->summary_data_buffer = (unsigned char *)shmem_malloc(
-            new_ctx->npes * new_ctx->summary_data_size);
-    assert(new_ctx->summary_data_buffer);
-
     new_ctx->summary_data_lock = (int *)shmem_malloc(sizeof(int));
     assert(new_ctx->summary_data_lock);
     *(new_ctx->summary_data_lock) = 0;
@@ -826,19 +822,18 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 // Lock the other PE's bounding box list, update my entry in it
                 lock_summary_data_list(p, ctx);
 
-                shmem_getmem(ctx->summary_data_buffer, ctx->summary_data,
-                        ctx->npes * ctx->summary_data_size, p);
                 shmem_getmem(ctx->summary_data_timestamps_buffer,
                         ctx->summary_data_timestamps,
                         ctx->npes * sizeof(long long), p);
 
+                const unsigned summary_data_size = ctx->summary_data_size;
                 for (unsigned pp = 0; pp < ctx->npes; pp++) {
                     if (ctx->summary_data_timestamps[pp] >
                             ctx->summary_data_timestamps_buffer[pp]) {
                         shmem_putmem(
-                                ctx->summary_data + (pp * ctx->summary_data_size),
-                                ctx->summary_data + (pp * ctx->summary_data_size),
-                                ctx->summary_data_size, p);
+                                ctx->summary_data + (pp * summary_data_size),
+                                ctx->summary_data + (pp * summary_data_size),
+                                summary_data_size, p);
                     }
                 }
 
@@ -979,13 +974,14 @@ void hvr_body(hvr_ctx_t in_ctx) {
             }
         }
 
-        printf("PE %d - total %f ms - metadata %f ms - summary %f ms - edges %f ms - abort %f "
-                "ms\n", ctx->pe,
+        printf("PE %d - total %f ms - metadata %f ms - summary %f ms - edges "
+                "%f ms - abort %f ms - %u / %u PE neighbors\n", ctx->pe,
                 (double)(finished_check_abort - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)(finished_summary_update - finished_updates) / 1000.0,
                 (double)(finished_edge_adds - finished_summary_update) / 1000.0,
-                (double)(finished_check_abort - finished_edge_adds) / 1000.0);
+                (double)(finished_check_abort - finished_edge_adds) / 1000.0,
+                hvr_pe_set_count(ctx->my_neighbors), ctx->npes);
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;
