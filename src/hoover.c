@@ -62,36 +62,6 @@ static void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
     qsort(out_features, *n_out_features, sizeof(*out_features), uint_compare);
 }
 
-void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
-        const size_t buf_size, hvr_ctx_t ctx) {
-    char *iter = buf;
-    int first = 1;
-
-    unsigned n_features;
-    unsigned features[HVR_MAX_SPARSE_VEC_CAPACITY];
-    hvr_sparse_vec_unique_features(vec, features, &n_features);
-
-    for (unsigned i = 0; i < n_features; i++) {
-        const unsigned feat = features[i];
-
-        const int capacity = buf_size - (iter - buf);
-        int written;
-        if (first) { 
-            written = snprintf(iter, capacity, "%u: %f", feat,
-                    hvr_sparse_vec_get(feat, vec, ctx));
-        } else {
-            written = snprintf(iter, capacity, ", %u: %f", feat,
-                    hvr_sparse_vec_get(feat, vec, ctx));
-        }
-        if (written <= 0 || written > capacity) {
-            assert(0);
-        }
-
-        iter += written;
-        first = 0;
-    }
-}
-
 static void hvr_sparse_vec_set_internal(const unsigned feature,
         const double val, hvr_sparse_vec_t *vec, const uint64_t timestep) {
     const unsigned nfeatures = vec->nfeatures;
@@ -181,6 +151,45 @@ double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
     }
 }
 
+static void hvr_sparse_vec_dump_internal(hvr_sparse_vec_t *vec, char *buf,
+        const size_t buf_size, const uint64_t timestep) {
+    char *iter = buf;
+    int first = 1;
+
+    unsigned n_features;
+    unsigned features[HVR_MAX_SPARSE_VEC_CAPACITY];
+    hvr_sparse_vec_unique_features(vec, features, &n_features);
+
+    for (unsigned i = 0; i < n_features; i++) {
+        const unsigned feat = features[i];
+        double val;
+
+        const int err = hvr_sparse_vec_get_internal(feat, vec, timestep, &val);
+        assert(err == 1);
+
+        const int capacity = buf_size - (iter - buf);
+        int written;
+        if (first) {
+            written = snprintf(iter, capacity, "%u: %f", feat, val);
+        } else {
+            written = snprintf(iter, capacity, ", %u: %f", feat, val);
+        }
+        if (written <= 0 || written > capacity) {
+            assert(0);
+        }
+
+        iter += written;
+        first = 0;
+    }
+}
+
+void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
+        const size_t buf_size, hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    hvr_sparse_vec_dump_internal(vec, buf, buf_size, ctx->timestep);
+}
+
+
 void hvr_sparse_vec_set_id(const vertex_id_t id, hvr_sparse_vec_t *vec) {
     vec->id = id;
 }
@@ -232,6 +241,37 @@ static int hvr_sparse_vec_timestamp_bounds(hvr_sparse_vec_t *vec,
     *out_max = max_timestamp;
     return 1;
 
+}
+
+static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
+        hvr_sparse_vec_t *src) {
+    unsigned n_dst_features, n_src_features;
+    unsigned dst_features[HVR_MAX_SPARSE_VEC_CAPACITY];
+    unsigned src_features[HVR_MAX_SPARSE_VEC_CAPACITY];
+
+    hvr_sparse_vec_unique_features(dst, dst_features, &n_dst_features);
+    hvr_sparse_vec_unique_features(src, src_features, &n_src_features);
+
+    assert(n_dst_features == n_src_features);
+    assert(n_dst_features == dst->nfeatures);
+    assert(n_src_features == src->nfeatures);
+
+    for (unsigned i = 0; i < n_dst_features; i++) {
+        int j;
+        unsigned feature = dst_features[i];
+
+        // Find value in dst
+        for (j = 0; j < dst->nfeatures && dst->features[j] != feature; j++) ;
+        assert(j < dst->nfeatures);
+        const int dst_index = j;
+
+        // Find value in src
+        for (j = 0; j < src->nfeatures && src->features[j] != feature; j++) ;
+        assert(j < dst->nfeatures);
+        const int src_index = j;
+
+        dst->values[dst_index] += dst->values[src_index];
+    }
 }
 
 static hvr_pe_set_t *hvr_create_empty_pe_set_helper(hvr_internal_ctx_t *ctx,
@@ -828,7 +868,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
          * list and update my copy with any newer entries in my
          * coupled_timesteps list.
          */
-        double acc_val = coupled_metric;
         int ncoupled = 1; // include myself
         for (int p = 0; p < ctx->npes; p++) {
             if (p == ctx->pe) continue;
@@ -846,8 +885,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
                             &max_timestamp);
                     if (success && min_timestamp <= ctx->timestep - 1 &&
                             max_timestamp >= ctx->timestep - 1) {
-                        acc_val += hvr_sparse_vec_get(0,
-                                ctx->coupled_pes_values + p, ctx);
+                        hvr_sparse_vec_add_internal(&coupled_metric,
+                                ctx->coupled_pes_values + p);
                         break;
                     }
 
@@ -889,12 +928,15 @@ void hvr_body(hvr_ctx_t in_ctx) {
         }
 
         /*
-         * TODO acc_val here contains the aggregate values over all coupled PEs,
-         * including this one.
+         * TODO coupled_metric here contains the aggregate values over all
+         * coupled PEs, including this one.
          */
         if (ncoupled > 0) {
-            fprintf(stderr, "PE %d computed coupled value %f from %d coupled "
-                    "PEs\n", ctx->pe, acc_val, ncoupled);
+            char buf[1024];
+            hvr_sparse_vec_dump_internal(&coupled_metric, buf, 1024,
+                    ctx->timestep + 1);
+            fprintf(stderr, "PE %d computed coupled value %s from %d coupled "
+                    "PEs\n", ctx->pe, buf, ncoupled);
         }
 
         const unsigned long long finished_check_abort = hvr_current_time_us();
