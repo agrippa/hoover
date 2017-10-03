@@ -243,8 +243,9 @@ static int hvr_sparse_vec_timestamp_bounds(hvr_sparse_vec_t *vec,
 
 }
 
-static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
-        hvr_sparse_vec_t *src, const uint64_t target_timestamp) {
+static int hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
+        hvr_sparse_vec_t *src, const uint64_t target_timestamp,
+        const int dry_run) {
     unsigned n_dst_features, n_src_features;
     unsigned dst_features[HVR_MAX_SPARSE_VEC_CAPACITY];
     unsigned src_features[HVR_MAX_SPARSE_VEC_CAPACITY];
@@ -267,7 +268,7 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
                 dst_index = j;
             }
         }
-        assert(dst_index >= 0);
+        if (dst_index < 0) return 0;
 
         // Find latest value in src
         for (j = 0; j < src->nfeatures; j++) {
@@ -277,10 +278,13 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
                 src_index = j;
             }
         }
-        assert(src_index >= 0);
+        if (src_index < 0) return 0;
 
-        dst->values[dst_index] += src->values[src_index];
+        if (!dry_run) {
+            dst->values[dst_index] += src->values[src_index];
+        }
     }
+    return 1;
 }
 
 static hvr_pe_set_t *hvr_create_empty_pe_set_helper(hvr_internal_ctx_t *ctx,
@@ -888,14 +892,19 @@ void hvr_body(hvr_ctx_t in_ctx) {
                  * for this timestep.
                  */
                 while (1) {
-                    uint64_t min_timestamp, max_timestamp;
-                    const int success = hvr_sparse_vec_timestamp_bounds(
-                            ctx->coupled_pes_values + p, &min_timestamp,
-                            &max_timestamp);
-                    if (success && min_timestamp <= ctx->timestep - 1 &&
-                            max_timestamp >= ctx->timestep - 1) {
-                        hvr_sparse_vec_add_internal(&coupled_metric,
-                                ctx->coupled_pes_values + p, ctx->timestep);
+                    // Do a dry run to make sure we have the necessary data
+                    int success = hvr_sparse_vec_add_internal(
+                            &coupled_metric, ctx->coupled_pes_values + p,
+                            ctx->timestep, 1);
+                    if (success) {
+                        /*
+                         * If we have all the necessary values, do it for real
+                         * and break out.
+                         */
+                        success = hvr_sparse_vec_add_internal(
+                                &coupled_metric, ctx->coupled_pes_values + p,
+                                ctx->timestep, 0);
+                        assert(success == 1);
                         break;
                     }
 
