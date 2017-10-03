@@ -252,23 +252,33 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
     hvr_sparse_vec_unique_features(dst, dst_features, &n_dst_features);
     hvr_sparse_vec_unique_features(src, src_features, &n_src_features);
 
-    assert(n_dst_features == n_src_features);
-    assert(n_dst_features == dst->nfeatures);
-    assert(n_src_features == src->nfeatures);
-
     for (unsigned i = 0; i < n_dst_features; i++) {
         int j;
         unsigned feature = dst_features[i];
 
-        // Find value in dst
-        for (j = 0; j < dst->nfeatures && dst->features[j] != feature; j++) ;
-        assert(j < dst->nfeatures);
-        const int dst_index = j;
+        uint64_t dst_newest_timestamp, src_newest_timestamp;
+        int dst_index = -1;
+        int src_index = -1;
 
-        // Find value in src
-        for (j = 0; j < src->nfeatures && src->features[j] != feature; j++) ;
-        assert(j < dst->nfeatures);
-        const int src_index = j;
+        // Find latest value in dst
+        for (j = 0; j < dst->nfeatures; j++) {
+            if (dst->features[j] == feature && (dst_index < 0 ||
+                        dst_newest_timestamp < dst->timestamp[j])) {
+                dst_newest_timestamp = dst->timestamp[j];
+                dst_index = j;
+            }
+        }
+        assert(dst_index >= 0);
+
+        // Find latest value in src
+        for (j = 0; j < src->nfeatures; j++) {
+            if (src->features[j] == feature && (src_index < 0 ||
+                        src_newest_timestamp < src->timestamp[j])) {
+                src_newest_timestamp = src->timestamp[j];
+                src_index = j;
+            }
+        }
+        assert(src_index >= 0);
 
         dst->values[dst_index] += dst->values[src_index];
     }
@@ -931,12 +941,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
          * TODO coupled_metric here contains the aggregate values over all
          * coupled PEs, including this one.
          */
-        if (ncoupled > 0) {
+        if (ncoupled > 1) {
             char buf[1024];
             hvr_sparse_vec_dump_internal(&coupled_metric, buf, 1024,
                     ctx->timestep + 1);
-            fprintf(stderr, "PE %d computed coupled value %s from %d coupled "
-                    "PEs\n", ctx->pe, buf, ncoupled);
+            fprintf(stderr, "PE %d computed coupled value {%s} from %d coupled "
+                    "PEs on timestep %lu\n", ctx->pe, buf, ncoupled,
+                    ctx->timestep - 1);
         }
 
         const unsigned long long finished_check_abort = hvr_current_time_us();
