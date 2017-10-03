@@ -15,16 +15,26 @@ var curr_simulation_step = 1000000;
 
 var label_colors = {};
 
+var random_colors_index = 0;
+var random_colors = ['rgb(51,255,51)', 'rgb(0,0,255)', 'rgb(255,0,0)',
+    'rgb(204,0,204)', 'rgb(255,255,0)', 'rgb(0,255,255)'];
+
 //Helper function to get a random color - but not too dark
 function GetRandomColor() {
-    var r = 0, g = 0, b = 0;
-    while (r < 100 && g < 100 && b < 100) {
-        r = Math.floor(Math.random() * 256);
-        g = Math.floor(Math.random() * 256);
-        b = Math.floor(Math.random() * 256);
+    var result = random_colors[random_colors_index];
+    random_colors_index += 1;
+    if (random_colors_index >= random_colors.length) {
+        random_colors_index = 0;
     }
+    return result;
+    // var r = 0, g = 0, b = 0;
+    // while (r < 100 && g < 100 && b < 100) {
+    //     r = Math.floor(Math.random() * 256);
+    //     g = Math.floor(Math.random() * 256);
+    //     b = Math.floor(Math.random() * 256);
+    // }
 
-    return "rgb(" + r + "," + g + ","  + b + ")";
+    // return "rgb(" + r + "," + g + ","  + b + ")";
 }
 
 function addLabel(label) {
@@ -53,73 +63,107 @@ function readSingleFile(e) {
         min_x = null; max_x = null;
         min_y = null; max_y = null;
         simulation_data = {};
+        var offset = 0;
+        var fileChunkSize = 16 * 1024 * 1024;
 
         var file = fileInput.files[0];
+        var fileSize = file.size;
+        var partialContents = '';
 
-        var reader = new FileReader();
-        reader.onload = function(e) {
-            var contents = e.target.result;
-            var lines = contents.split(',,');
-            for (var i = 0; i < lines.length; i++) {
-                var line = lines[i].split(',');
-                var id = parseInt(line[0]);
-                var nfeatures = parseInt(line[1]);
-                var timestep = parseInt(line[2]);
-                var pe = parseInt(line[3]);
-
-                var features = {};
-                for (var j = 0; j < nfeatures; j++) {
-                    features[parseInt(line[4 + 2 * j])] =
-                        parseFloat(line[4 + 2 * j + 1]);
+        var readEventHandler = function(evt) {
+            if (evt.target.error == null) {
+                var contents = partialContents + evt.target.result;
+                console.log('read ' + evt.target.result.length + ' bytes.');
+                var last_line_sep = contents.lastIndexOf(',,');
+                if (last_line_sep === -1) {
+                    console.log('No line separator found?');
+                    return;
+                }
+                partialContents = contents.substring(last_line_sep + 2);
+                contents = contents.substring(0, last_line_sep);
+                offset += evt.target.result.length;
+                if (offset >= fileSize) {
+                    contents += partialContents;
                 }
 
-                // var label = pe; // Label by PE
-                var label = features[2]; // Label by infection state
+                var lines = contents.split(',,');
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].split(',');
+                    var id = parseInt(line[0]);
+                    var nfeatures = parseInt(line[1]);
+                    var timestep = parseInt(line[2]);
+                    var pe = parseInt(line[3]);
 
-                addLabel(label);
+                    var features = {};
+                    for (var j = 0; j < nfeatures; j++) {
+                        features[parseInt(line[4 + 2 * j])] =
+                            parseFloat(line[4 + 2 * j + 1]);
+                    }
 
-                var x = features[0];
-                var y = features[1];
-                if (min_x === null || x < min_x) min_x = x;
-                if (min_y === null || y < min_y) min_y = y;
-                if (max_x === null || x > max_x) max_x = x;
-                if (max_y === null || y > max_y) max_y = y;
+                    // var label = pe; // Label by PE
+                    var label = features[2]; // Label by infection state
 
-                if (!(timestep in simulation_data)) {
-                    simulation_data[timestep] = {};
-                }
-                simulation_data[timestep][id] = new Particle(x, y, label);
+                    addLabel(label);
 
-                if (timestep < curr_simulation_step) {
-                    curr_simulation_step = timestep;
-                }
-            }
+                    var x = features[0];
+                    var y = features[1];
+                    if (min_x === null || x < min_x) min_x = x;
+                    if (min_y === null || y < min_y) min_y = y;
+                    if (max_x === null || x > max_x) max_x = x;
+                    if (max_y === null || y > max_y) max_y = y;
 
-            console.log('min = (' + min_x + ', ' + min_y + ') max = (' +
-                        max_x + ', ' + max_y + ')');
-            console.log('labels = ' + JSON.stringify(label_colors));
+                    if (!(timestep in simulation_data)) {
+                        simulation_data[timestep] = {};
+                    }
+                    simulation_data[timestep][id] = new Particle(x, y, label);
 
-            var curr_timestep = curr_simulation_step + 1;
-            while (curr_timestep in simulation_data) {
-                var particles = simulation_data[curr_timestep];
-                var last_particles = simulation_data[curr_timestep - 1];
-                for (var id in last_particles) {
-                    if (!(id in particles)) {
-                        particles[id] = last_particles[id];
+                    if (timestep < curr_simulation_step) {
+                        curr_simulation_step = timestep;
                     }
                 }
-                curr_timestep += 1;
+
+                if (offset < fileSize) {
+                    chunkReaderBlock(offset, fileChunkSize, file);
+                } else {
+                    // Launch simulation
+                    console.log('min = (' + min_x + ', ' + min_y + ') max = (' +
+                                max_x + ', ' + max_y + ')');
+                    console.log('labels = ' + JSON.stringify(label_colors));
+
+                    var curr_timestep = curr_simulation_step + 1;
+                    while (curr_timestep in simulation_data) {
+                        var particles = simulation_data[curr_timestep];
+                        var last_particles = simulation_data[curr_timestep - 1];
+                        for (var id in last_particles) {
+                            if (!(id in particles)) {
+                                particles[id] = last_particles[id];
+                            }
+                        }
+                        curr_timestep += 1;
+                    }
+
+                    // curr_timestep = curr_simulation_step;
+                    // while (curr_timestep in simulation_data) {
+                    //     console.log('Loaded ' + Object.keys(simulation_data[curr_timestep]).length + ' actors for timestep ' + curr_timestep);
+                    //     curr_timestep += 1;
+                    // }
+
+                    loop();
+                }
+            } else {
+                console.log("Read error: " + evt.target.error);
+                return;
             }
+        }
 
-            // curr_timestep = curr_simulation_step;
-            // while (curr_timestep in simulation_data) {
-            //     console.log('Loaded ' + Object.keys(simulation_data[curr_timestep]).length + ' actors for timestep ' + curr_timestep);
-            //     curr_timestep += 1;
-            // }
-
-            loop();
+        chunkReaderBlock = function(_offset, length, _file) {
+            var r = new FileReader();
+            var blob = _file.slice(_offset, _offset + length);
+            r.onload = readEventHandler;
+            r.readAsText(blob);
         };
-        reader.readAsText(file);
+
+        chunkReaderBlock(offset, fileChunkSize, file);
     });
 }
 
