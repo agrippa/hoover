@@ -263,7 +263,8 @@ static int hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
         // Find latest value in dst
         for (j = 0; j < dst->nfeatures; j++) {
             if (dst->features[j] == feature &&
-                    dst->timestamp[j] == target_timestamp) {
+                    (dst->timestamp[j] == target_timestamp ||
+                     dst->timestamp[j] == UINT64_MAX)) {
                 assert(dst_index == -1);
                 dst_index = j;
             }
@@ -273,7 +274,8 @@ static int hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
         // Find latest value in src
         for (j = 0; j < src->nfeatures; j++) {
             if (src->features[j] == feature &&
-                    src->timestamp[j] == target_timestamp) {
+                    (src->timestamp[j] == target_timestamp ||
+                     src->timestamp[j] == UINT64_MAX)) {
                 assert(src_index == -1);
                 src_index = j;
             }
@@ -950,8 +952,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
             char buf[1024];
             hvr_sparse_vec_dump_internal(&coupled_metric, buf, 1024,
                     ctx->timestep + 1);
-            fprintf(stderr, "PE %d computed coupled value {%s} from %d coupled "
-                    "PEs on timestep %lu\n", ctx->pe, buf, ncoupled,
+            fprintf(stderr, "PE %d - computed coupled value {%s} from %d "
+                    "coupled PEs on timestep %lu\n", ctx->pe, buf, ncoupled,
                     ctx->timestep - 1);
         }
 
@@ -975,13 +977,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
         }
 
         printf("PE %d - total %f ms - metadata %f ms - summary %f ms - edges "
-                "%f ms - abort %f ms - %u / %u PE neighbors\n", ctx->pe,
-                (double)(finished_check_abort - start_iter) / 1000.0,
+                "%f ms - abort %f ms - %u / %u PE neighbors - aborting? %d\n",
+                ctx->pe, (double)(finished_check_abort - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)(finished_summary_update - finished_updates) / 1000.0,
                 (double)(finished_edge_adds - finished_summary_update) / 1000.0,
                 (double)(finished_check_abort - finished_edge_adds) / 1000.0,
-                hvr_pe_set_count(ctx->my_neighbors), ctx->npes);
+                hvr_pe_set_count(ctx->my_neighbors), ctx->npes, abort);
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;
@@ -997,12 +999,22 @@ void hvr_body(hvr_ctx_t in_ctx) {
      * themselves coupled with me in the future) never block on me.
      */
     shmem_set_lock(ctx->coupled_locks + ctx->pe);
-    double last_val;
-    int success = hvr_sparse_vec_get_internal(0,
-            ctx->coupled_pes_values + ctx->pe, ctx->timestep + 1, &last_val);
-    assert(success == 1);
-    hvr_sparse_vec_set_internal(0, last_val, ctx->coupled_pes_values + ctx->pe,
-            UINT64_MAX);
+    ctx->timestep += 1;
+    unsigned n_features;
+    unsigned features[HVR_MAX_SPARSE_VEC_CAPACITY];
+    hvr_sparse_vec_unique_features(ctx->coupled_pes_values + ctx->pe, features,
+            &n_features);
+    for (unsigned f = 0; f < n_features; f++) {
+        double last_val;
+        int success = hvr_sparse_vec_get_internal(0,
+                ctx->coupled_pes_values + ctx->pe, ctx->timestep + 1,
+                &last_val);
+        assert(success == 1);
+
+        hvr_sparse_vec_set_internal(0, last_val,
+                ctx->coupled_pes_values + ctx->pe, UINT64_MAX);
+    }
+
     shmem_clear_lock(ctx->coupled_locks + ctx->pe);
 
     shmem_quiet(); // Make sure the timestep updates complete
