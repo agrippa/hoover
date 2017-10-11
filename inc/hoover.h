@@ -23,7 +23,8 @@
  *     hvr_finalize();  // return to the user code, not a global barrier
  */
 
-#define HVR_MAX_SPARSE_VEC_CAPACITY 2048
+#define HVR_MAX_TIMESTEPS 512
+#define HVR_MAX_FEATURES 5
 
 typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
 typedef hvr_internal_ctx_t *hvr_ctx_t;
@@ -40,22 +41,29 @@ typedef struct _hvr_sparse_vec_t {
     int pe;
 
     // Values for each feature
-    double values[HVR_MAX_SPARSE_VEC_CAPACITY];
+    double values[HVR_MAX_TIMESTEPS][HVR_MAX_FEATURES];
 
     // Feature IDs
-    unsigned features[HVR_MAX_SPARSE_VEC_CAPACITY];
+    unsigned features[HVR_MAX_TIMESTEPS][HVR_MAX_FEATURES];
 
     // Timestamp for each value set
-    uint64_t timestamp[HVR_MAX_SPARSE_VEC_CAPACITY];
+    uint64_t timestamp[HVR_MAX_TIMESTEPS];
 
     // Number of features set on this vertex
-    unsigned nfeatures;
+    unsigned nfeatures[HVR_MAX_TIMESTEPS];
+
+    unsigned ntimestamps;
 } hvr_sparse_vec_t;
 
 /*
  * Create nvecs new, empty vectors. Collective call.
  */
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs);
+
+/*
+ * Initialize an empty sparse vector.
+ */
+void hvr_sparse_vec_init(hvr_sparse_vec_t *vec);
 
 /*
  * Set the specified feature to the specified value in the provided vector.
@@ -83,13 +91,6 @@ vertex_id_t hvr_sparse_vec_get_id(hvr_sparse_vec_t *vec);
 
 // Get the PE that is responsible for this sparse vector
 int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec);
-
-/*
- * Get the minimum and maximum feature stored in this sparse vector, regardless
- * of timestamp.
- */
-void hvr_sparse_vec_feature_bounds(hvr_sparse_vec_t *vec, unsigned *out_min,
-        unsigned *out_max);
 
 /*
  * Edge set utilities.

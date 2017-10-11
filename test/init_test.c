@@ -67,8 +67,8 @@ void update_summary_data(void *summary, hvr_sparse_vec_t *actors,
     hvr_sparse_vec_t *mins = ((hvr_sparse_vec_t *)summary) + 0;
     hvr_sparse_vec_t *maxs = ((hvr_sparse_vec_t *)summary) + 1;
 
-    mins->nfeatures = 0;
-    maxs->nfeatures = 0;
+    hvr_sparse_vec_init(mins);
+    hvr_sparse_vec_init(maxs);
 
     assert(nactors > 0);
     double minx = hvr_sparse_vec_get(0, &actors[0], ctx);
