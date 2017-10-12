@@ -288,38 +288,60 @@ static int hvr_sparse_vec_has_timestamp(hvr_sparse_vec_t *vec,
     }
 }
 
+static int find_time_slot_for(hvr_sparse_vec_t *vec,
+        const uint64_t target_timestamp) {
+    int time_index = -1;
+    for (unsigned t = 0; t < vec->ntimestamps; t++) {
+        if (vec->timestamp[t] == target_timestamp) {
+            time_index = t;
+        } else if (vec->timestamp[t] == UINT64_MAX) {
+            time_index = t;
+            break;
+        }
+    }
+    return time_index;
+}
+
 static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
         hvr_sparse_vec_t *src, const uint64_t target_timestamp) {
     unsigned n_dst_features, n_src_features;
     unsigned dst_features[HVR_MAX_FEATURES];
     unsigned src_features[HVR_MAX_FEATURES];
 
-    double dst_values[HVR_MAX_FEATURES];
-    double src_values[HVR_MAX_FEATURES];
-
     hvr_sparse_vec_unique_features(dst, dst_features, &n_dst_features);
     hvr_sparse_vec_unique_features(src, src_features, &n_src_features);
 
-    assert(n_dst_features == n_src_features);
-    for (unsigned f = 0; f < n_dst_features; f++) {
-        assert(dst_features[f] == src_features[f]);
-    }
+    int dst_time_index = find_time_slot_for(dst, target_timestamp);
+    assert(dst_time_index >= 0);
 
-    for (unsigned f = 0; f < n_dst_features; f++) {
-        const int success = hvr_sparse_vec_get_internal(dst_features[f], dst,
-                target_timestamp + 1, &dst_values[f]);
-        assert(success == 1);
-    }
+    int src_time_index = find_time_slot_for(src, target_timestamp);
+    assert(src_time_index >= 0);
 
-    for (unsigned f = 0; f < n_src_features; f++) {
-        const int success = hvr_sparse_vec_get_internal(src_features[f], src,
-                target_timestamp + 1, &src_values[f]);
-        assert(success == 1);
-    }
+    for (unsigned i = 0; i < n_dst_features; i++) {
+        int dst_feature_index = -1;
+        int src_feature_index = -1;
+        unsigned feature = dst_features[i];
 
-    for (unsigned f = 0; f < n_dst_features; f++) {
-        hvr_sparse_vec_set_internal(dst_features[f],
-                dst_values[f] + src_values[f], dst, target_timestamp);
+        for (unsigned j = 0; j < dst->nfeatures[dst_time_index]; j++) {
+            if (dst->features[dst_time_index][j] == feature) {
+                assert(dst_feature_index == -1);
+                dst_feature_index = j;
+                break;
+            }
+        }
+        assert(dst_feature_index >= 0);
+
+        for (unsigned j = 0; j < src->nfeatures[src_time_index]; j++) {
+            if (src->features[src_time_index][j] == feature) {
+                assert(src_feature_index == -1);
+                src_feature_index = j;
+                break;
+            }
+        }
+        assert(src_feature_index >= 0);
+
+        dst->values[dst_time_index][dst_feature_index] +=
+            src->values[src_time_index][src_feature_index];
     }
 }
 
@@ -1072,7 +1094,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
     shmem_set_lock(ctx->coupled_locks + ctx->pe);
     ctx->timestep += 1;
     unsigned n_features;
-    unsigned features[HVR_MAX_SPARSE_VEC_CAPACITY];
+    unsigned features[HVR_MAX_FEATURES];
     hvr_sparse_vec_unique_features(ctx->coupled_pes_values + ctx->pe, features,
             &n_features);
     for (unsigned f = 0; f < n_features; f++) {
