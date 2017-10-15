@@ -23,8 +23,8 @@
  *     hvr_finalize();  // return to the user code, not a global barrier
  */
 
-#define HVR_MAX_TIMESTEPS 512
-#define HVR_MAX_FEATURES 5
+#define HVR_BUCKETS 512
+#define HVR_BUCKET_SIZE 16
 
 typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
 typedef hvr_internal_ctx_t *hvr_ctx_t;
@@ -41,18 +41,17 @@ typedef struct _hvr_sparse_vec_t {
     int pe;
 
     // Values for each feature
-    double values[HVR_MAX_TIMESTEPS][HVR_MAX_FEATURES];
+    double values[HVR_BUCKETS][HVR_BUCKET_SIZE];
 
     // Feature IDs, all entries in each timestamp slot guaranteed unique
-    unsigned features[HVR_MAX_TIMESTEPS][HVR_MAX_FEATURES];
+    unsigned features[HVR_BUCKETS][HVR_BUCKET_SIZE];
 
     // Timestamp for each value set, all entries guaranteed unique
-    uint64_t timestamp[HVR_MAX_TIMESTEPS];
+    uint64_t timestamps[HVR_BUCKETS];
 
-    // Number of features set on this vertex
-    unsigned nfeatures[HVR_MAX_TIMESTEPS];
+    unsigned bucket_size[HVR_BUCKETS];
 
-    unsigned ntimestamps;
+    unsigned next_bucket;
 } hvr_sparse_vec_t;
 
 /*
@@ -91,6 +90,30 @@ vertex_id_t hvr_sparse_vec_get_id(hvr_sparse_vec_t *vec);
 
 // Get the PE that is responsible for this sparse vector
 int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec);
+
+#define HVR_CACHE_BUCKETS 512
+#define HVR_CACHE_MAX_BUCKET_SIZE 1024
+
+typedef struct _hvr_sparse_vec_cache_node_t {
+    hvr_sparse_vec_t vec;
+    struct _hvr_sparse_vec_cache_node_t *next;
+} hvr_sparse_vec_cache_node_t;
+
+typedef struct _hvr_sparse_vec_cache_t {
+    hvr_sparse_vec_cache_node_t *buckets[HVR_CACHE_BUCKETS];
+    unsigned bucket_size[HVR_CACHE_BUCKETS];
+    hvr_sparse_vec_cache_node_t *pool;
+} hvr_sparse_vec_cache_t;
+
+void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache);
+
+void hvr_sparse_vec_cache_clear(hvr_sparse_vec_cache_t *cache);
+
+hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(vertex_id_t vert,
+        hvr_sparse_vec_cache_t *cache, uint64_t timestep);
+
+void hvr_sparse_vec_cache_insert(hvr_sparse_vec_t *vec,
+        hvr_sparse_vec_cache_t *cache);
 
 /*
  * Edge set utilities.
