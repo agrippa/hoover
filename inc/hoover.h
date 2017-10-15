@@ -43,10 +43,10 @@ typedef struct _hvr_sparse_vec_t {
     // Values for each feature
     double values[HVR_MAX_TIMESTEPS][HVR_MAX_FEATURES];
 
-    // Feature IDs
+    // Feature IDs, all entries in each timestamp slot guaranteed unique
     unsigned features[HVR_MAX_TIMESTEPS][HVR_MAX_FEATURES];
 
-    // Timestamp for each value set
+    // Timestamp for each value set, all entries guaranteed unique
     uint64_t timestamp[HVR_MAX_TIMESTEPS];
 
     // Number of features set on this vertex

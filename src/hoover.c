@@ -84,8 +84,8 @@ static void hvr_sparse_vec_set_internal(const unsigned feature,
 
     for (unsigned t = 0; t < vec->ntimestamps; t++) {
         if (vec->timestamp[t] == timestep) {
-            // Already have a slot for this timestep, add this feature here.
 
+            // Already have a slot for this timestep, add this feature here.
             const unsigned nfeatures = vec->nfeatures[t];
             for (unsigned f = 0; f < nfeatures; f++) {
                 if (vec->features[t][f] == feature) {
@@ -154,6 +154,10 @@ static int hvr_sparse_vec_get_internal(const unsigned feature,
                         break;
                     }
                 }
+            }
+            if (timestamp_delta == 1) {
+                // Smallest delta possible
+                break;
             }
         }
     }
@@ -273,7 +277,7 @@ static int hvr_sparse_vec_has_timestamp(hvr_sparse_vec_t *vec,
 
     uint64_t min_timestamp = vec->timestamp[0];
     for (unsigned t = 0; t < vec->ntimestamps; t++) {
-        if (vec->timestamp[t] == timestamp) {
+        if (vec->timestamp[t] == timestamp  || vec->timestamp[t] == UINT64_MAX) {
             return HAS_TIMESTAMP;
         }
         if (vec->timestamp[t] < min_timestamp) {
@@ -304,36 +308,23 @@ static int find_time_slot_for(hvr_sparse_vec_t *vec,
 
 static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
         hvr_sparse_vec_t *src, const uint64_t target_timestamp) {
-    unsigned n_dst_features, n_src_features;
-    unsigned dst_features[HVR_MAX_FEATURES];
-    unsigned src_features[HVR_MAX_FEATURES];
-
-    hvr_sparse_vec_unique_features(dst, dst_features, &n_dst_features);
-    hvr_sparse_vec_unique_features(src, src_features, &n_src_features);
-
     int dst_time_index = find_time_slot_for(dst, target_timestamp);
     assert(dst_time_index >= 0);
 
     int src_time_index = find_time_slot_for(src, target_timestamp);
     assert(src_time_index >= 0);
 
+    const unsigned n_dst_features = dst->nfeatures[dst_time_index];
+    const unsigned n_src_features = src->nfeatures[src_time_index];
+    assert(n_dst_features == n_src_features);
+
     for (unsigned i = 0; i < n_dst_features; i++) {
-        int dst_feature_index = -1;
+        unsigned feature = dst->features[dst_time_index][i];
+        unsigned dst_feature_index = i;
+
         int src_feature_index = -1;
-        unsigned feature = dst_features[i];
-
-        for (unsigned j = 0; j < dst->nfeatures[dst_time_index]; j++) {
-            if (dst->features[dst_time_index][j] == feature) {
-                assert(dst_feature_index == -1);
-                dst_feature_index = j;
-                break;
-            }
-        }
-        assert(dst_feature_index >= 0);
-
-        for (unsigned j = 0; j < src->nfeatures[src_time_index]; j++) {
+        for (unsigned j = 0; j < n_src_features; j++) {
             if (src->features[src_time_index][j] == feature) {
-                assert(src_feature_index == -1);
                 src_feature_index = j;
                 break;
             }
@@ -974,8 +965,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
                             ctx->timestep) == HAS_TIMESTAMP);
                 int other_has_timestamp = hvr_sparse_vec_has_timestamp(
                         ctx->coupled_pes_values + p, ctx->timestep);
-                fprintf(stderr, "PE %d waiting for coupled value from PE %d on "
-                        "timestep %lu\n", shmem_my_pe(), p, ctx->timestep);
                 while (other_has_timestamp != HAS_TIMESTAMP) {
                     shmem_set_lock(ctx->coupled_locks + p);
 
@@ -1001,12 +990,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
                             hvr_sparse_vec_timestamp_bounds(mine,
                                     &mine_min_timestamp, &mine_max_timestamp);
 
-                        if (i == p) {
-                            fprintf(stderr, "PE %d mine %d %lu %lu other %d %lu %lu\n",
-                                    shmem_my_pe(), mine_success, mine_min_timestamp, mine_max_timestamp,
-                                    other_success, other_min_timestamp, other_max_timestamp);
-                        }
-
                         if (other_success) {
                             if (!mine_success) {
                                 memcpy(mine, other, sizeof(*mine));
@@ -1018,13 +1001,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
                     other_has_timestamp = hvr_sparse_vec_has_timestamp(
                             ctx->coupled_pes_values + p, ctx->timestep);
-                    fprintf(stderr, "PE %d waiting for coupled value from PE %d on "
-                            "timestep %lu but see %d\n", shmem_my_pe(), p, ctx->timestep, other_has_timestamp);
                 }
                 assert(other_has_timestamp != NEVER_TIMESTAMP);
-                fprintf(stderr, "PE %d done waiting for coupled value from PE "
-                        "%d on timestep %lu\n", shmem_my_pe(), p,
-                        ctx->timestep);
 
                 hvr_sparse_vec_add_internal(&coupled_metric,
                         ctx->coupled_pes_values + p, ctx->timestep);
@@ -1099,12 +1077,12 @@ void hvr_body(hvr_ctx_t in_ctx) {
             &n_features);
     for (unsigned f = 0; f < n_features; f++) {
         double last_val;
-        int success = hvr_sparse_vec_get_internal(0,
+        int success = hvr_sparse_vec_get_internal(features[f],
                 ctx->coupled_pes_values + ctx->pe, ctx->timestep + 1,
                 &last_val);
         assert(success == 1);
 
-        hvr_sparse_vec_set_internal(0, last_val,
+        hvr_sparse_vec_set_internal(features[f], last_val,
                 ctx->coupled_pes_values + ctx->pe, UINT64_MAX);
     }
 

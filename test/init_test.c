@@ -154,6 +154,8 @@ int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
     // }
 
     hvr_sparse_vec_set(0, (double)nset, out_coupled_metric, ctx);
+    hvr_sparse_vec_set(1, (double)n_vertices, out_coupled_metric, ctx);
+
     if (nset == n_vertices) {
         return 1;
     } else {
