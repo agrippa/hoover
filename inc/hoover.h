@@ -24,7 +24,8 @@
  */
 
 #define HVR_BUCKETS 512
-#define HVR_BUCKET_SIZE 16
+// #define HVR_BUCKET_SIZE 16
+#define HVR_BUCKET_SIZE 4
 
 typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
 typedef hvr_internal_ctx_t *hvr_ctx_t;
@@ -47,10 +48,12 @@ typedef struct _hvr_sparse_vec_t {
     unsigned features[HVR_BUCKETS][HVR_BUCKET_SIZE];
 
     // Timestamp for each value set, all entries guaranteed unique
-    uint64_t timestamps[HVR_BUCKETS];
+    int64_t timestamps[HVR_BUCKETS];
 
+    // Number of features present in each bucket
     unsigned bucket_size[HVR_BUCKETS];
 
+    // The oldest bucket or first unused bucket (used to evict quickly).
     unsigned next_bucket;
 } hvr_sparse_vec_t;
 
@@ -110,7 +113,7 @@ void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache);
 void hvr_sparse_vec_cache_clear(hvr_sparse_vec_cache_t *cache);
 
 hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(vertex_id_t vert,
-        hvr_sparse_vec_cache_t *cache, uint64_t timestep);
+        hvr_sparse_vec_cache_t *cache, int64_t timestep);
 
 void hvr_sparse_vec_cache_insert(hvr_sparse_vec_t *vec,
         hvr_sparse_vec_cache_t *cache);
@@ -210,7 +213,7 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_edge_set_t *edges;
 
-    uint64_t timestep;
+    int64_t timestep;
 
     hvr_update_metadata_func update_metadata;
     hvr_update_summary_data update_summary_data;
@@ -220,7 +223,7 @@ typedef struct _hvr_internal_ctx_t {
     double connectivity_threshold;
     unsigned min_spatial_feature, max_spatial_feature;
     unsigned summary_data_size;
-    uint64_t max_timestep;
+    int64_t max_timestep;
 
     hvr_sparse_vec_t *buffer;
 
@@ -260,14 +263,14 @@ extern void hvr_init(const vertex_id_t n_local_vertices,
         const double connectivity_threshold,
         const unsigned min_spatial_feature_inclusive,
         const unsigned max_spatial_feature_inclusive,
-        const unsigned summary_data_size, const uint64_t max_timestep,
+        const unsigned summary_data_size, const int64_t max_timestep,
         hvr_ctx_t ctx);
 
 extern void hvr_body(hvr_ctx_t ctx);
 
 extern void hvr_finalize(hvr_ctx_t ctx);
 
-extern uint64_t hvr_current_timestep(hvr_ctx_t ctx);
+extern int64_t hvr_current_timestep(hvr_ctx_t ctx);
 extern unsigned long long hvr_current_time_us();
 
 #endif

@@ -33,6 +33,10 @@ void hvr_sparse_vec_init(hvr_sparse_vec_t *vec) {
     vec->next_bucket = 0;
 }
 
+static inline unsigned prev_bucket(const unsigned bucket) {
+    return (bucket == 0) ? (HVR_BUCKETS - 1) : (bucket - 1);
+}
+
 static int uint_compare(const void *_a, const void *_b) {
     unsigned a = *((unsigned *)_a);
     unsigned b = *((unsigned *)_b);
@@ -97,10 +101,8 @@ static void set_helper(hvr_sparse_vec_t *vec, const unsigned curr_bucket,
  * values are wiped out.
  */
 static void hvr_sparse_vec_set_internal(const unsigned feature,
-        const double val, hvr_sparse_vec_t *vec, const uint64_t timestep) {
-    unsigned initial_bucket;
-    if (vec->next_bucket == 0) initial_bucket = HVR_BUCKETS - 1;
-    else initial_bucket = vec->next_bucket - 1;
+        const double val, hvr_sparse_vec_t *vec, const int64_t timestep) {
+    unsigned initial_bucket = prev_bucket(vec->next_bucket);
 
     unsigned curr_bucket = initial_bucket;
     do {
@@ -121,15 +123,17 @@ static void hvr_sparse_vec_set_internal(const unsigned feature,
         }
 
         // Move to the next bucket
-        if (curr_bucket == 0) curr_bucket = HVR_BUCKETS - 1;
-        else curr_bucket -= 1;
+        curr_bucket = prev_bucket(curr_bucket);
     } while (curr_bucket != initial_bucket);
 
     // Create a new bucket for this timestep
     const unsigned bucket_to_replace = vec->next_bucket;
     vec->next_bucket = (bucket_to_replace + 1) % HVR_BUCKETS;
 
-    vec->timestamps[bucket_to_replace] = timestep;
+    vec->timestamps[bucket_to_replace] = -1;
+
+    __sync_synchronize();
+
     vec->bucket_size[bucket_to_replace] = 0;
 
     if (vec->bucket_size[initial_bucket] > 0) {
@@ -145,6 +149,10 @@ static void hvr_sparse_vec_set_internal(const unsigned feature,
     }
 
     set_helper(vec, bucket_to_replace, feature, val);
+
+    __sync_synchronize();
+
+    vec->timestamps[bucket_to_replace] = timestep;
 }
 
 void hvr_sparse_vec_set(const unsigned feature, const double val,
@@ -154,18 +162,16 @@ void hvr_sparse_vec_set(const unsigned feature, const double val,
 }
 
 static int hvr_sparse_vec_get_internal(const unsigned feature,
-        const hvr_sparse_vec_t *vec, const uint64_t curr_timestamp,
+        const hvr_sparse_vec_t *vec, const int64_t curr_timestamp,
         double *out_val) {
-    unsigned initial_bucket;
-    if (vec->next_bucket == 0) initial_bucket = HVR_BUCKETS - 1;
-    else initial_bucket = vec->next_bucket - 1;
+    unsigned initial_bucket = prev_bucket(vec->next_bucket);
 
     unsigned curr_bucket = initial_bucket;
     do {
         // bucket size == 0 indicates an invalid bucket
         if (vec->bucket_size[curr_bucket] == 0) break;
 
-        if (vec->timestamps[curr_bucket] < curr_timestamp) {
+        if (vec->timestamps[curr_bucket] < curr_timestamp && vec->timestamps[curr_bucket] >= 0) {
             // Handle finding an existing bucket for this timestep
             const unsigned bucket_size = vec->bucket_size[curr_bucket];
             for (unsigned i = 0; i < bucket_size; i++) {
@@ -179,8 +185,7 @@ static int hvr_sparse_vec_get_internal(const unsigned feature,
         }
 
         // Move to the next bucket
-        if (curr_bucket == 0) curr_bucket = HVR_BUCKETS - 1;
-        else curr_bucket -= 1;
+        curr_bucket = prev_bucket(curr_bucket);
     } while (curr_bucket != initial_bucket);
 
     if (have_default_sparse_vec_val) {
@@ -208,7 +213,7 @@ double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
 }
 
 static void hvr_sparse_vec_dump_internal(hvr_sparse_vec_t *vec, char *buf,
-        const size_t buf_size, const uint64_t timestep) {
+        const size_t buf_size, const int64_t timestep) {
     char *iter = buf;
     int first = 1;
 
@@ -307,7 +312,7 @@ int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec) {
 //     unsigned curr_bucket = initial_bucket;
 //     do {
 //         if (vec->timestamps[curr_bucket] == timestamp ||
-//                 vec->timestamps[curr_bucket] == UINT64_MAX) {
+//                 vec->timestamps[curr_bucket] == INT64_MAX) {
 //             return HAS_TIMESTAMP;
 //         }
 //         min_timestamp = vec->timestamps[curr_bucket];
@@ -339,7 +344,7 @@ int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec) {
 //             break;
 //         } else if (vec->timestamps[curr_bucket] == target_timestamp) {
 //             time_index = curr_bucket;
-//         } else if (vec->timestamps[curr_bucket] == UINT64_MAX) {
+//         } else if (vec->timestamps[curr_bucket] == INT64_MAX) {
 //             time_index = curr_bucket;
 //             break;
 //         }
@@ -382,10 +387,8 @@ int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec) {
 //     }
 // }
 
-static int get_newest_timestamp(hvr_sparse_vec_t *vec, uint64_t *out_timestamp) {
-    unsigned newest_bucket;
-    if (vec->next_bucket == 0) newest_bucket = HVR_BUCKETS - 1;
-    else newest_bucket = vec->next_bucket - 1;
+static int get_newest_timestamp(hvr_sparse_vec_t *vec, int64_t *out_timestamp) {
+    const unsigned newest_bucket = prev_bucket(vec->next_bucket);
 
     if (vec->bucket_size[newest_bucket] == 0) {
         return 0;
@@ -415,7 +418,7 @@ void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache) {
 }
 
 hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(vertex_id_t vert,
-        hvr_sparse_vec_cache_t *cache, uint64_t timestep) {
+        hvr_sparse_vec_cache_t *cache, int64_t timestep) {
     const unsigned bucket = vert % HVR_CACHE_BUCKETS;
     hvr_sparse_vec_cache_node_t *head = cache->buckets[bucket];
     hvr_sparse_vec_cache_node_t *iter = head;
@@ -430,7 +433,7 @@ hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(vertex_id_t vert,
         return NULL;
     } else {
         // Decide whether this cached entry is new enough to be useful
-        uint64_t newest_timestamp;
+        int64_t newest_timestamp;
         int success = get_newest_timestamp(&(iter->vec), &newest_timestamp);
 
         if (success && (newest_timestamp >= timestep ||
@@ -716,8 +719,8 @@ static void update_neighbors_based_on_summary_data(hvr_internal_ctx_t *ctx) {
      * This can be approximate, so we just allow this PE to get whatever data it
      * can.
      */
-    uint64_t save_timestep = ctx->timestep;
-    ctx->timestep = UINT64_MAX;
+    int64_t save_timestep = ctx->timestep;
+    ctx->timestep = INT64_MAX;
 
     for (int p = 0; p < ctx->npes; p++) {
         unsigned char *other_summary_data = ctx->summary_data +
@@ -812,7 +815,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                             ctx);
 
                     printf("%s edge from %lu (%s) -> %lu (%s), dist = %f "
-                            "threshold = %f, timestep %lu\n",
+                            "threshold = %f, timestep %ld\n",
                             (distance < ctx->connectivity_threshold) ?
                             "Adding" : "Not adding", curr->id, buf1,
                             (ctx->buffer)[j - j_chunk].id, buf2, distance,
@@ -836,7 +839,7 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         hvr_check_abort_func check_abort, hvr_vertex_owner_func vertex_owner,
         const double connectivity_threshold, const unsigned min_spatial_feature,
         const unsigned max_spatial_feature, const unsigned summary_data_size,
-        const uint64_t max_timestep, hvr_ctx_t in_ctx) {
+        const int64_t max_timestep, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *new_ctx = (hvr_internal_ctx_t *)in_ctx;
 
     assert(new_ctx->initialized == 0);
@@ -1049,7 +1052,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 update_metadata_time += (hvr_current_time_us() -
                         finish_neighbor_fetching);
             } else {
-                const unsigned long long start_single_update = hvr_current_time_us();
+                const unsigned long long start_single_update =
+                    hvr_current_time_us();
                 // This vertex has no edges
                 ctx->update_metadata(&(ctx->vertices[i]), NULL, 0,
                         to_couple_with, ctx);
@@ -1228,7 +1232,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
             for (unsigned v = 0; v < ctx->n_local_vertices; v++) {
                 hvr_sparse_vec_t *vertex = ctx->vertices + v;
-                fprintf(ctx->dump_file, "%lu,%u,%lu,%d", vertex->id, nfeatures,
+                fprintf(ctx->dump_file, "%lu,%u,%ld,%d", vertex->id, nfeatures,
                         ctx->timestep, ctx->pe);
                 for (unsigned f = 0; f < nfeatures; f++) {
                     fprintf(ctx->dump_file, ",%u,%f", features[f],
@@ -1281,7 +1285,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         assert(success == 1);
 
         hvr_sparse_vec_set_internal(features[f], last_val,
-                ctx->coupled_pes_values + ctx->pe, UINT64_MAX);
+                ctx->coupled_pes_values + ctx->pe, INT64_MAX);
     }
 
     shmem_clear_lock(ctx->coupled_locks + ctx->pe);
@@ -1313,7 +1317,7 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     free(ctx);
 }
 
-uint64_t hvr_current_timestep(hvr_ctx_t in_ctx) {
+int64_t hvr_current_timestep(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     return ctx->timestep;
 }

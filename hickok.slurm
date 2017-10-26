@@ -35,10 +35,10 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
 # srun --ntasks=1 ./bin/pe_neighbors_set_test
 
-srun --ntasks-per-node=1 rm -f /var/tmp/core.*
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 70
-srun --ntasks-per-node=1 ls -lrt /var/tmp/
+# srun --ntasks-per-node=1 rm -f /var/tmp/core.*
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 70
+# srun --ntasks-per-node=1 ls -lrt /var/tmp/
 
 # for flat parallelism on 8 nodes
 # export CELL_DIM=100.0
@@ -46,23 +46,23 @@ srun --ntasks-per-node=1 ls -lrt /var/tmp/
 # export PE_ROWS=12
 # export PE_COLS=16
 
-# # for flat parallelism, 1 PE per socket
-# export CELL_DIM=400.0
-# export ACTORS_PER_CELL=600
-# export PE_ROWS=4
-# export PE_COLS=4
-# 
-# export N_PORTALS=4
-# export N_INFECTED=1
-# # export MAX_NUM_TIMESTEPS=400
-# export MAX_NUM_TIMESTEPS=10
-# export INFECTION_RADIUS=4.0
-# export MAX_DELTA_VELOCITY=0.01
-# srun --ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) \
-#     --ntasks-per-socket=1 --cpus-per-task=1 ./bin/infectious_test \
+# for flat parallelism, 1 PE per socket
+export CELL_DIM=400.0
+export ACTORS_PER_CELL=600
+export PE_ROWS=4
+export PE_COLS=4
+
+export N_PORTALS=4
+export N_INFECTED=1
+# export MAX_NUM_TIMESTEPS=400
+export MAX_NUM_TIMESTEPS=10
+export INFECTION_RADIUS=4.0
+export MAX_DELTA_VELOCITY=0.01
+srun --ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) \
+    --ntasks-per-socket=1 --cpus-per-task=1 ./bin/infectious_test \
+    $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
+    $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/infectious_test \
 #     $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
 #     $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
-# # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-# #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/infectious_test \
-# #     $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
-# #     $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
