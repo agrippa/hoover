@@ -25,7 +25,7 @@
 
 #define HVR_BUCKETS 512
 // #define HVR_BUCKET_SIZE 16
-#define HVR_BUCKET_SIZE 4
+#define HVR_BUCKET_SIZE 8
 
 typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
 typedef hvr_internal_ctx_t *hvr_ctx_t;
@@ -47,11 +47,11 @@ typedef struct _hvr_sparse_vec_t {
     // Feature IDs, all entries in each timestamp slot guaranteed unique
     unsigned features[HVR_BUCKETS][HVR_BUCKET_SIZE];
 
-    // Timestamp for each value set, all entries guaranteed unique
-    int64_t timestamps[HVR_BUCKETS];
-
     // Number of features present in each bucket
     unsigned bucket_size[HVR_BUCKETS];
+
+    // Timestamp for each value set, all entries guaranteed unique
+    int64_t timestamps[HVR_BUCKETS];
 
     // The oldest bucket or first unused bucket (used to evict quickly).
     unsigned next_bucket;
@@ -214,6 +214,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_edge_set_t *edges;
 
     int64_t timestep;
+    volatile int64_t *symm_timestep;
 
     hvr_update_metadata_func update_metadata;
     hvr_update_summary_data update_summary_data;

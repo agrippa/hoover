@@ -128,7 +128,6 @@ static void hvr_sparse_vec_set_internal(const unsigned feature,
 
     // Create a new bucket for this timestep
     const unsigned bucket_to_replace = vec->next_bucket;
-    vec->next_bucket = (bucket_to_replace + 1) % HVR_BUCKETS;
 
     vec->timestamps[bucket_to_replace] = -1;
 
@@ -141,11 +140,12 @@ static void hvr_sparse_vec_set_internal(const unsigned feature,
          * If we have an existing bucket at initial_bucket, copy its contents
          * over and then update.
          */
+        const unsigned initial_bucket_size = vec->bucket_size[initial_bucket];
         memcpy(vec->values[bucket_to_replace], vec->values[initial_bucket],
-                vec->bucket_size[initial_bucket] * sizeof(double));
+                initial_bucket_size * sizeof(double));
         memcpy(vec->features[bucket_to_replace], vec->features[initial_bucket],
-                vec->bucket_size[initial_bucket] * sizeof(unsigned));
-        vec->bucket_size[bucket_to_replace] = vec->bucket_size[initial_bucket];
+                initial_bucket_size * sizeof(unsigned));
+        vec->bucket_size[bucket_to_replace] = initial_bucket_size;
     }
 
     set_helper(vec, bucket_to_replace, feature, val);
@@ -153,6 +153,8 @@ static void hvr_sparse_vec_set_internal(const unsigned feature,
     __sync_synchronize();
 
     vec->timestamps[bucket_to_replace] = timestep;
+    __sync_synchronize();
+    vec->next_bucket = (bucket_to_replace + 1) % HVR_BUCKETS;
 }
 
 void hvr_sparse_vec_set(const unsigned feature, const double val,
@@ -749,13 +751,26 @@ static void update_my_summary_data(unsigned char *summary_data,
     ctx->summary_data_timestamps[ctx->pe] = ctx->timestep - 1;
 }
 
+
 static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
-        hvr_sparse_vec_t *b, hvr_internal_ctx_t *ctx) {
+        hvr_sparse_vec_t *b, const int64_t a_max_timestep,
+        const int64_t b_max_timestep, const unsigned min_spatial_feature,
+        const unsigned max_spatial_feature) {
     double acc = 0.0;
-    for (unsigned f = ctx->min_spatial_feature; f <= ctx->max_spatial_feature;
-            f++) {
-        const double delta = hvr_sparse_vec_get(f, b, ctx) -
-            hvr_sparse_vec_get(f, a, ctx);
+    for (unsigned f = min_spatial_feature; f <= max_spatial_feature; f++) {
+
+        double a_val, b_val;
+        const int a_err = hvr_sparse_vec_get_internal(f, a, a_max_timestep + 1,
+                &a_val);
+        assert(a_err == 1);
+        const int b_err = hvr_sparse_vec_get_internal(f, b, b_max_timestep + 1,
+                &b_val);
+        if (b_err == 0) {
+            fprintf(stderr, "b_max_timestep = %ld\n", b_max_timestep);
+        }
+        assert(b_err == 1);
+
+        const double delta = b_val - a_val;
         acc += (delta * delta);
     }
     return sqrt(acc);
@@ -770,6 +785,13 @@ static void update_edges(hvr_internal_ctx_t *ctx,
             continue;
         }
 
+        int64_t this_pes_timestep;
+        shmem_getmem(&this_pes_timestep, (int64_t *)ctx->symm_timestep,
+                sizeof(this_pes_timestep), target_pe);
+        if (this_pes_timestep > ctx->timestep - 1) {
+            this_pes_timestep = ctx->timestep - 1;
+        }
+
         for (vertex_id_t j_chunk = 0; j_chunk < ctx->vertices_per_pe[target_pe];
                 j_chunk += EDGE_GET_BUFFERING) {
 
@@ -779,7 +801,37 @@ static void update_edges(hvr_internal_ctx_t *ctx,
             if (left > EDGE_GET_BUFFERING) left = EDGE_GET_BUFFERING;
             hvr_sparse_vec_t *other = &(ctx->vertices[j_chunk]);
 
-            shmem_getmem(ctx->buffer, other, left * sizeof(*other), target_pe);
+            const size_t next_bucket_size = sizeof(other->next_bucket);
+            const size_t timestamps_size = HVR_BUCKETS * sizeof(other->timestamps[0]);
+            const size_t others_size = offsetof(hvr_sparse_vec_t, timestamps);
+
+            /*
+             * Ensure that we receive information in the necessary order.
+             * next_bucket must be received first because it controls where we
+             * start seearching for the most recent timestamp. Then, timestamps
+             * controls us finding the right timestamp. Finally, the rest of the
+             * data can be older than next_bucket and timestamps so.
+             */
+            for (unsigned b = 0; b < left; b++) {
+                shmem_getmem_nbi(&(ctx->buffer[b].next_bucket),
+                        &(other[b].next_bucket), next_bucket_size, target_pe);
+            }
+
+            shmem_fence();
+
+            for (unsigned b = 0; b < left; b++) {
+                shmem_getmem_nbi(&(ctx->buffer[b].timestamps[0]),
+                        &(other[b].timestamps[0]), timestamps_size, target_pe);
+            }
+
+            shmem_fence();
+
+            for (unsigned b = 0; b < left; b++) {
+                shmem_getmem_nbi(&(ctx->buffer[b]), &(other[b]), others_size,
+                        target_pe);
+            }
+
+            shmem_quiet();
 
             const unsigned long long end_getmem_time = hvr_current_time_us();
             *getmem_time += (end_getmem_time - start_time);
@@ -803,7 +855,9 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 
                     const unsigned long long start_update_time = hvr_current_time_us();
                     const double distance = sparse_vec_distance_measure(curr,
-                            ctx->buffer + (j - j_chunk), ctx);
+                            ctx->buffer + (j - j_chunk), ctx->timestep - 1,
+                            this_pes_timestep, ctx->min_spatial_feature,
+                            ctx->max_spatial_feature);
                     const unsigned long long end_update_time = hvr_current_time_us();
                     *update_edge_time += (end_update_time - start_update_time);
 
@@ -869,6 +923,11 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         shmem_longlong_p(&(new_ctx->vertices_per_pe[new_ctx->pe]),
                 n_local_vertices, p);
     }
+
+    new_ctx->symm_timestep = (volatile int64_t *)shmem_malloc(
+            sizeof(*(new_ctx->symm_timestep)));
+    assert(new_ctx->symm_timestep);
+    *(new_ctx->symm_timestep) = -1;
 
     /*
      * Need a barrier to ensure everyone has done their puts before summing into
@@ -958,6 +1017,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
     hvr_sparse_vec_cache_t vertex_cache;
     hvr_sparse_vec_cache_init(&vertex_cache);
 
+    *(ctx->symm_timestep) = 0;
     ctx->timestep = 1;
 
     update_my_summary_data(
@@ -1064,6 +1124,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_updates = hvr_current_time_us();
 
+        *(ctx->symm_timestep) = ctx->timestep;
         ctx->timestep += 1;
 
         /*
