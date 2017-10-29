@@ -197,7 +197,7 @@ typedef int (*hvr_might_interact_func)(void *other_summary, void *my_summary,
  * hvr_might_interact_func to determine whether one PE might want to interact
  * with any of the graph owned by the other PE.
  */
-typedef void (*hvr_update_summary_data)(void *_summary,
+typedef int (*hvr_update_summary_data)(void *_summary,
         hvr_sparse_vec_t *actors, const int nactors, hvr_ctx_t ctx);
 
 typedef struct _hvr_internal_ctx_t {

@@ -721,7 +721,7 @@ static void update_neighbors_based_on_summary_data(hvr_internal_ctx_t *ctx) {
      * This can be approximate, so we just allow this PE to get whatever data it
      * can.
      */
-    int64_t save_timestep = ctx->timestep;
+    const int64_t save_timestep = ctx->timestep;
     ctx->timestep = INT64_MAX;
 
     for (int p = 0; p < ctx->npes; p++) {
@@ -743,14 +743,16 @@ static void update_neighbors_based_on_summary_data(hvr_internal_ctx_t *ctx) {
 #endif
 }
 
-static void update_my_summary_data(unsigned char *summary_data,
+static int update_my_summary_data(unsigned char *summary_data,
         hvr_internal_ctx_t *ctx) {
 
-    ctx->update_summary_data(summary_data, ctx->vertices, ctx->n_local_vertices,
-            ctx);
-    ctx->summary_data_timestamps[ctx->pe] = ctx->timestep - 1;
+    const int any_change = ctx->update_summary_data(summary_data, ctx->vertices,
+            ctx->n_local_vertices, ctx);
+    if (any_change) {
+        ctx->summary_data_timestamps[ctx->pe] = ctx->timestep - 1;
+    }
+    return any_change;
 }
-
 
 static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
         hvr_sparse_vec_t *b, const int64_t a_max_timestep,
@@ -1020,16 +1022,21 @@ void hvr_body(hvr_ctx_t in_ctx) {
     *(ctx->symm_timestep) = 0;
     ctx->timestep = 1;
 
+    /*
+     * Initialize my summary data and share it with all other PEs while also
+     * clearing their local timestamps to indicatee I only have initial
+     * information from them.
+     */
     update_my_summary_data(
             ctx->summary_data + (ctx->pe * ctx->summary_data_size),
             ctx);
 
+    const size_t pe_data_offset = ctx->pe * ctx->summary_data_size;
+    unsigned char *my_summary_data_ptr = ctx->summary_data + pe_data_offset;
     for (int p = 0; p < ctx->npes; p++) {
         if (p == ctx->pe) continue;
-        const size_t pe_data_offset = ctx->pe * ctx->summary_data_size;
 
-        shmem_putmem(ctx->summary_data + pe_data_offset,
-                ctx->summary_data + pe_data_offset,
+        shmem_putmem(my_summary_data_ptr, my_summary_data_ptr,
                 ctx->summary_data_size, p);
         (ctx->summary_data_timestamps)[p] = 0;
     }
@@ -1127,12 +1134,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         *(ctx->symm_timestep) = ctx->timestep;
         ctx->timestep += 1;
 
-        /*
-         * Update my bounding box. TODO at some point it will probably be useful
-         * to allow PEs to advertise multiple bounding boxes, to produce more
-         * precise bounds.
-         */
-        update_my_summary_data(
+        const int any_change_in_summary = update_my_summary_data(
                 ctx->summary_data + (ctx->pe * ctx->summary_data_size), ctx);
 
         // Update who I think my neighbors are
@@ -1140,12 +1142,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_summary_update = hvr_current_time_us();
 
-        // Share my updates with my neighbors
-        for (unsigned p = 0; p < ctx->npes; p++) {
-            if (hvr_pe_set_contains(p, ctx->my_neighbors)) {
+        if (any_change_in_summary) {
+            // Share my updates with all PEs
+            for (unsigned p = 0; p < ctx->npes; p++) {
                 // Lock the other PE's bounding box list, update my entry in it
                 lock_summary_data_list(p, ctx);
 
+                // Pull in my neighbor's latest information 
                 shmem_getmem(ctx->summary_data_timestamps_buffer,
                         ctx->summary_data_timestamps,
                         ctx->npes * sizeof(long long), p);

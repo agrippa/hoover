@@ -146,17 +146,35 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     hvr_sparse_vec_set(4, vy + delta_vy, vertex, ctx);
 }
 
-void update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
+
+int update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
         const int nactors, hvr_ctx_t ctx) {
-    char *summary = (char *)_summary;
+    static char *new_summary = NULL;
+    char *existing_summary = (char *)_summary;
     const int nbytes = ((pe_rows * pe_cols) + 8 - 1) / 8;
-    memset(summary, 0x00, nbytes);
+
+    if (new_summary == NULL) {
+        new_summary = (char *)malloc(nbytes);
+    }
+
+    memset(new_summary, 0x00, nbytes);
     for (int a = 0; a < nactors; a++) {
         int row = CELL_ROW(hvr_sparse_vec_get(1, &actors[a], ctx));
         int col = CELL_ROW(hvr_sparse_vec_get(0, &actors[a], ctx));
         int cell = row * pe_cols + col;
-        summary[cell / 8] |= (1 << (cell % 8));
+        new_summary[cell / 8] |= (1 << (cell % 8));
     }
+
+    int any_change = 0;
+    for (int i = 0; i < nbytes; i++) {
+        if (new_summary[i] != existing_summary[i]) {
+            any_change = 1;
+            memcpy(existing_summary, new_summary, nbytes);
+            break;
+        }
+    }
+
+    return any_change;
 }
 
 /*

@@ -62,13 +62,20 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     }
 }
 
-void update_summary_data(void *summary, hvr_sparse_vec_t *actors,
+int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
         const int nactors, hvr_ctx_t ctx) {
+    double existing_minx, existing_miny, existing_maxx, existing_maxy;
     hvr_sparse_vec_t *mins = ((hvr_sparse_vec_t *)summary) + 0;
     hvr_sparse_vec_t *maxs = ((hvr_sparse_vec_t *)summary) + 1;
 
-    hvr_sparse_vec_init(mins);
-    hvr_sparse_vec_init(maxs);
+    const int first_timestep = (hvr_current_timestep(ctx) == 1);
+
+    if (!first_timestep) {
+        existing_minx = hvr_sparse_vec_get(0, mins, ctx);
+        existing_miny = hvr_sparse_vec_get(1, mins, ctx);
+        existing_maxx = hvr_sparse_vec_get(0, maxs, ctx);
+        existing_maxy = hvr_sparse_vec_get(1, maxs, ctx);
+    }
 
     assert(nactors > 0);
     double minx = hvr_sparse_vec_get(0, &actors[0], ctx);
@@ -88,10 +95,18 @@ void update_summary_data(void *summary, hvr_sparse_vec_t *actors,
         if (curry > maxy) maxy = curry;
     }
 
-    hvr_sparse_vec_set(0, minx, mins, ctx);
-    hvr_sparse_vec_set(1, miny, mins, ctx);
-    hvr_sparse_vec_set(0, maxx, maxs, ctx);
-    hvr_sparse_vec_set(1, maxy, maxs, ctx);
+    if (first_timestep || existing_minx != minx || existing_miny != miny ||
+            existing_maxx != maxx || existing_maxy != maxy) {
+        hvr_sparse_vec_init(mins);
+        hvr_sparse_vec_init(maxs);
+        hvr_sparse_vec_set(0, minx, mins, ctx);
+        hvr_sparse_vec_set(1, miny, mins, ctx);
+        hvr_sparse_vec_set(0, maxx, maxs, ctx);
+        hvr_sparse_vec_set(1, maxy, maxs, ctx);
+        return 1; // summary data changed
+    } else {
+        return 0; // no change
+    }
 }
 
 /*
