@@ -7,6 +7,8 @@
 
 #include <hoover.h>
 
+#define PARTITION_DIM 100
+
 #define PORTAL_CAPTURE_RADIUS 5.0
 #define PE_ROW(this_pe) ((this_pe) / pe_cols)
 #define PE_COL(this_pe) ((this_pe) % pe_cols)
@@ -71,6 +73,21 @@ void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
         size_t *out_local_offset) {
     *out_pe = vertex / actors_per_cell;
     *out_local_offset = vertex % actors_per_cell;
+}
+
+uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
+    const double x = hvr_sparse_vec_get(0, actor, ctx);
+    const double y = hvr_sparse_vec_get(1, actor, ctx);
+
+    const double global_x_dim = (double)pe_cols * cell_dim;
+    const double global_y_dim = (double)pe_rows * cell_dim;
+
+    const double partition_x_dim = global_x_dim / (double)PARTITION_DIM;
+    const double partition_y_dim = global_y_dim / (double)PARTITION_DIM;
+
+    const int x_partition = (int)(x / partition_x_dim);
+    const int y_partition = (int)(y / partition_y_dim);
+    return y_partition * PARTITION_DIM + x_partition;
 }
 
 /*
@@ -391,10 +408,10 @@ int main(int argc, char **argv) {
         }
     }
 
-    hvr_init(actors_per_cell, actors,
+    hvr_init(PARTITION_DIM * PARTITION_DIM, actors_per_cell, actors,
             update_metadata, update_summary_data, might_interact, check_abort,
-            vertex_owner, infection_radius /* threshold */, 0, 1,
-            ((pe_rows * pe_cols) + 8 - 1) / 8, max_num_timesteps, hvr_ctx);
+            vertex_owner, actor_to_partition, infection_radius /* threshold */,
+            0, 1, ((pe_rows * pe_cols) + 8 - 1) / 8, max_num_timesteps, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);

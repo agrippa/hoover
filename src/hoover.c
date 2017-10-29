@@ -888,11 +888,53 @@ static void update_edges(hvr_internal_ctx_t *ctx,
     }
 }
 
-void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
+static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
+    const unsigned slot = ctx->timestep % HVR_BUCKETS;
+    assert(slot < HVR_BUCKETS);
+
+    shmem_set_lock(ctx->actor_to_partition_locks +
+            (ctx->pe * HVR_BUCKETS + slot));
+
+    (ctx->actor_to_partition_timesteps)[slot] = ctx->timestep;
+
+    for (unsigned a = 0; a < ctx->n_local_vertices; a++) {
+        const uint16_t partition = ctx->actor_to_partition(ctx->vertices + a,
+                ctx);
+        assert(partition < ctx->n_partitions);
+        (ctx->actor_to_partition_map)[slot * ctx->n_local_vertices + a] =
+            partition;
+        /*
+         * This doesn't necessarily need to be in the critical section, but to
+         * avoid multiple traversal over all actors we stick it here.
+         */
+        (ctx->last_timestep_using_partition)[partition] = ctx->timestep;
+    }
+
+    shmem_clear_lock(ctx->actor_to_partition_locks +
+            (ctx->pe * HVR_BUCKETS + slot));
+}
+
+static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
+    for (unsigned p = 0; p < ctx->n_partitions; p++) {
+        const int64_t last_use = ctx->last_timestep_using_partition[p];
+        if (last_use >= 0) {
+            assert(last_use <= ctx->timestep);
+            if (ctx->timestep - last_use < HVR_BUCKETS) {
+                hvr_pe_set_insert(p, ctx->partition_time_window);
+            } else {
+                hvr_pe_set_clear(p, ctx->partition_time_window);
+            }
+        }
+    }
+}
+
+void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
+        hvr_sparse_vec_t *vertices,
         hvr_update_metadata_func update_metadata,
         hvr_update_summary_data update_summary_data,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort, hvr_vertex_owner_func vertex_owner,
+        hvr_actor_to_partition actor_to_partition,
         const double connectivity_threshold, const unsigned min_spatial_feature,
         const unsigned max_spatial_feature, const unsigned summary_data_size,
         const int64_t max_timestep, hvr_ctx_t in_ctx) {
@@ -917,6 +959,36 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
             EDGE_GET_BUFFERING * sizeof(*(new_ctx->buffer)));
     assert(new_ctx->buffer);
 
+    new_ctx->symm_timestep = (volatile int64_t *)shmem_malloc(
+            sizeof(*(new_ctx->symm_timestep)));
+    assert(new_ctx->symm_timestep);
+    *(new_ctx->symm_timestep) = -1;
+    new_ctx->last_timestep_using_partition = (int64_t *)malloc(
+            n_partitions * sizeof(int64_t));
+    assert(new_ctx->last_timestep_using_partition);
+    for (unsigned i = 0; i < n_partitions; i++) {
+        (new_ctx->last_timestep_using_partition)[i] = -1;
+    }
+    new_ctx->partition_time_window = hvr_create_empty_pe_set_symmetric(new_ctx);
+
+    new_ctx->actor_to_partition_locks = (long *)shmem_malloc(new_ctx->npes *
+            HVR_BUCKETS * sizeof(*(new_ctx->actor_to_partition_locks)));
+    assert(new_ctx->actor_to_partition_locks);
+    memset(new_ctx->actor_to_partition_locks, 0x00, new_ctx->npes *
+            HVR_BUCKETS * sizeof(*(new_ctx->actor_to_partition_locks)));
+
+    new_ctx->actor_to_partition_timesteps = (int64_t *)shmem_malloc(
+            HVR_BUCKETS * sizeof(*(new_ctx->actor_to_partition_timesteps)));
+    assert(new_ctx->actor_to_partition_timesteps);
+    for (unsigned i = 0; i < HVR_BUCKETS; i++) {
+        (new_ctx->actor_to_partition_timesteps)[i] = -1;
+    }
+
+    new_ctx->actor_to_partition_map = (uint16_t *)shmem_malloc(HVR_BUCKETS *
+            n_local_vertices * sizeof(*(new_ctx->actor_to_partition_map)));
+    assert(new_ctx->actor_to_partition_map);
+
+    new_ctx->n_partitions = n_partitions;
     new_ctx->n_local_vertices = n_local_vertices;
     new_ctx->vertices_per_pe = (long long *)shmem_malloc(
             new_ctx->npes * sizeof(long long ));
@@ -925,11 +997,6 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
         shmem_longlong_p(&(new_ctx->vertices_per_pe[new_ctx->pe]),
                 n_local_vertices, p);
     }
-
-    new_ctx->symm_timestep = (volatile int64_t *)shmem_malloc(
-            sizeof(*(new_ctx->symm_timestep)));
-    assert(new_ctx->symm_timestep);
-    *(new_ctx->symm_timestep) = -1;
 
     /*
      * Need a barrier to ensure everyone has done their puts before summing into
@@ -949,6 +1016,7 @@ void hvr_init(const vertex_id_t n_local_vertices, hvr_sparse_vec_t *vertices,
     new_ctx->might_interact = might_interact;
     new_ctx->check_abort = check_abort;
     new_ctx->vertex_owner = vertex_owner;
+    new_ctx->actor_to_partition = actor_to_partition;
     new_ctx->connectivity_threshold = connectivity_threshold;
     assert(min_spatial_feature <= max_spatial_feature);
     new_ctx->min_spatial_feature = min_spatial_feature;
@@ -1021,6 +1089,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     *(ctx->symm_timestep) = 0;
     ctx->timestep = 1;
+
+    update_actor_partitions(ctx);
+    update_partition_time_window(ctx);
 
     /*
      * Initialize my summary data and share it with all other PEs while also
@@ -1133,6 +1204,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         *(ctx->symm_timestep) = ctx->timestep;
         ctx->timestep += 1;
+
+        /*
+         * Place these after the update to timestep so that they can see the
+         * updates to actors from actor_to_partition.
+         */
+        update_actor_partitions(ctx);
+        // update_partition_time_window(ctx);
 
         const int any_change_in_summary = update_my_summary_data(
                 ctx->summary_data + (ctx->pe * ctx->summary_data_size), ctx);

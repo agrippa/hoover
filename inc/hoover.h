@@ -23,6 +23,8 @@
  *     hvr_finalize();  // return to the user code, not a global barrier
  */
 
+#define BITS_PER_BYTE 8
+
 #define HVR_BUCKETS 512
 // #define HVR_BUCKET_SIZE 16
 #define HVR_BUCKET_SIZE 8
@@ -136,7 +138,6 @@ extern void hvr_clear_edge_set(hvr_edge_set_t *set);
 extern void hvr_release_edge_set(hvr_edge_set_t *set);
 extern void hvr_print_edge_set(hvr_edge_set_t *set);
 
-#define BITS_PER_BYTE 8
 typedef unsigned long long bit_vec_element_type;
 
 /*
@@ -200,6 +201,9 @@ typedef int (*hvr_might_interact_func)(void *other_summary, void *my_summary,
 typedef int (*hvr_update_summary_data)(void *_summary,
         hvr_sparse_vec_t *actors, const int nactors, hvr_ctx_t ctx);
 
+typedef uint16_t (*hvr_actor_to_partition)(hvr_sparse_vec_t *actor,
+        hvr_ctx_t ctx);
+
 typedef struct _hvr_internal_ctx_t {
     int initialized;
     int pe;
@@ -208,6 +212,7 @@ typedef struct _hvr_internal_ctx_t {
     vertex_id_t n_local_vertices;
     long long *vertices_per_pe;
     long long n_global_vertices;
+    uint16_t n_partitions;
 
     hvr_sparse_vec_t *vertices;
 
@@ -215,12 +220,23 @@ typedef struct _hvr_internal_ctx_t {
 
     int64_t timestep;
     volatile int64_t *symm_timestep;
+    int64_t *last_timestep_using_partition;
+    /*
+     * We re-appropriate the pe_set structure here and just use it as a bit
+     * vector. TODO rename to bitvector.
+     */
+    hvr_pe_set_t *partition_time_window;
+
+    long *actor_to_partition_locks;
+    int64_t *actor_to_partition_timesteps;
+    uint16_t *actor_to_partition_map;
 
     hvr_update_metadata_func update_metadata;
     hvr_update_summary_data update_summary_data;
     hvr_might_interact_func might_interact;
     hvr_check_abort_func check_abort;
     hvr_vertex_owner_func vertex_owner;
+    hvr_actor_to_partition actor_to_partition;
     double connectivity_threshold;
     unsigned min_spatial_feature, max_spatial_feature;
     unsigned summary_data_size;
@@ -254,13 +270,15 @@ typedef struct _hvr_internal_ctx_t {
 // Must be called after shmem_init
 extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
 
-extern void hvr_init(const vertex_id_t n_local_vertices,
+extern void hvr_init(const uint16_t n_partitions,
+        const vertex_id_t n_local_vertices,
         hvr_sparse_vec_t *vertices,
         hvr_update_metadata_func update_metadata,
         hvr_update_summary_data update_summary_data,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort,
         hvr_vertex_owner_func vertex_owner,
+        hvr_actor_to_partition actor_to_partition,
         const double connectivity_threshold,
         const unsigned min_spatial_feature_inclusive,
         const unsigned max_spatial_feature_inclusive,

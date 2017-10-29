@@ -6,6 +6,8 @@
 
 #include <hoover.h>
 
+#define PARTITION_DIM 10
+
 unsigned grid_dim = 3;
 static int npes, pe;
 long long total_time = 0;
@@ -37,6 +39,16 @@ void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
             ((new_vertex / cells_per_pe) * cells_per_pe);
         *out_local_offset = vertex - base_pe_offset;
     }
+}
+
+uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
+    const double row = hvr_sparse_vec_get(0, actor, ctx);
+    const double col = hvr_sparse_vec_get(1, actor, ctx);
+
+    const double partition_size = (double)grid_dim / (double)PARTITION_DIM;
+    const int row_partition = (int)(row / partition_size);
+    const int col_partition = (int)(col / partition_size);
+    return row_partition * PARTITION_DIM + col_partition;
 }
 
 /*
@@ -75,6 +87,8 @@ int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
         existing_miny = hvr_sparse_vec_get(1, mins, ctx);
         existing_maxx = hvr_sparse_vec_get(0, maxs, ctx);
         existing_maxy = hvr_sparse_vec_get(1, maxs, ctx);
+
+        fprintf(stderr, "PE %d on timestep %ld sees (%f, %f) -> (%f, %f)\n", shmem_my_pe(), hvr_current_timestep(ctx), existing_minx, existing_miny, existing_maxx, existing_maxy);
     }
 
     assert(nactors > 0);
@@ -97,6 +111,8 @@ int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
 
     if (first_timestep || existing_minx != minx || existing_miny != miny ||
             existing_maxx != maxx || existing_maxy != maxy) {
+        fprintf(stderr, "PE %d updating mins/maxs on timestep %ld\n", shmem_my_pe(), hvr_current_timestep(ctx));
+
         hvr_sparse_vec_init(mins);
         hvr_sparse_vec_init(maxs);
         hvr_sparse_vec_set(0, minx, mins, ctx);
@@ -255,10 +271,11 @@ int main(int argc, char **argv) {
     }
 #endif
 
-    hvr_init(grid_cells_this_pe, vertices, update_metadata,
-            update_summary_data, might_interact, check_abort,
-            vertex_owner, 1.1, 0, 1, 2 * sizeof(hvr_sparse_vec_t), INT64_MAX,
-            hvr_ctx);
+    // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
+    hvr_init(PARTITION_DIM * PARTITION_DIM, grid_cells_this_pe, vertices,
+            update_metadata, update_summary_data, might_interact, check_abort,
+            vertex_owner, actor_to_partition, 1.1, 0, 1,
+            2 * sizeof(hvr_sparse_vec_t), INT64_MAX, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);
