@@ -15,6 +15,10 @@ ulimit -c unlimited
 echo "Running on:"
 echo $SLURM_NODELIST
 echo
+echo "Using OpenSHMEM @ $OPENSHMEM_INSTALL"
+echo
+
+export SMA_SYMMETRIC_SIZE=$((1024 * 1024 * 1024))
 
 export PMI_MAX_KVS_ENTRIES=$((1000 * $SLURM_NNODES))
 export LD_LIBRARY_PATH=$OPENSHMEM_INSTALL/lib:$LD_LIBRARY_PATH
@@ -45,8 +49,9 @@ srun --ntasks-per-node=1 bash -c "rm -f /var/tmp/core.*"
 echo
 echo
 echo
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 70
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 10 # 70
+$OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) ./bin/init_test 70
 echo
 echo
 echo

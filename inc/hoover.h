@@ -191,7 +191,7 @@ typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
  * vertices on another PE.
  */
 typedef int (*hvr_might_interact_func)(void *other_summary, void *my_summary,
-        hvr_ctx_t ctx);
+        const int other_pe, hvr_ctx_t ctx);
 
 /*
  * API for updating user-defined summary information which can be used by

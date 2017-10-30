@@ -28,9 +28,8 @@ hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
 }
 
 void hvr_sparse_vec_init(hvr_sparse_vec_t *vec) {
+    memset(vec, 0x00, sizeof(*vec));
     vec->pe = shmem_my_pe();
-    memset(&(vec->bucket_size[0]), 0x00, HVR_BUCKETS * sizeof(unsigned));
-    vec->next_bucket = 0;
 }
 
 static inline unsigned prev_bucket(const unsigned bucket) {
@@ -173,7 +172,8 @@ static int hvr_sparse_vec_get_internal(const unsigned feature,
         // bucket size == 0 indicates an invalid bucket
         if (vec->bucket_size[curr_bucket] == 0) break;
 
-        if (vec->timestamps[curr_bucket] < curr_timestamp && vec->timestamps[curr_bucket] >= 0) {
+        if (vec->timestamps[curr_bucket] >= 0 &&
+                vec->timestamps[curr_bucket] < curr_timestamp) {
             // Handle finding an existing bucket for this timestep
             const unsigned bucket_size = vec->bucket_size[curr_bucket];
             for (unsigned i = 0; i < bucket_size; i++) {
@@ -728,7 +728,7 @@ static void update_neighbors_based_on_summary_data(hvr_internal_ctx_t *ctx) {
         unsigned char *other_summary_data = ctx->summary_data +
             (p * ctx->summary_data_size);
 
-        if (ctx->might_interact(other_summary_data, my_summary_data, ctx)) {
+        if (ctx->might_interact(other_summary_data, my_summary_data, p, ctx)) {
             hvr_pe_set_insert(p, ctx->my_neighbors);
         }
     }
@@ -984,10 +984,6 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         (new_ctx->actor_to_partition_timesteps)[i] = -1;
     }
 
-    new_ctx->actor_to_partition_map = (uint16_t *)shmem_malloc(HVR_BUCKETS *
-            n_local_vertices * sizeof(*(new_ctx->actor_to_partition_map)));
-    assert(new_ctx->actor_to_partition_map);
-
     new_ctx->n_partitions = n_partitions;
     new_ctx->n_local_vertices = n_local_vertices;
     new_ctx->vertices_per_pe = (long long *)shmem_malloc(
@@ -1004,12 +1000,20 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
      */
     shmem_barrier_all();
 
+    vertex_id_t max_n_local_vertices = new_ctx->vertices_per_pe[0];
     new_ctx->n_global_vertices = 0;
     for (unsigned p = 0; p < new_ctx->npes; p++) {
         new_ctx->n_global_vertices += new_ctx->vertices_per_pe[p];
+        if (new_ctx->vertices_per_pe[p] > max_n_local_vertices) {
+            max_n_local_vertices = new_ctx->vertices_per_pe[p];
+        }
     }
 
     new_ctx->vertices = vertices;
+
+    new_ctx->actor_to_partition_map = (uint16_t *)shmem_malloc(HVR_BUCKETS *
+            max_n_local_vertices * sizeof(*(new_ctx->actor_to_partition_map)));
+    assert(new_ctx->actor_to_partition_map);
 
     new_ctx->update_metadata = update_metadata;
     new_ctx->update_summary_data = update_summary_data;
@@ -1098,16 +1102,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
      * clearing their local timestamps to indicatee I only have initial
      * information from them.
      */
-    update_my_summary_data(
-            ctx->summary_data + (ctx->pe * ctx->summary_data_size),
-            ctx);
-
-    const size_t pe_data_offset = ctx->pe * ctx->summary_data_size;
-    unsigned char *my_summary_data_ptr = ctx->summary_data + pe_data_offset;
+    unsigned char *my_summary_data = ctx->summary_data +
+        (ctx->pe * ctx->summary_data_size);
+    update_my_summary_data(my_summary_data, ctx);
     for (int p = 0; p < ctx->npes; p++) {
         if (p == ctx->pe) continue;
 
-        shmem_putmem(my_summary_data_ptr, my_summary_data_ptr,
+        shmem_putmem(my_summary_data, my_summary_data,
                 ctx->summary_data_size, p);
         (ctx->summary_data_timestamps)[p] = 0;
     }
@@ -1210,7 +1211,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
          * updates to actors from actor_to_partition.
          */
         update_actor_partitions(ctx);
-        // update_partition_time_window(ctx);
+        update_partition_time_window(ctx);
 
         const int any_change_in_summary = update_my_summary_data(
                 ctx->summary_data + (ctx->pe * ctx->summary_data_size), ctx);

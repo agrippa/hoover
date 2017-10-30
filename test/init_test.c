@@ -76,9 +76,9 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
 
 int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
         const int nactors, hvr_ctx_t ctx) {
-    double existing_minx, existing_miny, existing_maxx, existing_maxy;
     hvr_sparse_vec_t *mins = ((hvr_sparse_vec_t *)summary) + 0;
     hvr_sparse_vec_t *maxs = ((hvr_sparse_vec_t *)summary) + 1;
+    double existing_minx, existing_miny, existing_maxx, existing_maxy;
 
     const int first_timestep = (hvr_current_timestep(ctx) == 1);
 
@@ -87,8 +87,6 @@ int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
         existing_miny = hvr_sparse_vec_get(1, mins, ctx);
         existing_maxx = hvr_sparse_vec_get(0, maxs, ctx);
         existing_maxy = hvr_sparse_vec_get(1, maxs, ctx);
-
-        fprintf(stderr, "PE %d on timestep %ld sees (%f, %f) -> (%f, %f)\n", shmem_my_pe(), hvr_current_timestep(ctx), existing_minx, existing_miny, existing_maxx, existing_maxy);
     }
 
     assert(nactors > 0);
@@ -111,7 +109,6 @@ int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
 
     if (first_timestep || existing_minx != minx || existing_miny != miny ||
             existing_maxx != maxx || existing_maxy != maxy) {
-        fprintf(stderr, "PE %d updating mins/maxs on timestep %ld\n", shmem_my_pe(), hvr_current_timestep(ctx));
 
         hvr_sparse_vec_init(mins);
         hvr_sparse_vec_init(maxs);
@@ -129,11 +126,17 @@ int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
  * Callback used to check if this PE might interact with another PE based on the
  * maximums and minimums of all vertices owned by each PE.
  */
-int might_interact(void *other_summary, void *my_summary, hvr_ctx_t ctx) {
+int might_interact(void *other_summary, void *my_summary, const int other_pe,
+        hvr_ctx_t ctx) {
     hvr_sparse_vec_t *other_mins = ((hvr_sparse_vec_t *)other_summary) + 0;
     hvr_sparse_vec_t *other_maxs = ((hvr_sparse_vec_t *)other_summary) + 1;
     hvr_sparse_vec_t *my_mins = ((hvr_sparse_vec_t *)my_summary) + 0;
     hvr_sparse_vec_t *my_maxs = ((hvr_sparse_vec_t *)my_summary) + 1;
+
+    assert(hvr_sparse_vec_get_owning_pe(my_mins) == shmem_my_pe());
+    assert(hvr_sparse_vec_get_owning_pe(my_maxs) == shmem_my_pe());
+    assert(hvr_sparse_vec_get_owning_pe(other_mins) == other_pe);
+    assert(hvr_sparse_vec_get_owning_pe(other_maxs) == other_pe);
 
     if (hvr_sparse_vec_get(0, other_maxs, ctx) >=
             hvr_sparse_vec_get(0, my_mins, ctx) - 1.0 &&

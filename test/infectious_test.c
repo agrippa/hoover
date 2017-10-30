@@ -198,7 +198,8 @@ int update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
  * Callback used to check if this PE might interact with another PE based on the
  * maximums and minimums of all vertices owned by each PE.
  */
-int might_interact(void *_other_summary, void *_my_summary, hvr_ctx_t ctx) {
+int might_interact(void *_other_summary, void *_my_summary, const int other_pe,
+        hvr_ctx_t ctx) {
     unsigned char *other_summary = (unsigned char *)_other_summary;
     unsigned char *my_summary = (unsigned char *)_my_summary;
     const int nbytes = ((pe_rows * pe_cols) + 8 - 1) / 8;
