@@ -217,51 +217,6 @@ int might_interact(const uint16_t partition, hvr_pe_set_t *partitions,
         }
     }
     return 0;
-
-
-
-
-    unsigned char *other_summary = (unsigned char *)_other_summary;
-    unsigned char *my_summary = (unsigned char *)_my_summary;
-    const int nbytes = ((pe_rows * pe_cols) + 8 - 1) / 8;
-
-    /*
-     * This assumes that the connectivity threshold cannot expand beyond one
-     * cell.
-     */
-    char *my_summary_with_neighbors = (char *)malloc(nbytes);
-    assert(my_summary_with_neighbors);
-    for (int row = 0; row < pe_rows; row++) {
-        for (int col = 0; col < pe_cols; col++) {
-            int cell_index = CELL_INDEX(row, col);
-            unsigned byte_index = cell_index / 8;
-            unsigned char bit_mask = (1 << (cell_index % 8));
-            if (my_summary[byte_index] & bit_mask) {
-                for (int row_delta = -1; row_delta <= 1; row_delta++) {
-                    for (int col_delta = -1; col_delta <= 1; col_delta++) {
-                        int other_cell_index = CELL_INDEX(row + row_delta,
-                                col + col_delta);
-                        if (other_cell_index >= 0 &&
-                                other_cell_index < pe_rows * pe_cols) {
-                            byte_index = other_cell_index / 8;
-                            bit_mask = (1 << (other_cell_index % 8));
-                            my_summary_with_neighbors[byte_index] |= bit_mask;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    for (int i = 0; i < nbytes; i++) {
-        if ((other_summary[i] & my_summary_with_neighbors[i]) > 0) {
-            return 1;
-        }
-    }
-
-    free(my_summary_with_neighbors);
-
-    return 0;
 }
 
 static unsigned long long last_time = 0;
