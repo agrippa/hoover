@@ -190,7 +190,7 @@ typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
  * API for checking if this PE might have any vertices that interact with
  * vertices on another PE.
  */
-typedef int (*hvr_might_interact_func)(void *other_summary, void *my_summary,
+typedef int (*hvr_might_interact_func)(hvr_pe_set_t *other_partitions, hvr_pe_set_t *my_partitions,
         const int other_pe, hvr_ctx_t ctx);
 
 /*

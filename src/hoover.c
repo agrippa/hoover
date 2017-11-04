@@ -787,6 +787,30 @@ static void update_edges(hvr_internal_ctx_t *ctx,
             continue;
         }
 
+        unsigned actor_to_partition_slot = ctx->timestep % HVR_BUCKETS;
+        int64_t slot_timestep;
+        while (1) {
+            lock_actor_to_partition(target_pe, actor_to_partition_slot, ctx);
+            shmem_getmem(&slot_timestep,
+                    ctx->actor_to_partition_timesteps + actor_to_partition_slot,
+                    sizeof(slot_timestep), target_pe);
+            assert(slot_timestep <= ctx->timestep);
+
+            if (slot_timestep == ctx->timestep) break;
+
+            unlock_actor_to_partition(target_pe, actor_to_partition_slot, ctx);
+        }
+
+        /*
+         * TODO fetch the other PEs actor_to_partition_map, use that to figure
+         * out which actors are in partitions I care about, and then fetch only
+         * those actors to update my local edges.
+         */
+        ctx->max_n_local_vertices
+
+        unlock_actor_to_partition(target_pe, actor_to_partition_slot, ctx);
+
+
         int64_t this_pes_timestep;
         shmem_getmem(&this_pes_timestep, (int64_t *)ctx->symm_timestep,
                 sizeof(this_pes_timestep), target_pe);
@@ -888,12 +912,27 @@ static void update_edges(hvr_internal_ctx_t *ctx,
     }
 }
 
+static void lock_actor_to_partition(const int pe, const unsigned slot,
+        hvr_internal_ctx_t *ctx) {
+    shmem_set_lock(ctx->actor_to_partition_locks + (pe * HVR_BUCKETS + slot));
+}
+
+static void unlock_actor_to_partition(const int pe, const unsigned slot,
+        hvr_internal_ctx_t *ctx) {
+    shmem_clear_lock(ctx->actor_to_partition_locks + (pe * HVR_BUCKETS + slot));
+}
+
+/*
+ * Update the mapping from each local actor to the partition it belongs to
+ * (actor_to_partition_map) as well as information on the last timestep that
+ * used each partition (last_timestep_using_partition). This mapping is stored
+ * per-timestep, in a circular buffer.
+ */
 static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
     const unsigned slot = ctx->timestep % HVR_BUCKETS;
     assert(slot < HVR_BUCKETS);
 
-    shmem_set_lock(ctx->actor_to_partition_locks +
-            (ctx->pe * HVR_BUCKETS + slot));
+    lock_actor_to_partition(ctx->pe, slot, ctx);
 
     (ctx->actor_to_partition_timesteps)[slot] = ctx->timestep;
 
@@ -910,10 +949,15 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
         (ctx->last_timestep_using_partition)[partition] = ctx->timestep;
     }
 
-    shmem_clear_lock(ctx->actor_to_partition_locks +
-            (ctx->pe * HVR_BUCKETS + slot));
+    unlock_actor_to_partition(ctx->pe, slot, ctx);
 }
 
+/*
+ * partition_time_window stores a list of the partitions that the local PE has
+ * had actors inside during some window of recent timesteps. This updates the
+ * partitions in that window set based on the results of
+ * update_actor_partitions.
+ */
 static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
     for (unsigned p = 0; p < ctx->n_partitions; p++) {
         const int64_t last_use = ctx->last_timestep_using_partition[p];
@@ -1125,6 +1169,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
 
+    hvr_pe_set_t *other_pe_partition_time_window = hvr_create_empty_pe_set(ctx);
+    hvr_pe_set_t *to_communicate_with = hvr_create_empty_pe_set(ctx);
+
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
         const unsigned long long start_iter = hvr_current_time_us();
@@ -1213,43 +1260,18 @@ void hvr_body(hvr_ctx_t in_ctx) {
         update_actor_partitions(ctx);
         update_partition_time_window(ctx);
 
-        const int any_change_in_summary = update_my_summary_data(
-                ctx->summary_data + (ctx->pe * ctx->summary_data_size), ctx);
+        for (unsigned p = 0; p < ctx->npes; p++) {
+            shmem_getmem(other_pe_partition_time_window->bit_vector,
+                    ctx->partition_time_window,
+                    other_pe_partition_time_window->nelements, p);
 
-        // Update who I think my neighbors are
-        update_neighbors_based_on_summary_data(ctx);
-
-        const unsigned long long finished_summary_update = hvr_current_time_us();
-
-        if (any_change_in_summary) {
-            // Share my updates with all PEs
-            for (unsigned p = 0; p < ctx->npes; p++) {
-                // Lock the other PE's bounding box list, update my entry in it
-                lock_summary_data_list(p, ctx);
-
-                // Pull in my neighbor's latest information 
-                shmem_getmem(ctx->summary_data_timestamps_buffer,
-                        ctx->summary_data_timestamps,
-                        ctx->npes * sizeof(long long), p);
-
-                const unsigned summary_data_size = ctx->summary_data_size;
-                for (unsigned pp = 0; pp < ctx->npes; pp++) {
-                    if (ctx->summary_data_timestamps[pp] >
-                            ctx->summary_data_timestamps_buffer[pp]) {
-                        shmem_putmem(
-                                ctx->summary_data + (pp * summary_data_size),
-                                ctx->summary_data + (pp * summary_data_size),
-                                summary_data_size, p);
-                    }
-                }
-
-                shmem_fence();
-
-                unlock_summary_data_list(p, ctx);
+            if (ctx->might_interact(other_pe_partition_time_window,
+                        ctx->partition_time_window, p, ctx)) {
+                hvr_pe_set_insert(p, ctx->my_neighbors);
             }
         }
 
-        const unsigned long long finished_summary_sends = hvr_current_time_us();
+        const unsigned long long finished_summary_update = hvr_current_time_us();
 
         hvr_clear_edge_set(ctx->edges);
         unsigned long long getmem_time = 0;
