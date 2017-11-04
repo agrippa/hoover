@@ -1093,6 +1093,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
             neighbors_capacity * sizeof(*neighbors));
     assert(neighbors);
 
+    ctx->other_pe_partition_time_window = hvr_create_empty_pe_set(ctx);
+
     hvr_sparse_vec_cache_t vertex_cache;
     hvr_sparse_vec_cache_init(&vertex_cache);
 
@@ -1128,8 +1130,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
     update_edges(ctx, &unused, &unused);
 
     hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
-
-    ctx->other_pe_partition_time_window = hvr_create_empty_pe_set(ctx);
 
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
