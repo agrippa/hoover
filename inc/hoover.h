@@ -190,8 +190,8 @@ typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
  * API for checking if this PE might have any vertices that interact with
  * vertices on another PE.
  */
-typedef int (*hvr_might_interact_func)(hvr_pe_set_t *other_partitions, hvr_pe_set_t *my_partitions,
-        const int other_pe, hvr_ctx_t ctx);
+typedef int (*hvr_might_interact_func)(const uint16_t partition,
+        hvr_pe_set_t *partitions, hvr_ctx_t ctx);
 
 /*
  * API for updating user-defined summary information which can be used by
@@ -211,6 +211,7 @@ typedef struct _hvr_internal_ctx_t {
 
     vertex_id_t n_local_vertices;
     long long *vertices_per_pe;
+    vertex_id_t max_n_local_vertices;
     long long n_global_vertices;
     uint16_t n_partitions;
 
@@ -226,6 +227,7 @@ typedef struct _hvr_internal_ctx_t {
      * vector. TODO rename to bitvector.
      */
     hvr_pe_set_t *partition_time_window;
+    hvr_pe_set_t *other_pe_partition_time_window;
 
     long *actor_to_partition_locks;
     int64_t *actor_to_partition_timesteps;

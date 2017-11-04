@@ -198,8 +198,29 @@ int update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
  * Callback used to check if this PE might interact with another PE based on the
  * maximums and minimums of all vertices owned by each PE.
  */
-int might_interact(void *_other_summary, void *_my_summary, const int other_pe,
+int might_interact(const uint16_t partition, hvr_pe_set_t *partitions,
         hvr_ctx_t ctx) {
+    /*
+     * If partition is neighboring any partition in partitions, they might
+     * interact.
+     */
+    const int partition_row = partition / PARTITION_DIM;
+    const int partition_col = partition % PARTITION_DIM;
+
+    for (int row = -1; row <= 1; row++) {
+        for (int col = -1; col <= 1; col++) {
+            const int part = (partition_row + row) * PARTITION_DIM +
+                (partition_col + col);
+            if (hvr_pe_set_contains(part, partitions)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+
+
+
+
     unsigned char *other_summary = (unsigned char *)_other_summary;
     unsigned char *my_summary = (unsigned char *)_my_summary;
     const int nbytes = ((pe_rows * pe_cols) + 8 - 1) / 8;

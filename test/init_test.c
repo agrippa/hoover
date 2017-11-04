@@ -6,6 +6,11 @@
 
 #include <hoover.h>
 
+/*
+ * This simple example of the HOOVER framework creates a 2D grid of statically
+ * placed actors.
+ */
+
 #define PARTITION_DIM 10
 
 unsigned grid_dim = 3;
@@ -126,27 +131,23 @@ int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
  * Callback used to check if this PE might interact with another PE based on the
  * maximums and minimums of all vertices owned by each PE.
  */
-int might_interact(void *other_summary, void *my_summary, const int other_pe,
+int might_interact(const uint16_t partition, hvr_pe_set_t *partitions,
         hvr_ctx_t ctx) {
-    hvr_sparse_vec_t *other_mins = ((hvr_sparse_vec_t *)other_summary) + 0;
-    hvr_sparse_vec_t *other_maxs = ((hvr_sparse_vec_t *)other_summary) + 1;
-    hvr_sparse_vec_t *my_mins = ((hvr_sparse_vec_t *)my_summary) + 0;
-    hvr_sparse_vec_t *my_maxs = ((hvr_sparse_vec_t *)my_summary) + 1;
+    /*
+     * If partition is neighboring any partition in partitions, they might
+     * interact.
+     */
+    const int partition_row = partition / PARTITION_DIM;
+    const int partition_col = partition % PARTITION_DIM;
 
-    assert(hvr_sparse_vec_get_owning_pe(my_mins) == shmem_my_pe());
-    assert(hvr_sparse_vec_get_owning_pe(my_maxs) == shmem_my_pe());
-    assert(hvr_sparse_vec_get_owning_pe(other_mins) == other_pe);
-    assert(hvr_sparse_vec_get_owning_pe(other_maxs) == other_pe);
-
-    if (hvr_sparse_vec_get(0, other_maxs, ctx) >=
-            hvr_sparse_vec_get(0, my_mins, ctx) - 1.0 &&
-            hvr_sparse_vec_get(0, my_maxs, ctx) + 1.0 >=
-            hvr_sparse_vec_get(0, other_mins, ctx) &&
-            hvr_sparse_vec_get(1, other_maxs, ctx) >=
-            hvr_sparse_vec_get(1, my_mins, ctx) - 1.0 &&
-            hvr_sparse_vec_get(1, my_maxs, ctx) + 1.0 >=
-            hvr_sparse_vec_get(1, other_mins, ctx)) {
-        return 1;
+    for (int row = -1; row <= 1; row++) {
+        for (int col = -1; col <= 1; col++) {
+            const int part = (partition_row + row) * PARTITION_DIM +
+                (partition_col + col);
+            if (hvr_pe_set_contains(part, partitions)) {
+                return 1;
+            }
+        }
     }
     return 0;
 }

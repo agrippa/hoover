@@ -698,44 +698,24 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
     *out_ctx = new_ctx;
 }
 
-static void lock_summary_data_list(const int pe, hvr_internal_ctx_t *ctx) {
-    int old_val;
-    do {
-        old_val = shmem_int_cswap(ctx->summary_data_lock, 0, 1, pe);
-    } while (old_val != 0);
-}
+static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx) {
+        hvr_pe_set_wipe(ctx->my_neighbors);
+        for (unsigned p = 0; p < ctx->npes; p++) {
+            shmem_getmem(ctx->other_pe_partition_time_window->bit_vector,
+                    ctx->partition_time_window,
+                    ctx->other_pe_partition_time_window->nelements, p);
 
-static void unlock_summary_data_list(const int pe, hvr_internal_ctx_t *ctx) {
-    shmem_int_cswap(ctx->summary_data_lock, 1, 0, pe);
-}
+            for (unsigned part = 0; part < ctx->n_partitions; part++) {
+                if (hvr_pe_set_contains(part, ctx->other_pe_partition_time_window)) {
+                    if (ctx->might_interact(part, ctx->partition_time_window,
+                                ctx)) {
+                        hvr_pe_set_insert(p, ctx->my_neighbors);
+                        break;
+                    }
+                }
 
-static void update_neighbors_based_on_summary_data(hvr_internal_ctx_t *ctx) {
-    unsigned char *my_summary_data = ctx->summary_data +
-        (ctx->pe * ctx->summary_data_size);
-
-    hvr_pe_set_wipe(ctx->my_neighbors);
-
-    lock_summary_data_list(ctx->pe, ctx);
-
-    /*
-     * This can be approximate, so we just allow this PE to get whatever data it
-     * can.
-     */
-    const int64_t save_timestep = ctx->timestep;
-    ctx->timestep = INT64_MAX;
-
-    for (int p = 0; p < ctx->npes; p++) {
-        unsigned char *other_summary_data = ctx->summary_data +
-            (p * ctx->summary_data_size);
-
-        if (ctx->might_interact(other_summary_data, my_summary_data, p, ctx)) {
-            hvr_pe_set_insert(p, ctx->my_neighbors);
+            }
         }
-    }
-
-    ctx->timestep = save_timestep;
-
-    unlock_summary_data_list(ctx->pe, ctx);
 
 #ifdef VERBOSE
     printf("PE %d is talking to %d other PEs\n", ctx->pe,
@@ -778,9 +758,23 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
     return sqrt(acc);
 }
 
+static void lock_actor_to_partition(const int pe, const unsigned slot,
+        hvr_internal_ctx_t *ctx) {
+    shmem_set_lock(ctx->actor_to_partition_locks + (pe * HVR_BUCKETS + slot));
+}
+
+static void unlock_actor_to_partition(const int pe, const unsigned slot,
+        hvr_internal_ctx_t *ctx) {
+    shmem_clear_lock(ctx->actor_to_partition_locks + (pe * HVR_BUCKETS + slot));
+}
+
 static void update_edges(hvr_internal_ctx_t *ctx,
         unsigned long long *getmem_time, unsigned long long *update_edge_time) {
     // For each PE
+    uint16_t *other_actor_to_partition_map = (uint16_t *)malloc(
+            ctx->max_n_local_vertices * sizeof(uint16_t));
+    assert(other_actor_to_partition_map);
+
     for (unsigned p = 0; p < ctx->npes; p++) {
         const unsigned target_pe = (ctx->pe + p) % ctx->npes;
         if (!hvr_pe_set_contains(target_pe, ctx->my_neighbors)) {
@@ -806,10 +800,10 @@ static void update_edges(hvr_internal_ctx_t *ctx,
          * out which actors are in partitions I care about, and then fetch only
          * those actors to update my local edges.
          */
-        ctx->max_n_local_vertices
+        shmem_getmem(other_actor_to_partition_map, ctx->actor_to_partition_map,
+                ctx->max_n_local_vertices * sizeof(uint16_t), target_pe);
 
         unlock_actor_to_partition(target_pe, actor_to_partition_slot, ctx);
-
 
         int64_t this_pes_timestep;
         shmem_getmem(&this_pes_timestep, (int64_t *)ctx->symm_timestep,
@@ -818,52 +812,30 @@ static void update_edges(hvr_internal_ctx_t *ctx,
             this_pes_timestep = ctx->timestep - 1;
         }
 
-        for (vertex_id_t j_chunk = 0; j_chunk < ctx->vertices_per_pe[target_pe];
-                j_chunk += EDGE_GET_BUFFERING) {
-
+        for (vertex_id_t j = 0; j < ctx->vertices_per_pe[target_pe]; j++) {
+            hvr_sparse_vec_t *other = &(ctx->vertices[j]);
             const unsigned long long start_time = hvr_current_time_us();
+            const uint64_t actor_partition = other_actor_to_partition_map[j];
+            if (ctx->might_interact(actor_partition, ctx->partition_time_window,
+                        ctx)) {
+                hvr_sparse_vec_t vec;
+                shmem_getmem_nbi(&(vec.next_bucket), &(other->next_bucket),
+                        sizeof(vec.next_bucket), target_pe);
 
-            unsigned left = ctx->vertices_per_pe[target_pe] - j_chunk;
-            if (left > EDGE_GET_BUFFERING) left = EDGE_GET_BUFFERING;
-            hvr_sparse_vec_t *other = &(ctx->vertices[j_chunk]);
+                shmem_fence();
 
-            const size_t next_bucket_size = sizeof(other->next_bucket);
-            const size_t timestamps_size = HVR_BUCKETS * sizeof(other->timestamps[0]);
-            const size_t others_size = offsetof(hvr_sparse_vec_t, timestamps);
+                shmem_getmem_nbi(&(vec.timestamps[0]), &(other->timestamps[0]),
+                        HVR_BUCKETS * sizeof(other->timestamps[0]), target_pe);
 
-            /*
-             * Ensure that we receive information in the necessary order.
-             * next_bucket must be received first because it controls where we
-             * start seearching for the most recent timestamp. Then, timestamps
-             * controls us finding the right timestamp. Finally, the rest of the
-             * data can be older than next_bucket and timestamps so.
-             */
-            for (unsigned b = 0; b < left; b++) {
-                shmem_getmem_nbi(&(ctx->buffer[b].next_bucket),
-                        &(other[b].next_bucket), next_bucket_size, target_pe);
-            }
+                shmem_fence();
 
-            shmem_fence();
+                shmem_getmem_nbi(&vec, other, offsetof(hvr_sparse_vec_t,
+                            timestamps), target_pe);
 
-            for (unsigned b = 0; b < left; b++) {
-                shmem_getmem_nbi(&(ctx->buffer[b].timestamps[0]),
-                        &(other[b].timestamps[0]), timestamps_size, target_pe);
-            }
+                shmem_quiet();
 
-            shmem_fence();
-
-            for (unsigned b = 0; b < left; b++) {
-                shmem_getmem_nbi(&(ctx->buffer[b]), &(other[b]), others_size,
-                        target_pe);
-            }
-
-            shmem_quiet();
-
-            const unsigned long long end_getmem_time = hvr_current_time_us();
-            *getmem_time += (end_getmem_time - start_time);
-
-            // For each vertex stored on the other PE
-            for (vertex_id_t j = j_chunk; j < j_chunk + left; j++) {
+                const unsigned long long end_getmem_time = hvr_current_time_us();
+                *getmem_time += (end_getmem_time - start_time);
 
                 /*
                  * For each local vertex, check if we want to add an edge from
@@ -876,14 +848,12 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                      */
                     if (target_pe == ctx->pe && i == j) continue;
 
-
                     hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
 
                     const unsigned long long start_update_time = hvr_current_time_us();
                     const double distance = sparse_vec_distance_measure(curr,
-                            ctx->buffer + (j - j_chunk), ctx->timestep - 1,
-                            this_pes_timestep, ctx->min_spatial_feature,
-                            ctx->max_spatial_feature);
+                            &vec, ctx->timestep - 1, this_pes_timestep,
+                            ctx->min_spatial_feature, ctx->max_spatial_feature);
                     const unsigned long long end_update_time = hvr_current_time_us();
                     *update_edge_time += (end_update_time - start_update_time);
 
@@ -903,23 +873,14 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 #endif
                     if (distance < ctx->connectivity_threshold) {
                         // Add edge
-                        hvr_add_edge(curr->id, (ctx->buffer)[j - j_chunk].id,
-                                ctx->edges);
+                        hvr_add_edge(curr->id, vec.id, ctx->edges);
                     }
                 }
             }
         }
     }
-}
 
-static void lock_actor_to_partition(const int pe, const unsigned slot,
-        hvr_internal_ctx_t *ctx) {
-    shmem_set_lock(ctx->actor_to_partition_locks + (pe * HVR_BUCKETS + slot));
-}
-
-static void unlock_actor_to_partition(const int pe, const unsigned slot,
-        hvr_internal_ctx_t *ctx) {
-    shmem_clear_lock(ctx->actor_to_partition_locks + (pe * HVR_BUCKETS + slot));
+    free(other_actor_to_partition_map);
 }
 
 /*
@@ -1044,19 +1005,19 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
      */
     shmem_barrier_all();
 
-    vertex_id_t max_n_local_vertices = new_ctx->vertices_per_pe[0];
+    new_ctx->max_n_local_vertices = new_ctx->vertices_per_pe[0];
     new_ctx->n_global_vertices = 0;
     for (unsigned p = 0; p < new_ctx->npes; p++) {
         new_ctx->n_global_vertices += new_ctx->vertices_per_pe[p];
-        if (new_ctx->vertices_per_pe[p] > max_n_local_vertices) {
-            max_n_local_vertices = new_ctx->vertices_per_pe[p];
+        if (new_ctx->vertices_per_pe[p] > new_ctx->max_n_local_vertices) {
+            new_ctx->max_n_local_vertices = new_ctx->vertices_per_pe[p];
         }
     }
 
     new_ctx->vertices = vertices;
 
     new_ctx->actor_to_partition_map = (uint16_t *)shmem_malloc(HVR_BUCKETS *
-            max_n_local_vertices * sizeof(*(new_ctx->actor_to_partition_map)));
+            new_ctx->max_n_local_vertices * sizeof(*(new_ctx->actor_to_partition_map)));
     assert(new_ctx->actor_to_partition_map);
 
     new_ctx->update_metadata = update_metadata;
@@ -1159,8 +1120,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     shmem_barrier_all();
 
-    // Determine neighboring PEs
-    update_neighbors_based_on_summary_data(ctx);
+    update_neighbors_based_on_partitions(ctx);
 
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
@@ -1169,8 +1129,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
 
-    hvr_pe_set_t *other_pe_partition_time_window = hvr_create_empty_pe_set(ctx);
-    hvr_pe_set_t *to_communicate_with = hvr_create_empty_pe_set(ctx);
+    ctx->other_pe_partition_time_window = hvr_create_empty_pe_set(ctx);
 
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
@@ -1259,17 +1218,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
          */
         update_actor_partitions(ctx);
         update_partition_time_window(ctx);
-
-        for (unsigned p = 0; p < ctx->npes; p++) {
-            shmem_getmem(other_pe_partition_time_window->bit_vector,
-                    ctx->partition_time_window,
-                    other_pe_partition_time_window->nelements, p);
-
-            if (ctx->might_interact(other_pe_partition_time_window,
-                        ctx->partition_time_window, p, ctx)) {
-                hvr_pe_set_insert(p, ctx->my_neighbors);
-            }
-        }
+        update_neighbors_based_on_partitions(ctx);
 
         const unsigned long long finished_summary_update = hvr_current_time_us();
 
@@ -1407,8 +1356,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
             }
         }
 
-        printf("PE %d - total %f ms - metadata %f ms (%f %f %u/%u) - summary %f ms - summary "
-                "sends %f ms - edges %f ms (%f %f) - neighbor updates %f ms - "
+        printf("PE %d - total %f ms - metadata %f ms (%f %f %u/%u) - summary %f ms - edges %f ms (%f %f) - neighbor updates %f ms - "
                 "abort %f ms - %u / %u PE neighbors - aborting? %d\n", ctx->pe,
                 (double)(finished_check_abort - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
@@ -1416,8 +1364,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)update_metadata_time / 1000.0,
                 nhits, nhits + nmisses,
                 (double)(finished_summary_update - finished_updates) / 1000.0,
-                (double)(finished_summary_sends - finished_summary_update) / 1000.0,
-                (double)(finished_edge_adds - finished_summary_sends) / 1000.0,
+                (double)(finished_edge_adds - finished_summary_update) / 1000.0,
                 (double)getmem_time / 1000.0, (double)update_edge_time / 1000.0,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
                 (double)(finished_check_abort - finished_neighbor_updates) / 1000.0,
