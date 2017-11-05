@@ -24,6 +24,7 @@
  * partitions.
  */
 
+#define CONNECTIVITY_THRESHOLD 1.1
 #define PARTITION_DIM 40
 
 unsigned grid_dim = 3;
@@ -66,7 +67,7 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     const double partition_size = (double)grid_dim / (double)PARTITION_DIM;
 
     // interaction distance, increase grid_dim if you hit this assertion
-    assert(partition_size > 1.1);
+    assert(partition_size > CONNECTIVITY_THRESHOLD);
 
     const int row_partition = (int)(row / partition_size);
     const int col_partition = (int)(col / partition_size);
@@ -155,13 +156,43 @@ int might_interact(const uint16_t partition, hvr_pe_set_t *partitions,
      * If partition is neighboring any partition in partitions, they might
      * interact.
      */
+
+    // Each partition has this length on each side
+    double partition_dim = (double)grid_dim / (double)PARTITION_DIM;
     const int partition_row = partition / PARTITION_DIM;
     const int partition_col = partition % PARTITION_DIM;
 
-    for (int row = -1; row <= 1; row++) {
-        for (int col = -1; col <= 1; col++) {
-            const int part = (partition_row + row) * PARTITION_DIM +
-                (partition_col + col);
+    // Get bounding box of partitions in the grid coordinate system
+    double min_row = (double)partition_row * partition_dim;
+    double max_row = min_row + partition_dim;
+    double min_col = (double)partition_col * partition_dim;
+    double max_col = min_col + partition_dim;
+
+    /*
+     * Expand partition bounding box to include any possible points within
+     * CONNECTIVITY_THRESHOLD distance.
+     */
+    min_row -= CONNECTIVITY_THRESHOLD;
+    max_row += CONNECTIVITY_THRESHOLD;
+    min_col -= CONNECTIVITY_THRESHOLD;
+    max_col += CONNECTIVITY_THRESHOLD;
+
+    if (min_row < 0.0) min_row = 0.0;
+    if (min_col < 0.0) min_col = 0.0;
+    if (max_row > (double)grid_dim) max_row = (double)grid_dim;
+    if (max_col > (double)grid_dim) max_col = (double)grid_dim;
+
+    int min_partition_row = (int)(min_row / partition_dim);
+    int min_partition_col = (int)(min_col / partition_dim);
+    int max_partition_row = (int)(max_row / partition_dim);
+    int max_partition_col = (int)(max_col / partition_dim);
+
+    assert(min_partition_row <= max_partition_row);
+    assert(min_partition_col <= max_partition_col);
+
+    for (int r = min_partition_row; r <= max_partition_row; r++) {
+        for (int c = min_partition_col; c <= max_partition_col; c++) {
+            const int part = r * PARTITION_DIM + c;
             if (hvr_pe_set_contains(part, partitions)) {
                 return 1;
             }
@@ -298,7 +329,7 @@ int main(int argc, char **argv) {
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
     hvr_init(PARTITION_DIM * PARTITION_DIM, grid_cells_this_pe, vertices,
             update_metadata, might_interact, check_abort,
-            vertex_owner, actor_to_partition, 1.1, 0, 1,
+            vertex_owner, actor_to_partition, CONNECTIVITY_THRESHOLD, 0, 1,
             INT64_MAX, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
