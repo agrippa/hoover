@@ -629,7 +629,9 @@ void hvr_pe_set_destroy(hvr_pe_set_t *set) {
 void hvr_pe_set_to_string(hvr_pe_set_t *set, char *buf, unsigned buflen) {
     int offset = snprintf(buf, buflen, "{");
 
-    for (unsigned i = 0; i < set->nelements * BITS_PER_BYTE; i++) {
+    const size_t nvals = set->nelements * sizeof(bit_vec_element_type) *
+        BITS_PER_BYTE;
+    for (unsigned i = 0; i < nvals; i++) {
         if (hvr_pe_set_contains(i, set)) {
             offset += snprintf(buf + offset, buflen - offset - 1, " %u", i);
             assert(offset < buflen);
@@ -749,12 +751,13 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
  */
 static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx) {
         hvr_pe_set_wipe(ctx->my_neighbors);
+
         for (unsigned p = 0; p < ctx->npes; p++) {
 
             lock_partition_time_window(p, ctx);
             shmem_getmem(ctx->other_pe_partition_time_window->bit_vector,
                     ctx->partition_time_window->bit_vector,
-                    ctx->other_pe_partition_time_window->nelements, p);
+                    ctx->other_pe_partition_time_window->nelements * sizeof(bit_vec_element_type), p);
             unlock_partition_time_window(p, ctx);
 
             for (unsigned part = 0; part < ctx->n_partitions; part++) {
@@ -1195,25 +1198,25 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
-        // hvr_sparse_vec_t coupled_metric;
-        // memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
-        //         sizeof(coupled_metric));
-        // abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
-        //         ctx, &coupled_metric);
+        hvr_sparse_vec_t coupled_metric;
+        memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
+                sizeof(coupled_metric));
+        abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
+                ctx, &coupled_metric);
 
-        // // Update my local information on PEs I am coupled with.
-        // hvr_pe_set_merge_atomic(ctx->coupled_pes, to_couple_with);
+        // Update my local information on PEs I am coupled with.
+        hvr_pe_set_merge_atomic(ctx->coupled_pes, to_couple_with);
 
-        // // Atomically update other PEs that I am coupled with.
-        // for (int p = 0; p < ctx->npes; p++) {
-        //     if (p != ctx->pe && hvr_pe_set_contains(p, ctx->coupled_pes)) {
-        //         for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
-        //             shmemx_ulonglong_atomic_or(
-        //                     ctx->coupled_pes->bit_vector + i,
-        //                     (ctx->coupled_pes->bit_vector)[i], p);
-        //         }
-        //     }
-        // }
+        // Atomically update other PEs that I am coupled with.
+        for (int p = 0; p < ctx->npes; p++) {
+            if (p != ctx->pe && hvr_pe_set_contains(p, ctx->coupled_pes)) {
+                for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
+                    shmemx_ulonglong_atomic_or(
+                            ctx->coupled_pes->bit_vector + i,
+                            (ctx->coupled_pes->bit_vector)[i], p);
+                }
+            }
+        }
 
         const unsigned long long finished_neighbor_updates =
             hvr_current_time_us();
@@ -1323,15 +1326,19 @@ void hvr_body(hvr_ctx_t in_ctx) {
         }
 
 
+// #ifdef VERBOSE
         char neighbors_str[1024];
         hvr_pe_set_to_string(ctx->my_neighbors, neighbors_str, 1024);
 
         char partition_time_window_str[1024];
         hvr_pe_set_to_string(ctx->partition_time_window,
                 partition_time_window_str, 1024);
+// #endif
 
-        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - edges %f ms (%f %f) - neighbor updates %f ms - "
-                "abort %f ms - %u / %u PE neighbors %s - partition window = %s - aborting? %d\n", ctx->pe,
+        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - "
+                "edges %f ms (%f %f) - neighbor updates %f ms - abort %f ms - "
+                "%u / %u PE neighbors %s - partition window = %s - "
+                "aborting? %d\n", ctx->pe,
                 (double)(finished_check_abort - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)fetch_neighbors_time / 1000.0,
@@ -1341,7 +1348,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)getmem_time / 1000.0, (double)update_edge_time / 1000.0,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
                 (double)(finished_check_abort - finished_neighbor_updates) / 1000.0,
-                hvr_pe_set_count(ctx->my_neighbors), ctx->npes, neighbors_str, partition_time_window_str, abort);
+                hvr_pe_set_count(ctx->my_neighbors), ctx->npes,
+// #ifdef VERBOSE
+                neighbors_str, partition_time_window_str,
+// #else
+//                 "", "",
+// #endif
+                abort);
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;

@@ -9,6 +9,19 @@
 /*
  * This simple example of the HOOVER framework creates a 2D grid of statically
  * placed actors.
+ *
+ * The grid has dimensions of grid_dim x grid_dim. We place actors at the center
+ * of each grid cell, hence the total # of actors = grid_dim * grid_dim. Each
+ * actors has a row and column coordinate, where both row and column start at 0
+ * and go to grid_dim - 1 (row major). Actor IDs increase by 1 across each row
+ * (hence, consecutive actor IDs are generally neighboring each other in the
+ * same row). We partition actors across PEs as evenly as possible in
+ * consecutive chunks. Hence, a single PE may own multiple rows and indeed may
+ * own partial rows (if the number of rows is not evenly divisible by the number
+ * of PEs).
+ *
+ * This code statically splits the domain of grid_dim x grid_dim into 10 x 10
+ * partitions.
  */
 
 #define PARTITION_DIM 10
@@ -51,10 +64,13 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     const double col = hvr_sparse_vec_get(1, actor, ctx);
 
     const double partition_size = (double)grid_dim / (double)PARTITION_DIM;
+
+    // interaction distance, increase grid_dim if you hit this assertion
+    assert(partition_size > 1.1);
+
     const int row_partition = (int)(row / partition_size);
     const int col_partition = (int)(col / partition_size);
     const uint16_t partition = row_partition * PARTITION_DIM + col_partition;
-    fprintf(stderr, "PE %d return partition %u for actor %lu\n", ctx->pe, partition, actor->id);
     return partition;
 }
 
@@ -237,6 +253,8 @@ int main(int argc, char **argv) {
                 "PE\n", npes, grid_dim, grid_dim, grid_dim * grid_dim,
                 cells_per_pe);
     }
+    fprintf(stderr, "PE %d owns actors %d -> %d\n", shmem_my_pe(),
+            grid_cell_start, grid_cell_end);
     if (grid_cells_this_pe == 0) {
         fprintf(stderr, "WARNING PE %d has no grid cells\n", pe);
     }

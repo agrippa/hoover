@@ -51,7 +51,7 @@ echo
 echo
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 10 # 70
-$OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) ./bin/init_test 70
+$OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) ./bin/init_test 15
 echo
 echo
 echo
