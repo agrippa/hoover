@@ -702,7 +702,7 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx) {
         hvr_pe_set_wipe(ctx->my_neighbors);
         for (unsigned p = 0; p < ctx->npes; p++) {
             shmem_getmem(ctx->other_pe_partition_time_window->bit_vector,
-                    ctx->partition_time_window,
+                    ctx->partition_time_window->bit_vector,
                     ctx->other_pe_partition_time_window->nelements, p);
 
             for (unsigned part = 0; part < ctx->n_partitions; part++) {
@@ -747,9 +747,6 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
         assert(a_err == 1);
         const int b_err = hvr_sparse_vec_get_internal(f, b, b_max_timestep + 1,
                 &b_val);
-        if (b_err == 0) {
-            fprintf(stderr, "b_max_timestep = %ld\n", b_max_timestep);
-        }
         assert(b_err == 1);
 
         const double delta = b_val - a_val;
