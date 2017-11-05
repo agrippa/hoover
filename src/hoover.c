@@ -1326,14 +1326,14 @@ void hvr_body(hvr_ctx_t in_ctx) {
         }
 
 
-// #ifdef VERBOSE
+#ifdef VERBOSE
         char neighbors_str[1024];
         hvr_pe_set_to_string(ctx->my_neighbors, neighbors_str, 1024);
 
         char partition_time_window_str[1024];
         hvr_pe_set_to_string(ctx->partition_time_window,
                 partition_time_window_str, 1024);
-// #endif
+#endif
 
         printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - "
                 "edges %f ms (%f %f) - neighbor updates %f ms - abort %f ms - "
@@ -1349,11 +1349,11 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
                 (double)(finished_check_abort - finished_neighbor_updates) / 1000.0,
                 hvr_pe_set_count(ctx->my_neighbors), ctx->npes,
-// #ifdef VERBOSE
+#ifdef VERBOSE
                 neighbors_str, partition_time_window_str,
-// #else
-//                 "", "",
-// #endif
+#else
+                "", "",
+#endif
                 abort);
 
         if (ctx->strict_mode) {

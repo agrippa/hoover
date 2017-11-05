@@ -24,7 +24,7 @@
  * partitions.
  */
 
-#define PARTITION_DIM 10
+#define PARTITION_DIM 40
 
 unsigned grid_dim = 3;
 static int npes, pe;
