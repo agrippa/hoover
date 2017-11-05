@@ -157,6 +157,7 @@ extern unsigned hvr_pe_set_count(hvr_pe_set_t *set);
 extern void hvr_pe_set_wipe(hvr_pe_set_t *set);
 extern void hvr_pe_set_merge(hvr_pe_set_t *set, hvr_pe_set_t *other);
 extern void hvr_pe_set_destroy(hvr_pe_set_t *set);
+extern void hvr_pe_set_to_string(hvr_pe_set_t *set, char *buf, unsigned buflen);
 
 /*
  * Callback type definitions to be defined by the user for the HOOVER runtime to

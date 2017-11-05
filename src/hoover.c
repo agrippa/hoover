@@ -527,9 +527,10 @@ static hvr_pe_set_t *hvr_create_empty_pe_set_helper(hvr_internal_ctx_t *ctx,
     return set;
 }
 
-hvr_pe_set_t *hvr_create_empty_pe_set_symmetric(hvr_ctx_t in_ctx) {
+hvr_pe_set_t *hvr_create_empty_pe_set_symmetric_custom(const unsigned nvals,
+        hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    const int nelements = (ctx->npes + (sizeof(bit_vec_element_type) *
+    const int nelements = (nvals + (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE) - 1) / (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE);
     bit_vec_element_type *bit_vector = (bit_vec_element_type *)shmem_malloc(
@@ -538,15 +539,26 @@ hvr_pe_set_t *hvr_create_empty_pe_set_symmetric(hvr_ctx_t in_ctx) {
     return hvr_create_empty_pe_set_helper(ctx, nelements, bit_vector);
 }
 
-hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t in_ctx) {
+hvr_pe_set_t *hvr_create_empty_pe_set_symmetric(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    const int nelements = (ctx->npes + (sizeof(bit_vec_element_type) *
+    return hvr_create_empty_pe_set_symmetric_custom(ctx->npes, ctx);
+}
+
+hvr_pe_set_t *hvr_create_empty_pe_set_custom(const unsigned nvals,
+        hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    const int nelements = (nvals + (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE) - 1) / (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE);
     bit_vec_element_type *bit_vector = (bit_vec_element_type *)malloc(
             nelements * sizeof(bit_vec_element_type));
     assert(bit_vector);
     return hvr_create_empty_pe_set_helper(ctx, nelements, bit_vector);
+}
+
+hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    return hvr_create_empty_pe_set_custom(ctx->npes, ctx);
 }
 
 static void hvr_pe_set_insert_internal(int pe,
@@ -612,6 +624,19 @@ unsigned hvr_pe_set_count(hvr_pe_set_t *set) {
 void hvr_pe_set_destroy(hvr_pe_set_t *set) {
     free(set->bit_vector);
     free(set);
+}
+
+void hvr_pe_set_to_string(hvr_pe_set_t *set, char *buf, unsigned buflen) {
+    int offset = snprintf(buf, buflen, "{");
+
+    for (unsigned i = 0; i < set->nelements * BITS_PER_BYTE; i++) {
+        if (hvr_pe_set_contains(i, set)) {
+            offset += snprintf(buf + offset, buflen - offset - 1, " %u", i);
+            assert(offset < buflen);
+        }
+    }
+
+    snprintf(buf + offset, buflen - offset - 1, " }");
 }
 
 void hvr_pe_set_merge(hvr_pe_set_t *set, hvr_pe_set_t *other) {
@@ -952,7 +977,8 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     for (unsigned i = 0; i < n_partitions; i++) {
         (new_ctx->last_timestep_using_partition)[i] = -1;
     }
-    new_ctx->partition_time_window = hvr_create_empty_pe_set_symmetric(new_ctx);
+    new_ctx->partition_time_window = hvr_create_empty_pe_set_symmetric_custom(
+            n_partitions, new_ctx);
 
     new_ctx->actor_to_partition_locks = (long *)shmem_malloc(new_ctx->npes *
             sizeof(long));
@@ -1103,7 +1129,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     shmem_barrier_all();
 
-    ctx->other_pe_partition_time_window = hvr_create_empty_pe_set(ctx);
+    ctx->other_pe_partition_time_window = hvr_create_empty_pe_set_custom(
+            ctx->n_partitions, ctx);
 
     *(ctx->symm_timestep) = 0;
     ctx->timestep = 1;
@@ -1295,8 +1322,16 @@ void hvr_body(hvr_ctx_t in_ctx) {
             }
         }
 
+
+        char neighbors_str[1024];
+        hvr_pe_set_to_string(ctx->my_neighbors, neighbors_str, 1024);
+
+        char partition_time_window_str[1024];
+        hvr_pe_set_to_string(ctx->partition_time_window,
+                partition_time_window_str, 1024);
+
         printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - edges %f ms (%f %f) - neighbor updates %f ms - "
-                "abort %f ms - %u / %u PE neighbors - aborting? %d\n", ctx->pe,
+                "abort %f ms - %u / %u PE neighbors %s - partition window = %s - aborting? %d\n", ctx->pe,
                 (double)(finished_check_abort - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)fetch_neighbors_time / 1000.0,
@@ -1306,7 +1341,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)getmem_time / 1000.0, (double)update_edge_time / 1000.0,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
                 (double)(finished_check_abort - finished_neighbor_updates) / 1000.0,
-                hvr_pe_set_count(ctx->my_neighbors), ctx->npes, abort);
+                hvr_pe_set_count(ctx->my_neighbors), ctx->npes, neighbors_str, partition_time_window_str, abort);
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;

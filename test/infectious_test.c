@@ -386,9 +386,9 @@ int main(int argc, char **argv) {
     }
 
     hvr_init(PARTITION_DIM * PARTITION_DIM, actors_per_cell, actors,
-            update_metadata, update_summary_data, might_interact, check_abort,
+            update_metadata, might_interact, check_abort,
             vertex_owner, actor_to_partition, infection_radius /* threshold */,
-            0, 1, ((pe_rows * pe_cols) + 8 - 1) / 8, max_num_timesteps, hvr_ctx);
+            0, 1, max_num_timesteps, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);

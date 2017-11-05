@@ -53,7 +53,9 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     const double partition_size = (double)grid_dim / (double)PARTITION_DIM;
     const int row_partition = (int)(row / partition_size);
     const int col_partition = (int)(col / partition_size);
-    return row_partition * PARTITION_DIM + col_partition;
+    const uint16_t partition = row_partition * PARTITION_DIM + col_partition;
+    fprintf(stderr, "PE %d return partition %u for actor %lu\n", ctx->pe, partition, actor->id);
+    return partition;
 }
 
 /*
