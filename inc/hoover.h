@@ -150,6 +150,8 @@ typedef struct _hvr_pe_set_t {
 } hvr_pe_set_t;
 
 extern hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t ctx);
+extern hvr_pe_set_t *hvr_create_empty_pe_set_custom(const unsigned nvals,
+        hvr_ctx_t ctx);
 extern void hvr_pe_set_insert(int pe, hvr_pe_set_t *set);
 extern void hvr_pe_set_clear(int pe, hvr_pe_set_t *set);
 extern int hvr_pe_set_contains(int pe, hvr_pe_set_t *set);

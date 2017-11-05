@@ -45,6 +45,10 @@ int main(int argc, char **argv) {
     }
     assert(hvr_pe_set_count(set) == 2);
 
+    char buf[1024];
+    hvr_pe_set_to_string(set, buf, 1024);
+    printf("%s\n", buf);
+
     hvr_pe_set_t *or_set = hvr_create_empty_pe_set(ctx);
     hvr_pe_set_insert(0, set);
     hvr_pe_set_insert(1, set);
@@ -64,8 +68,19 @@ int main(int argc, char **argv) {
         assert(hvr_pe_set_contains(i, set) == 0);
     }
 
-
     hvr_pe_set_destroy(set);
+
+    hvr_pe_set_t *custom_set = hvr_create_empty_pe_set_custom(2000, ctx);
+    for (int i = 0; i < 2000; i += 2) {
+        hvr_pe_set_insert(i, custom_set);
+    }
+    for (int i = 0; i < 2000; i++) {
+        if (i % 2 == 0) {
+            assert(hvr_pe_set_contains(i, custom_set) == 1);
+        } else {
+            assert(hvr_pe_set_contains(i, custom_set) == 0);
+        }
+    }
 
     printf("Passed!\n");
 
