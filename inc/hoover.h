@@ -193,14 +193,6 @@ typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
 typedef int (*hvr_might_interact_func)(const uint16_t partition,
         hvr_pe_set_t *partitions, hvr_ctx_t ctx);
 
-/*
- * API for updating user-defined summary information which can be used by
- * hvr_might_interact_func to determine whether one PE might want to interact
- * with any of the graph owned by the other PE.
- */
-typedef int (*hvr_update_summary_data)(void *_summary,
-        hvr_sparse_vec_t *actors, const int nactors, hvr_ctx_t ctx);
-
 typedef uint16_t (*hvr_actor_to_partition)(hvr_sparse_vec_t *actor,
         hvr_ctx_t ctx);
 
@@ -230,18 +222,16 @@ typedef struct _hvr_internal_ctx_t {
     hvr_pe_set_t *other_pe_partition_time_window;
 
     long *actor_to_partition_locks;
-    int64_t *actor_to_partition_timesteps;
+    long *partition_time_window_locks;
     uint16_t *actor_to_partition_map;
 
     hvr_update_metadata_func update_metadata;
-    hvr_update_summary_data update_summary_data;
     hvr_might_interact_func might_interact;
     hvr_check_abort_func check_abort;
     hvr_vertex_owner_func vertex_owner;
     hvr_actor_to_partition actor_to_partition;
     double connectivity_threshold;
     unsigned min_spatial_feature, max_spatial_feature;
-    unsigned summary_data_size;
     int64_t max_timestep;
 
     hvr_sparse_vec_t *buffer;
@@ -257,10 +247,6 @@ typedef struct _hvr_internal_ctx_t {
     int *strict_counter_dest;
     int *strict_counter_src;
 
-    unsigned char *summary_data;
-    long long *summary_data_timestamps;
-    long long *summary_data_timestamps_buffer;
-    int *summary_data_lock;
     hvr_pe_set_t *my_neighbors;
 
     hvr_pe_set_t *coupled_pes;
@@ -276,7 +262,6 @@ extern void hvr_init(const uint16_t n_partitions,
         const vertex_id_t n_local_vertices,
         hvr_sparse_vec_t *vertices,
         hvr_update_metadata_func update_metadata,
-        hvr_update_summary_data update_summary_data,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort,
         hvr_vertex_owner_func vertex_owner,
@@ -284,8 +269,7 @@ extern void hvr_init(const uint16_t n_partitions,
         const double connectivity_threshold,
         const unsigned min_spatial_feature_inclusive,
         const unsigned max_spatial_feature_inclusive,
-        const unsigned summary_data_size, const int64_t max_timestep,
-        hvr_ctx_t ctx);
+        const int64_t max_timestep, hvr_ctx_t ctx);
 
 extern void hvr_body(hvr_ctx_t ctx);
 

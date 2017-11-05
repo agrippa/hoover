@@ -277,9 +277,9 @@ int main(int argc, char **argv) {
 
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
     hvr_init(PARTITION_DIM * PARTITION_DIM, grid_cells_this_pe, vertices,
-            update_metadata, update_summary_data, might_interact, check_abort,
+            update_metadata, might_interact, check_abort,
             vertex_owner, actor_to_partition, 1.1, 0, 1,
-            2 * sizeof(hvr_sparse_vec_t), INT64_MAX, hvr_ctx);
+            INT64_MAX, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);
