@@ -1,8 +1,8 @@
 #!/bin/bash -l
 
 #SBATCH -p opa
-#SBATCH -N 1
-#SBATCH -t 00:05:00
+#SBATCH -N 4
+#SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 #SBATCH --contiguous
@@ -51,7 +51,7 @@ echo
 echo
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 10 # 70
-$OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) ./bin/init_test 15
+$OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) ./bin/init_test 50
 echo
 echo
 echo
