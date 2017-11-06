@@ -2,7 +2,7 @@
 
 #SBATCH -p debug
 #SBATCH -N 1
-#SBATCH -t 00:02:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 #SBATCH --contiguous
@@ -42,7 +42,7 @@ export HVR_TRACE_DUMP=1
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 120
 
 export CELL_DIM=100.0
-export ACTORS_PER_CELL=50
+export ACTORS_PER_CELL=200
 export PE_ROWS=4
 export PE_COLS=6
 
@@ -55,7 +55,7 @@ export PE_COLS=6
 export N_PORTALS=4
 export N_INFECTED=1
 # export MAX_NUM_TIMESTEPS=400
-export MAX_NUM_TIMESTEPS=800
+export MAX_NUM_TIMESTEPS=600
 export INFECTION_RADIUS=4.0
 export MAX_DELTA_VELOCITY=0.01
 # srun --ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) \
