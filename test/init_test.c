@@ -66,9 +66,6 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
 
     const double partition_size = (double)grid_dim / (double)PARTITION_DIM;
 
-    // interaction distance, increase grid_dim if you hit this assertion
-    assert(partition_size > CONNECTIVITY_THRESHOLD);
-
     const int row_partition = (int)(row / partition_size);
     const int col_partition = (int)(col / partition_size);
     const uint16_t partition = row_partition * PARTITION_DIM + col_partition;
@@ -177,15 +174,20 @@ int might_interact(const uint16_t partition, hvr_pe_set_t *partitions,
     min_col -= CONNECTIVITY_THRESHOLD;
     max_col += CONNECTIVITY_THRESHOLD;
 
-    if (min_row < 0.0) min_row = 0.0;
-    if (min_col < 0.0) min_col = 0.0;
-    if (max_row > (double)grid_dim) max_row = (double)grid_dim;
-    if (max_col > (double)grid_dim) max_col = (double)grid_dim;
+    int min_partition_row, min_partition_col, max_partition_row,
+        max_partition_col;
 
-    int min_partition_row = (int)(min_row / partition_dim);
-    int min_partition_col = (int)(min_col / partition_dim);
-    int max_partition_row = (int)(max_row / partition_dim);
-    int max_partition_col = (int)(max_col / partition_dim);
+    if (min_row < 0.0) min_partition_row = 0;
+    else min_partition_row = (int)(min_row / partition_dim);
+
+    if (min_col < 0.0) min_partition_col = 0;
+    else min_partition_col = (int)(min_col / partition_dim);
+
+    if (max_row >= (double)grid_dim) max_partition_row = PARTITION_DIM - 1;
+    else max_partition_row = (int)(max_row / partition_dim);
+
+    if (max_col >= (double)grid_dim) max_partition_col = PARTITION_DIM - 1;
+    else max_partition_col = (int)(max_col / partition_dim);
 
     assert(min_partition_row <= max_partition_row);
     assert(min_partition_col <= max_partition_col);
