@@ -797,6 +797,36 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
     return sqrt(acc);
 }
 
+static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
+        const int target_pe, const int j, unsigned long long *update_edge_time,
+        const int64_t other_pes_timestep, hvr_internal_ctx_t *ctx) {
+    /*
+     * For each local vertex, check if we want to add an edge from
+     * other to this.
+     */
+    for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
+        /*
+         * Never want to add an edge from a node to itself (at
+         * least, we don't have a use case for this yet).
+         */
+        if (target_pe == ctx->pe && i == j) continue;
+
+        hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
+
+        const unsigned long long start_update_time = hvr_current_time_us();
+        const double distance = sparse_vec_distance_measure(curr,
+                vec, ctx->timestep - 1, other_pes_timestep,
+                ctx->min_spatial_feature, ctx->max_spatial_feature);
+        const unsigned long long end_update_time = hvr_current_time_us();
+        *update_edge_time += (end_update_time - start_update_time);
+
+        if (distance < ctx->connectivity_threshold) {
+            // Add edge
+            hvr_add_edge(curr->id, vec->id, ctx->edges);
+        }
+    }
+}
+
 static void update_edges(hvr_internal_ctx_t *ctx,
         unsigned long long *getmem_time, unsigned long long *update_edge_time) {
     // For each PE
@@ -823,6 +853,11 @@ static void update_edges(hvr_internal_ctx_t *ctx,
             other_pes_timestep = ctx->timestep - 1;
         }
 
+#define EDGE_CHECK_CHUNKING 8
+        int filled = 0;
+        vertex_id_t vecs_local_offset[EDGE_CHECK_CHUNKING];
+        hvr_sparse_vec_t vecs[EDGE_CHECK_CHUNKING];
+
         // For each vertex on the remote PE
         for (vertex_id_t j = 0; j < ctx->vertices_per_pe[target_pe]; j++) {
             hvr_sparse_vec_t *other = &(ctx->vertices[j]);
@@ -839,50 +874,45 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                  * GET the remote vector in a way that we don't see any partial
                  * updates.
                  */
-                hvr_sparse_vec_t vec;
-                shmem_getmem_nbi(&(vec.next_bucket), &(other->next_bucket),
-                        sizeof(vec.next_bucket), target_pe);
+                shmem_getmem_nbi(&(vecs[filled].next_bucket),
+                        &(other->next_bucket),
+                        sizeof(other->next_bucket), target_pe);
 
                 shmem_fence();
 
-                shmem_getmem_nbi(&(vec.timestamps[0]), &(other->timestamps[0]),
+                shmem_getmem_nbi(&(vecs[filled].timestamps[0]),
+                        &(other->timestamps[0]),
                         HVR_BUCKETS * sizeof(other->timestamps[0]), target_pe);
 
                 shmem_fence();
 
-                shmem_getmem_nbi(&vec, other, offsetof(hvr_sparse_vec_t,
-                            timestamps), target_pe);
+                shmem_getmem_nbi(&vecs[filled], other,
+                        offsetof(hvr_sparse_vec_t, timestamps), target_pe);
 
-                shmem_quiet();
+                vecs_local_offset[filled] = j;
+                filled++;
 
                 const unsigned long long end_getmem_time = hvr_current_time_us();
                 *getmem_time += (end_getmem_time - start_time);
 
-                /*
-                 * For each local vertex, check if we want to add an edge from
-                 * other to this.
-                 */
-                for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
-                    /*
-                     * Never want to add an edge from a node to itself (at
-                     * least, we don't have a use case for this yet).
-                     */
-                    if (target_pe == ctx->pe && i == j) continue;
+                if (filled == EDGE_CHECK_CHUNKING) {
+                    shmem_quiet();
 
-                    hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
-
-                    const unsigned long long start_update_time = hvr_current_time_us();
-                    const double distance = sparse_vec_distance_measure(curr,
-                            &vec, ctx->timestep - 1, other_pes_timestep,
-                            ctx->min_spatial_feature, ctx->max_spatial_feature);
-                    const unsigned long long end_update_time = hvr_current_time_us();
-                    *update_edge_time += (end_update_time - start_update_time);
-
-                    if (distance < ctx->connectivity_threshold) {
-                        // Add edge
-                        hvr_add_edge(curr->id, vec.id, ctx->edges);
+                    for (int f = 0; f < filled; f++) {
+                        check_for_edge_to_add(&vecs[f], target_pe, vecs_local_offset[f],
+                                update_edge_time, other_pes_timestep, ctx);
                     }
+                    filled = 0;
                 }
+            }
+        }
+
+        if (filled > 0) {
+            shmem_quiet();
+
+            for (int f = 0; f < filled; f++) {
+                check_for_edge_to_add(&vecs[f], target_pe, vecs_local_offset[f],
+                        update_edge_time, other_pes_timestep, ctx);
             }
         }
     }

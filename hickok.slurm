@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p opa
-#SBATCH -N 4
+#SBATCH -N 2
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
