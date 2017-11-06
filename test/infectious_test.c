@@ -35,6 +35,7 @@ long long total_time = 0;
 long long max_elapsed = 0;
 long long elapsed_time = 0;
 static double max_delta_velocity;
+static double infection_radius;
 
 /*
  * Construct a 2D grid, with one grid cell per PE. Build connections between
@@ -204,13 +205,52 @@ int might_interact(const uint16_t partition, hvr_pe_set_t *partitions,
      * If partition is neighboring any partition in partitions, they might
      * interact.
      */
+
+    // Each partition has this length on each side
+    const double global_cols_dim = (double)pe_cols * cell_dim;
+    const double global_rows_dim = (double)pe_rows * cell_dim;
+
+    double cols_dim = global_cols_dim / (double)PARTITION_DIM;
+    double rows_dim = global_rows_dim / (double)PARTITION_DIM;
     const int partition_row = partition / PARTITION_DIM;
     const int partition_col = partition % PARTITION_DIM;
 
-    for (int row = -1; row <= 1; row++) {
-        for (int col = -1; col <= 1; col++) {
-            const int part = (partition_row + row) * PARTITION_DIM +
-                (partition_col + col);
+    // Get bounding box of partitions in the grid coordinate system
+    double min_row = (double)partition_row * rows_dim;
+    double max_row = min_row + rows_dim;
+    double min_col = (double)partition_col * cols_dim;
+    double max_col = min_col + cols_dim;
+
+    /*
+     * Expand partition bounding box to include any possible points within
+     * infection_radius distance.
+     */
+    min_row -= infection_radius;
+    max_row += infection_radius;
+    min_col -= infection_radius;
+    max_col += infection_radius;
+
+    int min_partition_row, min_partition_col, max_partition_row,
+        max_partition_col;
+
+    if (min_row < 0.0) min_partition_row = 0;
+    else min_partition_row = (int)(min_row / rows_dim);
+
+    if (min_col < 0.0) min_partition_col = 0;
+    else min_partition_col = (int)(min_col / cols_dim);
+
+    if (max_row >= (double)global_rows_dim) max_partition_row = PARTITION_DIM - 1;
+    else max_partition_row = (int)(max_row / rows_dim);
+
+    if (max_col >= (double)global_cols_dim) max_partition_col = PARTITION_DIM - 1;
+    else max_partition_col = (int)(max_col / cols_dim);
+
+    assert(min_partition_row <= max_partition_row);
+    assert(min_partition_col <= max_partition_col);
+
+    for (int r = min_partition_row; r <= max_partition_row; r++) {
+        for (int c = min_partition_col; c <= max_partition_col; c++) {
+            const int part = r * PARTITION_DIM + c;
             if (hvr_pe_set_contains(part, partitions)) {
                 return 1;
             }
@@ -281,7 +321,7 @@ int main(int argc, char **argv) {
     pe_cols = atoi(argv[5]);
     const int n_initial_infected = atoi(argv[6]);
     const int max_num_timesteps = atoi(argv[7]);
-    const double infection_radius = atof(argv[8]);
+    infection_radius = atof(argv[8]);
     max_delta_velocity = atof(argv[9]);
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {

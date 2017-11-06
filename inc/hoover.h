@@ -25,8 +25,8 @@
 
 #define BITS_PER_BYTE 8
 
-#define HVR_BUCKETS 64
-#define HVR_BUCKET_SIZE 3
+#define HVR_BUCKETS 512
+#define HVR_BUCKET_SIZE 5
 
 typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
 typedef hvr_internal_ctx_t *hvr_ctx_t;
