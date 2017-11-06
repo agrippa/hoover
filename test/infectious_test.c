@@ -12,8 +12,12 @@
 #define PX 0
 #define PY 1
 #define INFECTED 2
-#define VX 3
-#define VY 4
+#define HOME_X 3
+#define HOME_Y 4
+#define DST_X 5
+#define DST_Y 6
+
+#define MAX_V 0.5
 
 #define PORTAL_CAPTURE_RADIUS 5.0
 #define PE_ROW(this_pe) ((this_pe) / pe_cols)
@@ -120,14 +124,42 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     }
 
     // Update location of this cell
-    double delta_vx = random_double_in_range(-max_delta_velocity,
-            max_delta_velocity);
-    double delta_vy = random_double_in_range(-max_delta_velocity,
-            max_delta_velocity);
-    double vx = hvr_sparse_vec_get(VX, vertex, ctx);
-    double vy = hvr_sparse_vec_get(VY, vertex, ctx);
-    double new_x = hvr_sparse_vec_get(PX, vertex, ctx) + vx;
-    double new_y = hvr_sparse_vec_get(PY, vertex, ctx) + vy;
+    double dst_x = hvr_sparse_vec_get(DST_X, vertex, ctx);
+    double dst_y = hvr_sparse_vec_get(DST_Y, vertex, ctx);
+    const double p_x = hvr_sparse_vec_get(PX, vertex, ctx);
+    const double p_y = hvr_sparse_vec_get(PY, vertex, ctx);
+    const double global_x_dim = (double)pe_cols * cell_dim;
+    const double global_y_dim = (double)pe_rows * cell_dim;
+
+    if (fabs(p_x - dst_x) < 1e-9 || fabs(p_y - dst_y) < 1e-9) {
+        /*
+         * Seem to have reached destination, set new destination and start
+         * moving there.
+         */
+        dst_x = hvr_sparse_vec_get(HOME_X, vertex, ctx) +
+            random_double_in_range(-5.0, 5.0);
+        dst_y = hvr_sparse_vec_get(HOME_Y, vertex, ctx) +
+            random_double_in_range(-5.0, 5.0);
+
+        if (dst_x > global_x_dim) dst_x = global_x_dim - 1.0;
+        if (dst_y > global_y_dim) dst_y = global_y_dim - 1.0;
+        if (dst_x < 0.0) dst_x = 0.0;
+        if (dst_y < 0.0) dst_y = 0.0;
+
+        hvr_sparse_vec_set(DST_X, dst_x, vertex, ctx);
+        hvr_sparse_vec_set(DST_Y, dst_y, vertex, ctx);
+    }
+
+    double vx = dst_x - p_x;
+    double vy = dst_y - p_y;
+    const double mag = 5.0 * distance(p_x, p_y, dst_x, dst_y);
+    const double normalized_vx = vx / mag;
+    const double normalized_vy = vy / mag;
+    if (fabs(vx) > fabs(normalized_vx)) vx = normalized_vx;
+    if (fabs(vy) > fabs(normalized_vy)) vy = normalized_vy;
+
+    double new_x = p_x + vx;
+    double new_y = p_y + vy;
 
     for (int p = 0; p < n_global_portals; p++) {
         if (distance(new_x, new_y, portals[p].locations[0].x,
@@ -149,25 +181,16 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
         }
     }
 
-    double global_x_dim = (double)pe_cols * cell_dim;
-    double global_y_dim = (double)pe_rows * cell_dim;
-    if (new_x > global_x_dim) {
-        new_x -= global_x_dim;
-    }
-    if (new_y > global_y_dim) {
-        new_y -= global_y_dim;
-    }
-    if (new_x < 0.0) {
-        new_x += global_x_dim;
-    }
-    if (new_y < 0.0) {
-        new_y += global_y_dim;
-    }
+    if (new_x >= global_x_dim) new_x -= global_x_dim;
+    if (new_y >= global_y_dim) new_y -= global_y_dim;
+    if (new_x < 0.0) new_x += global_x_dim;
+    if (new_y < 0.0) new_y += global_y_dim;
+
+    assert(new_x >= 0.0 && new_x < global_x_dim);
+    assert(new_y >= 0.0 && new_y < global_y_dim);
 
     hvr_sparse_vec_set(PX, new_x, vertex, ctx);
     hvr_sparse_vec_set(PY, new_y, vertex, ctx);
-    hvr_sparse_vec_set(VX, vx + delta_vx, vertex, ctx);
-    hvr_sparse_vec_set(VY, vy + delta_vy, vertex, ctx);
 }
 
 
@@ -401,14 +424,16 @@ int main(int argc, char **argv) {
                 PE_COL_CELL_START(pe) + cell_dim);
         const double y = random_double_in_range(PE_ROW_CELL_START(pe),
                 PE_ROW_CELL_START(pe) + cell_dim);
-        const double vx = random_double_in_range(-0.3, 0.3);
-        const double vy = random_double_in_range(-0.3, 0.3);
 
         hvr_sparse_vec_set_id(pe * actors_per_cell + a, &actors[a]);
         hvr_sparse_vec_set(PX, x, &actors[a], hvr_ctx);
         hvr_sparse_vec_set(PY, y, &actors[a], hvr_ctx);
-        hvr_sparse_vec_set(VX, vx, &actors[a], hvr_ctx);
-        hvr_sparse_vec_set(VY, vy, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(HOME_X, x, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(HOME_Y, y, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(DST_X, x + random_double_in_range(-5.0, 5.0),
+                &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(DST_Y, y + random_double_in_range(-5.0, 5.0),
+                &actors[a], hvr_ctx);
 
         int is_infected = 0;
         for (int i = 0; i < n_initial_infected; i++) {
