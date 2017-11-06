@@ -9,6 +9,12 @@
 
 #define PARTITION_DIM 100
 
+#define PX 0
+#define PY 1
+#define INFECTED 2
+#define VX 3
+#define VY 4
+
 #define PORTAL_CAPTURE_RADIUS 5.0
 #define PE_ROW(this_pe) ((this_pe) / pe_cols)
 #define PE_COL(this_pe) ((this_pe) % pe_cols)
@@ -77,8 +83,8 @@ void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
 }
 
 uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
-    const double x = hvr_sparse_vec_get(0, actor, ctx);
-    const double y = hvr_sparse_vec_get(1, actor, ctx);
+    const double x = hvr_sparse_vec_get(PX, actor, ctx);
+    const double y = hvr_sparse_vec_get(PY, actor, ctx);
 
     const double global_x_dim = (double)pe_cols * cell_dim;
     const double global_y_dim = (double)pe_rows * cell_dim;
@@ -101,13 +107,13 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
      * If vertex is not already infected, update it to be infected if any of its
      * neighbors are.
      */
-    if (hvr_sparse_vec_get(2, vertex, ctx) == 0.0) {
+    if (hvr_sparse_vec_get(INFECTED, vertex, ctx) == 0.0) {
         for (int i = 0; i < n_neighbors; i++) {
-            if (hvr_sparse_vec_get(2, &neighbors[i], ctx) > 0.0) {
+            if (hvr_sparse_vec_get(INFECTED, &neighbors[i], ctx) > 0.0) {
                 const int infected_by = hvr_sparse_vec_get_owning_pe(
                         &neighbors[i]);
                 hvr_pe_set_insert(infected_by, couple_with);
-                hvr_sparse_vec_set(2, 1.0, vertex, ctx);
+                hvr_sparse_vec_set(INFECTED, 1.0, vertex, ctx);
                 break;
             }
         }
@@ -118,10 +124,10 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
             max_delta_velocity);
     double delta_vy = random_double_in_range(-max_delta_velocity,
             max_delta_velocity);
-    double vx = hvr_sparse_vec_get(3, vertex, ctx);
-    double vy = hvr_sparse_vec_get(4, vertex, ctx);
-    double new_x = hvr_sparse_vec_get(0, vertex, ctx) + vx;
-    double new_y = hvr_sparse_vec_get(1, vertex, ctx) + vy;
+    double vx = hvr_sparse_vec_get(VX, vertex, ctx);
+    double vy = hvr_sparse_vec_get(VY, vertex, ctx);
+    double new_x = hvr_sparse_vec_get(PX, vertex, ctx) + vx;
+    double new_y = hvr_sparse_vec_get(PY, vertex, ctx) + vy;
 
     for (int p = 0; p < n_global_portals; p++) {
         if (distance(new_x, new_y, portals[p].locations[0].x,
@@ -158,10 +164,10 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
         new_y += global_y_dim;
     }
 
-    hvr_sparse_vec_set(0, new_x, vertex, ctx);
-    hvr_sparse_vec_set(1, new_y, vertex, ctx);
-    hvr_sparse_vec_set(3, vx + delta_vx, vertex, ctx);
-    hvr_sparse_vec_set(4, vy + delta_vy, vertex, ctx);
+    hvr_sparse_vec_set(PX, new_x, vertex, ctx);
+    hvr_sparse_vec_set(PY, new_y, vertex, ctx);
+    hvr_sparse_vec_set(VX, vx + delta_vx, vertex, ctx);
+    hvr_sparse_vec_set(VY, vy + delta_vy, vertex, ctx);
 }
 
 
@@ -177,8 +183,8 @@ int update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
 
     memset(new_summary, 0x00, nbytes);
     for (int a = 0; a < nactors; a++) {
-        int row = CELL_ROW(hvr_sparse_vec_get(1, &actors[a], ctx));
-        int col = CELL_ROW(hvr_sparse_vec_get(0, &actors[a], ctx));
+        int row = CELL_ROW(hvr_sparse_vec_get(PY, &actors[a], ctx));
+        int col = CELL_ROW(hvr_sparse_vec_get(PX, &actors[a], ctx));
         int cell = row * pe_cols + col;
         new_summary[cell / 8] |= (1 << (cell % 8));
     }
@@ -270,7 +276,7 @@ int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
     // Abort if all of my member vertices are infected
     size_t nset = 0;
     for (int i = 0; i < n_vertices; i++) {
-        if (hvr_sparse_vec_get(2, &vertices[i], ctx) > 0.0) {
+        if (hvr_sparse_vec_get(INFECTED, &vertices[i], ctx) > 0.0) {
             nset++;
         }
     }
@@ -399,10 +405,10 @@ int main(int argc, char **argv) {
         const double vy = random_double_in_range(-0.3, 0.3);
 
         hvr_sparse_vec_set_id(pe * actors_per_cell + a, &actors[a]);
-        hvr_sparse_vec_set(0, x, &actors[a], hvr_ctx);
-        hvr_sparse_vec_set(1, y, &actors[a], hvr_ctx);
-        hvr_sparse_vec_set(3, vx, &actors[a], hvr_ctx);
-        hvr_sparse_vec_set(4, vy, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(PX, x, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(PY, y, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(VX, vx, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(VY, vy, &actors[a], hvr_ctx);
 
         int is_infected = 0;
         for (int i = 0; i < n_initial_infected; i++) {
@@ -419,9 +425,9 @@ int main(int argc, char **argv) {
 
         if (is_infected) {
             fprintf(stderr, "PE %d - local offset %d infected\n", pe, a);
-            hvr_sparse_vec_set(2, 1.0, &actors[a], hvr_ctx);
+            hvr_sparse_vec_set(INFECTED, 1.0, &actors[a], hvr_ctx);
         } else {
-            hvr_sparse_vec_set(2, 0.0, &actors[a], hvr_ctx);
+            hvr_sparse_vec_set(INFECTED, 0.0, &actors[a], hvr_ctx);
         }
     }
 
