@@ -215,6 +215,9 @@ typedef struct _hvr_internal_ctx_t {
 
     int64_t timestep;
     volatile int64_t *symm_timestep;
+    int64_t *all_pe_timesteps;
+    int64_t *all_pe_timesteps_buffer;
+    long *all_pe_timesteps_locks;
     int64_t *last_timestep_using_partition;
     /*
      * We re-appropriate the pe_set structure here and just use it as a bit

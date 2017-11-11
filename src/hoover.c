@@ -971,6 +971,46 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
     unlock_partition_time_window(ctx->pe, ctx);
 }
 
+static void update_all_pe_timesteps_helper(const int target_pe,
+        hvr_internal_ctx_t *ctx) {
+    shmem_set_lock(ctx->all_pe_timesteps_locks + target_pe);
+
+    shmem_getmem(ctx->all_pe_timesteps_buffer, ctx->all_pe_timesteps,
+            ctx->npes * sizeof(int64_t), target_pe);
+    int any_remote_updates = 0;
+    for (int i = 0; i < ctx->npes; i++) {
+        if (ctx->all_pe_timesteps[i] > ctx->all_pe_timesteps_buffer[i]) {
+            // Update remote with newer timestep
+            ctx->all_pe_timesteps_buffer[i] = ctx->all_pe_timesteps[i];
+            any_remote_updates = 1;
+        } else {
+            /*
+             * Update local with newer timestep, with either same or greater
+             * timestep.
+             */
+            ctx->all_pe_timesteps[i] = ctx->all_pe_timesteps_buffer[i];
+        }
+    }
+
+    if (any_remote_updates) {
+        shmem_putmem(ctx->all_pe_timesteps, ctx->all_pe_timesteps_buffer,
+                ctx->npes * sizeof(int64_t), target_pe);
+    }
+
+    shmem_clear_lock(ctx->all_pe_timesteps_locks + target_pe);
+}
+
+static void update_all_pe_timesteps(hvr_internal_ctx_t *ctx) {
+    // Just look at my pe + 1 and pe - 1 neighbors
+
+    if (ctx->pe > 0) {
+        update_all_pe_timesteps_helper(ctx->pe - 1, ctx);
+    }
+    if (ctx->pe < ctx->npes - 1) {
+        update_all_pe_timesteps_helper(ctx->pe + 1, ctx);
+    }
+}
+
 void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         hvr_sparse_vec_t *vertices, hvr_update_metadata_func update_metadata,
         hvr_might_interact_func might_interact,
@@ -1004,6 +1044,25 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
             sizeof(*(new_ctx->symm_timestep)));
     assert(new_ctx->symm_timestep);
     *(new_ctx->symm_timestep) = -1;
+
+    new_ctx->all_pe_timesteps = (int64_t *)shmem_malloc(
+            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps)));
+    assert(new_ctx->all_pe_timesteps);
+    memset(new_ctx->all_pe_timesteps, 0x00,
+        new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps)));
+
+    new_ctx->all_pe_timesteps_buffer = (int64_t *)shmem_malloc(
+            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_buffer)));
+    assert(new_ctx->all_pe_timesteps_buffer);
+    memset(new_ctx->all_pe_timesteps_buffer, 0x00,
+        new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_buffer)));
+
+    new_ctx->all_pe_timesteps_locks = (long *)shmem_malloc(
+            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_locks)));
+    assert(new_ctx->all_pe_timesteps_locks);
+    memset(new_ctx->all_pe_timesteps_locks, 0x00,
+            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_locks)));
+
     new_ctx->last_timestep_using_partition = (int64_t *)malloc(
             n_partitions * sizeof(int64_t));
     assert(new_ctx->last_timestep_using_partition);
@@ -1334,6 +1393,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         //             "coupled PEs on timestep %lu\n", ctx->pe, buf, ncoupled,
         //             ctx->timestep - 1);
         // }
+
+        update_all_pe_timesteps(ctx);
 
         const unsigned long long finished_check_abort = hvr_current_time_us();
 
