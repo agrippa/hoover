@@ -827,6 +827,24 @@ static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
     }
 }
 
+static void get_remote_vec_nbi(hvr_sparse_vec_t *dst, hvr_sparse_vec_t *src,
+        const int src_pe) {
+    // GET the remote vector in a way that we don't see any partial updates.
+
+    shmem_getmem_nbi(&(dst->next_bucket), &(src->next_bucket),
+            sizeof(src->next_bucket), src_pe);
+
+    shmem_fence();
+
+    shmem_getmem_nbi(&(dst->timestamps[0]), &(src->timestamps[0]),
+            HVR_BUCKETS * sizeof(src->timestamps[0]), src_pe);
+
+    shmem_fence();
+
+    shmem_getmem_nbi(dst, src,
+            offsetof(hvr_sparse_vec_t, timestamps), src_pe);
+}
+
 static void update_edges(hvr_internal_ctx_t *ctx,
         unsigned long long *getmem_time, unsigned long long *update_edge_time) {
     // For each PE
@@ -870,24 +888,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
              */
             if (ctx->might_interact(actor_partition, ctx->partition_time_window,
                         ctx)) {
-                /*
-                 * GET the remote vector in a way that we don't see any partial
-                 * updates.
-                 */
-                shmem_getmem_nbi(&(vecs[filled].next_bucket),
-                        &(other->next_bucket),
-                        sizeof(other->next_bucket), target_pe);
-
-                shmem_fence();
-
-                shmem_getmem_nbi(&(vecs[filled].timestamps[0]),
-                        &(other->timestamps[0]),
-                        HVR_BUCKETS * sizeof(other->timestamps[0]), target_pe);
-
-                shmem_fence();
-
-                shmem_getmem_nbi(&vecs[filled], other,
-                        offsetof(hvr_sparse_vec_t, timestamps), target_pe);
+                get_remote_vec_nbi(vecs + filled, other, target_pe);
 
                 vecs_local_offset[filled] = j;
                 filled++;
@@ -1003,12 +1004,34 @@ static void update_all_pe_timesteps_helper(const int target_pe,
 static void update_all_pe_timesteps(hvr_internal_ctx_t *ctx) {
     // Just look at my pe + 1 and pe - 1 neighbors
 
-    if (ctx->pe > 0) {
-        update_all_pe_timesteps_helper(ctx->pe - 1, ctx);
+#define PE_STENCIL 1
+    for (int target_pe = ctx->pe - PE_STENCIL;
+            target_pe <= ctx->pe + PE_STENCIL; target_pe++) {
+        if (target_pe >= 0 && target_pe < ctx->npes && target_pe != ctx->pe) {
+            update_all_pe_timesteps_helper(target_pe, ctx);
+        }
     }
-    if (ctx->pe < ctx->npes - 1) {
-        update_all_pe_timesteps_helper(ctx->pe + 1, ctx);
+}
+
+static void update_my_timestep(hvr_internal_ctx_t *ctx) {
+    shmem_set_lock(ctx->all_pe_timesteps_locks + ctx->pe);
+    (ctx->all_pe_timesteps)[ctx->pe] = ctx->timestep;
+    shmem_clear_lock(ctx->all_pe_timesteps_locks + ctx->pe);
+}
+
+static int64_t oldest_pe_timestep(hvr_internal_ctx_t *ctx) {
+    shmem_set_lock(ctx->all_pe_timesteps_locks + ctx->pe);
+
+    int64_t oldest_timestep = ctx->all_pe_timesteps[0];
+    for (int i = 1; i < ctx->npes; i++) {
+        if (ctx->all_pe_timesteps[i] < oldest_timestep) {
+            oldest_timestep = ctx->all_pe_timesteps[i];
+        }
     }
+
+    shmem_clear_lock(ctx->all_pe_timesteps_locks + ctx->pe);
+
+    return oldest_timestep;
 }
 
 void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
@@ -1195,7 +1218,8 @@ static void update_local_actor_metadata(const vertex_id_t actor,
             ctx->vertex_owner(neighbor, &other_pe, &local_offset);
 
             hvr_sparse_vec_t *other = &(ctx->vertices[local_offset]);
-            shmem_getmem_nbi(ctx->buffer + n, other, sizeof(*other), other_pe);
+
+            get_remote_vec_nbi(ctx->buffer + n, other, other_pe);
         }
 
         shmem_quiet();
@@ -1394,7 +1418,15 @@ void hvr_body(hvr_ctx_t in_ctx) {
         //             ctx->timestep - 1);
         // }
 
+        /*
+         * Throttle the progress of much faster PEs to ensure we don't get out
+         * of range of timesteps on other PEs.
+         */
+        update_my_timestep(ctx);
         update_all_pe_timesteps(ctx);
+        while (ctx->timestep - oldest_pe_timestep(ctx) > HVR_BUCKETS / 2) {
+            update_all_pe_timesteps(ctx);
+        }
 
         const unsigned long long finished_check_abort = hvr_current_time_us();
 
