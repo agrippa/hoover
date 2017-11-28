@@ -14,11 +14,13 @@ var max_y = null;
 var curr_simulation_step = 1000000;
 var starting_simulation_step;
 
-var label_colors = {};
+var color_based_on_state = true;
+var pe_colors = {}
+var state_colors = {}
 
 var random_colors_index = 0;
-var random_colors = ['rgb(51,255,51)', 'rgb(0,0,255)', 'rgb(255,0,0)',
-    'rgb(204,0,204)', 'rgb(255,255,0)', 'rgb(0,255,255)'];
+var random_colors = ['rgb(51,255,51)', /* 'rgb(0,0,255)', */ 'rgb(255,0,0)',
+    'rgb(255,255,0)', 'rgb(204,0,204)', 'rgb(0,255,255)'];
 
 //Helper function to get a random color - but not too dark
 function GetRandomColor() {
@@ -28,39 +30,56 @@ function GetRandomColor() {
         random_colors_index = 0;
     }
     return result;
-    // var r = 0, g = 0, b = 0;
-    // while (r < 100 && g < 100 && b < 100) {
-    //     r = Math.floor(Math.random() * 256);
-    //     g = Math.floor(Math.random() * 256);
-    //     b = Math.floor(Math.random() * 256);
-    // }
-
-    // return "rgb(" + r + "," + g + ","  + b + ")";
 }
 
-function addLabel(label) {
-    if (label in label_colors) {
+function addPE(pe) {
+    if (pe in pe_colors) {
         return;
     }
-    label_colors[label] = GetRandomColor();
+    pe_colors[pe] = GetRandomColor();
 }
 
-function getLabelColor(label) {
-    return label_colors[label];
+function addState(state) {
+    if (state in state_colors) {
+        return
+    }
+    state_colors[state] = GetRandomColor();
+}
+
+function getStateColor(state) {
+    return state_colors[state];
+}
+
+function getPEColor(pe) {
+    return pe_colors[pe];
 }
 
 //Particle object with random starting position, velocity and color
-var Particle = function (set_x, set_y, set_label) {
+var Particle = function (set_x, set_y, set_pe, set_state) {
     this.x = set_x;
     this.y = set_y;
-    this.Color = getLabelColor(set_label);
+    this.pe = set_pe;
+    this.state = set_state;
+}
+
+function changeColoring(e) {
+    if (e.checked) {
+        color_based_on_state = true;
+    } else {
+        color_based_on_state = false;
+    }
+}
+
+function resetTime() {
+    curr_simulation_step = starting_simulation_step;
 }
 
 function readSingleFile(e) {
     var fileInput = document.getElementById('fileInput');
     fileInput.addEventListener('change', function(e) {
         curr_simulation_step = 1000000;
-        label_colors = {};
+        pe_colors = {};
+        state_colors = {};
         min_x = null; max_x = null;
         min_y = null; max_y = null;
         simulation_data = {};
@@ -101,10 +120,8 @@ function readSingleFile(e) {
                             parseFloat(line[4 + 2 * j + 1]);
                     }
 
-                    // var label = pe; // Label by PE
-                    var label = features[2]; // Label by infection state
-
-                    addLabel(label);
+                    addPE(pe);
+                    addState(features[2]);
 
                     var x = features[0];
                     var y = features[1];
@@ -116,7 +133,8 @@ function readSingleFile(e) {
                     if (!(timestep in simulation_data)) {
                         simulation_data[timestep] = {};
                     }
-                    simulation_data[timestep][id] = new Particle(x, y, label);
+                    simulation_data[timestep][id] = new Particle(x, y, pe,
+                            features[2]);
 
                     if (timestep < curr_simulation_step) {
                         curr_simulation_step = timestep;
@@ -129,7 +147,8 @@ function readSingleFile(e) {
                     // Launch simulation
                     console.log('min = (' + min_x + ', ' + min_y + ') max = (' +
                                 max_x + ', ' + max_y + ')');
-                    console.log('labels = ' + JSON.stringify(label_colors));
+                    console.log('PEs = ' + JSON.stringify(pe_colors));
+                    console.log('States = ' + JSON.stringify(state_colors));
 
                     var curr_timestep = curr_simulation_step + 1;
                     while (curr_timestep in simulation_data) {
@@ -172,7 +191,11 @@ function readSingleFile(e) {
 
 //Ading two methods
 Particle.prototype.Draw = function (ctx) {
-    ctx.fillStyle = this.Color;
+    if (color_based_on_state) {
+        ctx.fillStyle = getStateColor(this.state);
+    } else {
+        ctx.fillStyle = getPEColor(this.pe);
+    }
 
     var normalize_x = this.x - min_x;
     normalize_x = normalize_x / (max_x - min_x);

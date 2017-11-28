@@ -6,7 +6,12 @@
         <link href="viz.css" rel="stylesheet" />
     </head>
     <body>
-        <span><input type="file" id="fileInput"><font id="timestep" size="5" color="white" style="float:right">0</font></span>
+        <span>
+            <input type="file" id="fileInput">
+            <input type="checkbox" id="label" name="label" onchange="changeColoring(this)" checked>
+            <input type="button" id="reset" onclick="resetTime()" value="Reset">
+            <font id="timestep" size="5" color="white" style="float:right">0</font>
+        </span>
         <canvas id="canvas"</canvas>
         <script src="viz.js"></script>
     </body>
