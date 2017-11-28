@@ -31,7 +31,7 @@ export CORES_PER_SOCKET=12
 export SOCKETS_PER_NODE=2
 export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
-# export HVR_TRACE_DUMP=1
+export HVR_TRACE_DUMP=1
 
 # export HVR_DEFAULT_SPARSE_VEC_VAL=0.0
 # srun --ntasks=1 ./bin/sparse_vec_test
@@ -54,6 +54,7 @@ export PE_COLS=6
 # 
 export N_PORTALS=4
 export N_INFECTED=1
+# export MAX_NUM_TIMESTEPS=2000
 export MAX_NUM_TIMESTEPS=2000
 export INFECTION_RADIUS=4.0
 export MAX_DELTA_VELOCITY=0.01

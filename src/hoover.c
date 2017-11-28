@@ -900,8 +900,9 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                     shmem_quiet();
 
                     for (int f = 0; f < filled; f++) {
-                        check_for_edge_to_add(&vecs[f], target_pe, vecs_local_offset[f],
-                                update_edge_time, other_pes_timestep, ctx);
+                        check_for_edge_to_add(&vecs[f], target_pe,
+                                vecs_local_offset[f], update_edge_time,
+                                other_pes_timestep, ctx);
                     }
                     filled = 0;
                 }
@@ -1424,8 +1425,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
          */
         update_my_timestep(ctx);
         update_all_pe_timesteps(ctx);
+        unsigned nspins = 0;
         while (ctx->timestep - oldest_pe_timestep(ctx) > HVR_BUCKETS / 2) {
             update_all_pe_timesteps(ctx);
+            nspins++;
         }
 
         const unsigned long long finished_check_abort = hvr_current_time_us();
@@ -1460,7 +1463,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - "
                 "edges %f ms (%f %f) - neighbor updates %f ms - abort %f ms - "
-                "%u / %u PE neighbors %s - partition window = %s - "
+                " %u spins - %u / %u PE neighbors %s - partition window = %s - "
                 "aborting? %d\n", ctx->pe,
                 (double)(finished_check_abort - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
@@ -1471,7 +1474,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)getmem_time / 1000.0, (double)update_edge_time / 1000.0,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
                 (double)(finished_check_abort - finished_neighbor_updates) / 1000.0,
-                hvr_pe_set_count(ctx->my_neighbors), ctx->npes,
+                nspins, hvr_pe_set_count(ctx->my_neighbors), ctx->npes,
 #ifdef VERBOSE
                 neighbors_str, partition_time_window_str,
 #else
