@@ -179,38 +179,38 @@ void hvr_sparse_vec_set(const unsigned feature, const double val,
     hvr_sparse_vec_set_internal(feature, val, vec, ctx->timestep);
 }
 
-// static int find_feature_in_bucket(const hvr_sparse_vec_t *vec,
-//         const unsigned curr_bucket, const unsigned feature,
-//         double *out_val) {
-//     const unsigned bucket_size = vec->bucket_size[curr_bucket];
-//     for (unsigned i = 0; i < bucket_size; i++) {
-//         if (vec->features[curr_bucket][i] == feature) {
-//             *out_val = vec->values[curr_bucket][i];
-//             return 1;
-//         }
-//     }
-//     return 0;
-// }
+static int find_feature_in_bucket(const hvr_sparse_vec_t *vec,
+        const unsigned curr_bucket, const unsigned feature,
+        double *out_val) {
+    const unsigned bucket_size = vec->bucket_size[curr_bucket];
+    for (unsigned i = 0; i < bucket_size; i++) {
+        if (vec->features[curr_bucket][i] == feature) {
+            *out_val = vec->values[curr_bucket][i];
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static int hvr_sparse_vec_get_internal(const unsigned feature,
         hvr_sparse_vec_t *vec, const int64_t curr_timestamp,
         double *out_val) {
 
-    // if (vec->cached_timestamp == curr_timestamp - 1 &&
-    //         vec->cached_timestamp_index < HVR_BUCKETS &&
-    //         vec->timestamps[vec->cached_timestamp_index] ==
-    //             curr_timestamp - 1) {
-    //     /*
-    //      * If we might have the location of this timestamp in this vector
-    //      * cached, double check and then use that information to do an O(1)
-    //      * lookup if possible.
-    //      */
+    if (vec->cached_timestamp == curr_timestamp - 1 &&
+            vec->cached_timestamp_index < HVR_BUCKETS &&
+            vec->timestamps[vec->cached_timestamp_index] ==
+                curr_timestamp - 1) {
+        /*
+         * If we might have the location of this timestamp in this vector
+         * cached, double check and then use that information to do an O(1)
+         * lookup if possible.
+         */
 
-    //     if (find_feature_in_bucket(vec, vec->cached_timestamp_index, feature,
-    //                 out_val)) {
-    //         return 1;
-    //     }
-    // }
+        if (find_feature_in_bucket(vec, vec->cached_timestamp_index, feature,
+                    out_val)) {
+            return 1;
+        }
+    }
 
     unsigned initial_bucket = prev_bucket(vec->next_bucket);
 
@@ -222,19 +222,19 @@ static int hvr_sparse_vec_get_internal(const unsigned feature,
         if (vec->timestamps[curr_bucket] >= 0 &&
                 vec->timestamps[curr_bucket] < curr_timestamp) {
             // Handle finding an existing bucket for this timestep
-            // if (find_feature_in_bucket(vec, curr_bucket, feature, out_val)) {
-            //     vec->cached_timestamp = vec->timestamps[curr_bucket];
-            //     vec->cached_timestamp_index = curr_bucket;
-            //     return 1;
-            // }
-
-            const unsigned bucket_size = vec->bucket_size[curr_bucket];
-            for (unsigned i = 0; i < bucket_size; i++) {
-                if (vec->features[curr_bucket][i] == feature) {
-                    *out_val = vec->values[curr_bucket][i];
-                    return 1;
-                }
+            if (find_feature_in_bucket(vec, curr_bucket, feature, out_val)) {
+                vec->cached_timestamp = vec->timestamps[curr_bucket];
+                vec->cached_timestamp_index = curr_bucket;
+                return 1;
             }
+
+            // const unsigned bucket_size = vec->bucket_size[curr_bucket];
+            // for (unsigned i = 0; i < bucket_size; i++) {
+            //     if (vec->features[curr_bucket][i] == feature) {
+            //         *out_val = vec->values[curr_bucket][i];
+            //         return 1;
+            //     }
+            // }
             break;
         }
 
