@@ -56,6 +56,9 @@ typedef struct _hvr_sparse_vec_t {
 
     // The oldest bucket or first unused bucket (used to evict quickly).
     unsigned next_bucket;
+
+    int64_t cached_timestamp;
+    unsigned cached_timestamp_index;
 } hvr_sparse_vec_t;
 
 /*
@@ -77,7 +80,7 @@ void hvr_sparse_vec_set(const unsigned feature, const double val,
 /*
  * Get the value for the specified feature in the provided vector.
  */
-double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
+double hvr_sparse_vec_get(const unsigned feature, hvr_sparse_vec_t *vec,
         hvr_ctx_t in_ctx);
 
 /*

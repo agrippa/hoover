@@ -46,6 +46,7 @@ hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
 void hvr_sparse_vec_init(hvr_sparse_vec_t *vec) {
     memset(vec, 0x00, sizeof(*vec));
     vec->pe = shmem_my_pe();
+    vec->cached_timestamp = -1;
 }
 
 static inline unsigned prev_bucket(const unsigned bucket) {
@@ -178,9 +179,39 @@ void hvr_sparse_vec_set(const unsigned feature, const double val,
     hvr_sparse_vec_set_internal(feature, val, vec, ctx->timestep);
 }
 
+// static int find_feature_in_bucket(const hvr_sparse_vec_t *vec,
+//         const unsigned curr_bucket, const unsigned feature,
+//         double *out_val) {
+//     const unsigned bucket_size = vec->bucket_size[curr_bucket];
+//     for (unsigned i = 0; i < bucket_size; i++) {
+//         if (vec->features[curr_bucket][i] == feature) {
+//             *out_val = vec->values[curr_bucket][i];
+//             return 1;
+//         }
+//     }
+//     return 0;
+// }
+
 static int hvr_sparse_vec_get_internal(const unsigned feature,
-        const hvr_sparse_vec_t *vec, const int64_t curr_timestamp,
+        hvr_sparse_vec_t *vec, const int64_t curr_timestamp,
         double *out_val) {
+
+    // if (vec->cached_timestamp == curr_timestamp - 1 &&
+    //         vec->cached_timestamp_index < HVR_BUCKETS &&
+    //         vec->timestamps[vec->cached_timestamp_index] ==
+    //             curr_timestamp - 1) {
+    //     /*
+    //      * If we might have the location of this timestamp in this vector
+    //      * cached, double check and then use that information to do an O(1)
+    //      * lookup if possible.
+    //      */
+
+    //     if (find_feature_in_bucket(vec, vec->cached_timestamp_index, feature,
+    //                 out_val)) {
+    //         return 1;
+    //     }
+    // }
+
     unsigned initial_bucket = prev_bucket(vec->next_bucket);
 
     unsigned curr_bucket = initial_bucket;
@@ -191,6 +222,12 @@ static int hvr_sparse_vec_get_internal(const unsigned feature,
         if (vec->timestamps[curr_bucket] >= 0 &&
                 vec->timestamps[curr_bucket] < curr_timestamp) {
             // Handle finding an existing bucket for this timestep
+            // if (find_feature_in_bucket(vec, curr_bucket, feature, out_val)) {
+            //     vec->cached_timestamp = vec->timestamps[curr_bucket];
+            //     vec->cached_timestamp_index = curr_bucket;
+            //     return 1;
+            // }
+
             const unsigned bucket_size = vec->bucket_size[curr_bucket];
             for (unsigned i = 0; i < bucket_size; i++) {
                 if (vec->features[curr_bucket][i] == feature) {
@@ -198,7 +235,6 @@ static int hvr_sparse_vec_get_internal(const unsigned feature,
                     return 1;
                 }
             }
-
             break;
         }
 
@@ -214,7 +250,7 @@ static int hvr_sparse_vec_get_internal(const unsigned feature,
     }
 }
 
-double hvr_sparse_vec_get(const unsigned feature, const hvr_sparse_vec_t *vec,
+double hvr_sparse_vec_get(const unsigned feature, hvr_sparse_vec_t *vec,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     double result;
@@ -797,6 +833,10 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
     return sqrt(acc);
 }
 
+/*
+ * Check if an edge should be added from any locally stored actors to the jth
+ * actor on PE target_pe (whose data is stored in vec).
+ */
 static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
         const int target_pe, const int j, unsigned long long *update_edge_time,
         const int64_t other_pes_timestep, hvr_internal_ctx_t *ctx) {
@@ -827,10 +867,9 @@ static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
     }
 }
 
+// GET the remote vector in a way that we don't see any partial updates.
 static void get_remote_vec_nbi(hvr_sparse_vec_t *dst, hvr_sparse_vec_t *src,
         const int src_pe) {
-    // GET the remote vector in a way that we don't see any partial updates.
-
     shmem_getmem_nbi(&(dst->next_bucket), &(src->next_bucket),
             sizeof(src->next_bucket), src_pe);
 
@@ -843,6 +882,9 @@ static void get_remote_vec_nbi(hvr_sparse_vec_t *dst, hvr_sparse_vec_t *src,
 
     shmem_getmem_nbi(dst, src,
             offsetof(hvr_sparse_vec_t, timestamps), src_pe);
+
+    dst->cached_timestamp = -1;
+    dst->cached_timestamp_index = 0;
 }
 
 static void update_edges(hvr_internal_ctx_t *ctx,
@@ -867,6 +909,10 @@ static void update_edges(hvr_internal_ctx_t *ctx,
         int64_t other_pes_timestep;
         shmem_getmem(&other_pes_timestep, (int64_t *)ctx->symm_timestep,
                 sizeof(other_pes_timestep), target_pe);
+        /*
+         * Prevent this PE from seeing into the future, if the other PE is ahead
+         * of us.
+         */
         if (other_pes_timestep > ctx->timestep - 1) {
             other_pes_timestep = ctx->timestep - 1;
         }
