@@ -2,7 +2,7 @@
 
 #SBATCH -p debug
 #SBATCH -N 2
-#SBATCH -t 00:30:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 #SBATCH --contiguous
@@ -58,7 +58,7 @@ export PE_COLS=8
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=800
+export MAX_NUM_TIMESTEPS=1000
 export INFECTION_RADIUS=4.0
 export MAX_DELTA_VELOCITY=0.01
 

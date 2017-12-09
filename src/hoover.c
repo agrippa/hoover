@@ -1063,25 +1063,31 @@ static void update_all_pe_timesteps(hvr_internal_ctx_t *ctx,
     }
 }
 
-static void update_my_timestep(hvr_internal_ctx_t *ctx) {
+static void update_my_timestep(hvr_internal_ctx_t *ctx,
+        const int64_t set_timestep) {
     shmem_set_lock(ctx->all_pe_timesteps_locks + ctx->pe);
-    (ctx->all_pe_timesteps)[ctx->pe] = ctx->timestep;
+    (ctx->all_pe_timesteps)[ctx->pe] = set_timestep;
     shmem_clear_lock(ctx->all_pe_timesteps_locks + ctx->pe);
 }
 
-static int64_t oldest_pe_timestep(hvr_internal_ctx_t *ctx) {
+
+static void oldest_pe_timestep(hvr_internal_ctx_t *ctx,
+        int64_t *out_oldest_timestep, unsigned *out_oldest_pe) {
     shmem_set_lock(ctx->all_pe_timesteps_locks + ctx->pe);
 
     int64_t oldest_timestep = ctx->all_pe_timesteps[0];
+    unsigned oldest_pe = 0;
     for (int i = 1; i < ctx->npes; i++) {
         if (ctx->all_pe_timesteps[i] < oldest_timestep) {
             oldest_timestep = ctx->all_pe_timesteps[i];
+            oldest_pe = i;
         }
     }
 
     shmem_clear_lock(ctx->all_pe_timesteps_locks + ctx->pe);
 
-    return oldest_timestep;
+    *out_oldest_timestep = oldest_timestep;
+    *out_oldest_pe = oldest_pe;
 }
 
 void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
@@ -1472,11 +1478,17 @@ void hvr_body(hvr_ctx_t in_ctx) {
          * Throttle the progress of much faster PEs to ensure we don't get out
          * of range of timesteps on other PEs.
          */
-        update_my_timestep(ctx);
+        update_my_timestep(ctx, ctx->timestep);
         update_all_pe_timesteps(ctx, 1);
         unsigned nspins = 0;
-        while (ctx->timestep - oldest_pe_timestep(ctx) > HVR_BUCKETS / 2) {
+
+        int64_t oldest_timestep;
+        unsigned oldest_pe;
+        oldest_pe_timestep(ctx, &oldest_timestep, &oldest_pe);
+
+        while (ctx->timestep - oldest_timestep > HVR_BUCKETS / 2) {
             update_all_pe_timesteps(ctx, nspins + 1);
+            oldest_pe_timestep(ctx, &oldest_timestep, &oldest_pe);
             nspins++;
         }
 
@@ -1510,7 +1522,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 partition_time_window_str, 1024);
 #endif
 
-        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - "
+        fprintf(stderr, "PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - "
                 "edges %f ms (%f %f) - neighbor updates %f ms - abort %f ms - "
                 "%u spins - %u / %u PE neighbors %s - partition window = %s - "
                 "aborting? %d - last step? %d\n", ctx->pe,
@@ -1562,6 +1574,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
     }
 
     shmem_clear_lock(ctx->coupled_locks + ctx->pe);
+
+    update_my_timestep(ctx, INT64_MAX);
 
     shmem_quiet(); // Make sure the timestep updates complete
 
