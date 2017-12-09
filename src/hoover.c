@@ -1522,7 +1522,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 partition_time_window_str, 1024);
 #endif
 
-        fprintf(stderr, "PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - "
+        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - "
                 "edges %f ms (%f %f) - neighbor updates %f ms - abort %f ms - "
                 "%u spins - %u / %u PE neighbors %s - partition window = %s - "
                 "aborting? %d - last step? %d\n", ctx->pe,

@@ -42,7 +42,7 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 120
 
 export CELL_DIM=100.0
-export ACTORS_PER_CELL=400
+export ACTORS_PER_CELL=800
 
 # # For 1 node
 # export PE_ROWS=4
