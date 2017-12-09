@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 2
+#SBATCH -N 8
 #SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -42,19 +42,23 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 120
 
 export CELL_DIM=100.0
-export ACTORS_PER_CELL=800
+export ACTORS_PER_CELL=200
 
 # # For 1 node
 # export PE_ROWS=4
 # export PE_COLS=6
 
-# For 2 nodes
-export PE_ROWS=6
-export PE_COLS=8
+# # For 2 nodes
+# export PE_ROWS=6
+# export PE_COLS=8
 
 # # For 4 nodes
 # export PE_ROWS=8
 # export PE_COLS=12
+
+# For 8 nodes
+export PE_ROWS=12
+export PE_COLS=16
 
 export N_PORTALS=0
 export N_INFECTED=1
