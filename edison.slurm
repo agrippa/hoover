@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 2
 #SBATCH -t 00:30:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -42,22 +42,26 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 120
 
 export CELL_DIM=100.0
-export ACTORS_PER_CELL=200
-export PE_ROWS=4
-export PE_COLS=6
+export ACTORS_PER_CELL=400
 
-# # for flat parallelism, 1 PE per socket
-# export CELL_DIM=400.0
-# export ACTORS_PER_CELL=600
+# # For 1 node
 # export PE_ROWS=4
-# export PE_COLS=4
-# 
+# export PE_COLS=6
+
+# For 2 nodes
+export PE_ROWS=6
+export PE_COLS=8
+
+# # For 4 nodes
+# export PE_ROWS=8
+# export PE_COLS=12
+
 export N_PORTALS=0
 export N_INFECTED=1
-# export MAX_NUM_TIMESTEPS=2000
-export MAX_NUM_TIMESTEPS=2000
+export MAX_NUM_TIMESTEPS=800
 export INFECTION_RADIUS=4.0
 export MAX_DELTA_VELOCITY=0.01
+
 # srun --ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) \
 #     --ntasks-per-socket=1 --cpus-per-task=1 ./bin/infectious_test \
 #     $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \

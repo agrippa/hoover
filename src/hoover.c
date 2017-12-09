@@ -1048,15 +1048,18 @@ static void update_all_pe_timesteps_helper(const int target_pe,
     shmem_clear_lock(ctx->all_pe_timesteps_locks + target_pe);
 }
 
-static void update_all_pe_timesteps(hvr_internal_ctx_t *ctx) {
+static void update_all_pe_timesteps(hvr_internal_ctx_t *ctx,
+        const int pe_stencil) {
     // Just look at my pe + 1 and pe - 1 neighbors
 
-#define PE_STENCIL 1
-    for (int target_pe = ctx->pe - PE_STENCIL;
-            target_pe <= ctx->pe + PE_STENCIL; target_pe++) {
-        if (target_pe >= 0 && target_pe < ctx->npes && target_pe != ctx->pe) {
-            update_all_pe_timesteps_helper(target_pe, ctx);
-        }
+    int start_pe = ctx->pe - pe_stencil;
+    if (start_pe < 0) start_pe = 0;
+    int end_pe = ctx->pe + pe_stencil;
+    if (end_pe > ctx->npes - 1) end_pe = ctx->npes - 1;
+
+    for (int target_pe = start_pe; target_pe <= end_pe; target_pe++) {
+        if (target_pe == ctx->pe) continue;
+        update_all_pe_timesteps_helper(target_pe, ctx);
     }
 }
 
@@ -1470,10 +1473,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
          * of range of timesteps on other PEs.
          */
         update_my_timestep(ctx);
-        update_all_pe_timesteps(ctx);
+        update_all_pe_timesteps(ctx, 1);
         unsigned nspins = 0;
         while (ctx->timestep - oldest_pe_timestep(ctx) > HVR_BUCKETS / 2) {
-            update_all_pe_timesteps(ctx);
+            update_all_pe_timesteps(ctx, nspins + 1);
             nspins++;
         }
 
@@ -1509,8 +1512,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - "
                 "edges %f ms (%f %f) - neighbor updates %f ms - abort %f ms - "
-                " %u spins - %u / %u PE neighbors %s - partition window = %s - "
-                "aborting? %d\n", ctx->pe,
+                "%u spins - %u / %u PE neighbors %s - partition window = %s - "
+                "aborting? %d - last step? %d\n", ctx->pe,
                 (double)(finished_check_abort - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)fetch_neighbors_time / 1000.0,
@@ -1526,7 +1529,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 #else
                 "", "",
 #endif
-                abort);
+                abort, ctx->timestep >= ctx->max_timestep);
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;

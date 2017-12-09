@@ -398,6 +398,8 @@ int main(int argc, char **argv) {
     assert(portals);
     if (pe == 0) {
         fprintf(stderr, "Creating %d portals\n", n_global_portals);
+        fprintf(stderr, "%d actors per cell, %d actors in total\n",
+                actors_per_cell, actors_per_cell * npes);
         for (int p = 0; p < n_global_portals; p++) {
             const int pe0 = (rand() % npes);
             const int pe1 = (rand() % npes);
