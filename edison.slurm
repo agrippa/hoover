@@ -52,10 +52,10 @@ export PE_COLS=6
 # export PE_ROWS=4
 # export PE_COLS=4
 # 
-export N_PORTALS=4
+export N_PORTALS=0
 export N_INFECTED=1
 # export MAX_NUM_TIMESTEPS=2000
-export MAX_NUM_TIMESTEPS=1000
+export MAX_NUM_TIMESTEPS=2000
 export INFECTION_RADIUS=4.0
 export MAX_DELTA_VELOCITY=0.01
 # srun --ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) \

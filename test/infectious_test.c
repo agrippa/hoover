@@ -28,6 +28,8 @@
 #define CELL_COL(x_coord) ((x_coord) / cell_dim)
 #define CELL_INDEX(cell_row, cell_col) ((cell_row) * pe_cols + (cell_col))
 
+#define MAX_DST_DELTA 5.0
+
 typedef struct _portal_t {
     int pes[2];
     struct {
@@ -131,15 +133,29 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     const double global_x_dim = (double)pe_cols * cell_dim;
     const double global_y_dim = (double)pe_rows * cell_dim;
 
+    const double expected_max_radius = sqrt(MAX_DST_DELTA * MAX_DST_DELTA +
+            MAX_DST_DELTA * MAX_DST_DELTA);
+    const double home_distance = distance(
+            hvr_sparse_vec_get(HOME_X, vertex, ctx),
+            hvr_sparse_vec_get(HOME_Y, vertex, ctx), p_x, p_y);
+    if (home_distance > expected_max_radius) {
+        fprintf(stderr, "Expected point to not be farther than %f from home, "
+                "is %f. pos = (%f, %f), home = (%f, %f)\n", expected_max_radius,
+                home_distance, p_x, p_y,
+                hvr_sparse_vec_get(HOME_X, vertex, ctx),
+                hvr_sparse_vec_get(HOME_Y, vertex, ctx));
+        assert(0);
+    }
+
     if (fabs(p_x - dst_x) < 1e-9 || fabs(p_y - dst_y) < 1e-9) {
         /*
          * Seem to have reached destination, set new destination and start
          * moving there.
          */
         dst_x = hvr_sparse_vec_get(HOME_X, vertex, ctx) +
-            random_double_in_range(-5.0, 5.0);
+            random_double_in_range(-MAX_DST_DELTA, MAX_DST_DELTA);
         dst_y = hvr_sparse_vec_get(HOME_Y, vertex, ctx) +
-            random_double_in_range(-5.0, 5.0);
+            random_double_in_range(-MAX_DST_DELTA, MAX_DST_DELTA);
 
         if (dst_x > global_x_dim) dst_x = global_x_dim - 1.0;
         if (dst_y > global_y_dim) dst_y = global_y_dim - 1.0;
@@ -353,6 +369,9 @@ int main(int argc, char **argv) {
     infection_radius = atof(argv[8]);
     max_delta_velocity = atof(argv[9]);
 
+    const double global_x_dim = (double)pe_cols * cell_dim;
+    const double global_y_dim = (double)pe_rows * cell_dim;
+
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
         p_sync[i] = SHMEM_SYNC_VALUE;
     }
@@ -430,10 +449,17 @@ int main(int argc, char **argv) {
         hvr_sparse_vec_set(PY, y, &actors[a], hvr_ctx);
         hvr_sparse_vec_set(HOME_X, x, &actors[a], hvr_ctx);
         hvr_sparse_vec_set(HOME_Y, y, &actors[a], hvr_ctx);
-        hvr_sparse_vec_set(DST_X, x + random_double_in_range(-5.0, 5.0),
-                &actors[a], hvr_ctx);
-        hvr_sparse_vec_set(DST_Y, y + random_double_in_range(-5.0, 5.0),
-                &actors[a], hvr_ctx);
+
+        double dst_x = x + random_double_in_range(-MAX_DST_DELTA,
+                MAX_DST_DELTA);
+        double dst_y = y + random_double_in_range(-MAX_DST_DELTA,
+                MAX_DST_DELTA);
+        if (dst_x > global_x_dim) dst_x = global_x_dim - 1.0;
+        if (dst_y > global_y_dim) dst_y = global_y_dim - 1.0;
+        if (dst_x < 0.0) dst_x = 0.0;
+        if (dst_y < 0.0) dst_y = 0.0;
+        hvr_sparse_vec_set(DST_X, dst_x, &actors[a], hvr_ctx);
+        hvr_sparse_vec_set(DST_Y, dst_y, &actors[a], hvr_ctx);
 
         int is_infected = 0;
         for (int i = 0; i < n_initial_infected; i++) {
