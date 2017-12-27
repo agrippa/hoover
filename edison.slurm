@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 32
+#SBATCH -N 2
 #SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -41,36 +41,33 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 120
 
-# # For 1 node
-# export PE_ROWS=4
-# export PE_COLS=6
-
-# # For 2 nodes
-# export CELL_DIM=200.0
-# export ACTORS_PER_CELL=800
-# export PE_ROWS=6
-# export PE_COLS=8
-
-# # For 4 nodes
-# export PE_ROWS=8
-# export PE_COLS=12
-
-# # For 8 nodes
-# export CELL_DIM=100.0
-# export ACTORS_PER_CELL=200
-# export PE_ROWS=12
-# export PE_COLS=16
-
-# For 32 nodes
-export CELL_DIM=50.0
-export ACTORS_PER_CELL=50
-export PE_ROWS=24
-export PE_COLS=32
+if [[ $SLURM_NNODES -eq 2 ]]; then
+    # For 2 nodes
+    export CELL_DIM=200.0
+    export ACTORS_PER_CELL=800
+    export PE_ROWS=6
+    export PE_COLS=8
+elif [[ $SLURM_NNODES -eq 8 ]]; then
+    # For 8 nodes
+    export CELL_DIM=100.0
+    export ACTORS_PER_CELL=200
+    export PE_ROWS=12
+    export PE_COLS=16
+elif [[ $SLURM_NNODES -eq 32 ]]; then
+    # For 32 nodes
+    export CELL_DIM=50.0
+    export ACTORS_PER_CELL=50
+    export PE_ROWS=24
+    export PE_COLS=32
+else
+    echo "Unsupported number of nodes! $SLURM_NNODES"
+    exit 1
+fi
 
 export N_PORTALS=0
 export N_INFECTED=1
 # export MAX_NUM_TIMESTEPS=1000
-export MAX_NUM_TIMESTEPS=100
+export MAX_NUM_TIMESTEPS=300
 export INFECTION_RADIUS=4.0
 export MAX_DELTA_VELOCITY=0.01
 
