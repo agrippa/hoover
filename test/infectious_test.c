@@ -7,7 +7,7 @@
 
 #include <hoover.h>
 
-#define PARTITION_DIM 100
+#define PARTITION_DIM 150
 
 #define PX 0
 #define PY 1

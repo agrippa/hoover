@@ -1348,11 +1348,15 @@ void hvr_body(hvr_ctx_t in_ctx) {
         // Update mapping from actors to partitions
         update_actor_partitions(ctx);
 
+        const unsigned long long finished_actor_partitions = hvr_current_time_us();
+
         /*
          * Update a fuzzy window of partitions that have recently had local
          * actors in them.
          */
         update_partition_time_window(ctx);
+
+        const unsigned long long finished_time_window = hvr_current_time_us();
 
         // Update neighboring PEs based on fuzzy partition windows
         update_neighbors_based_on_partitions(ctx);
@@ -1522,7 +1526,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 partition_time_window_str, 1024);
 #endif
 
-        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms - "
+        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms (%f %f %f) - "
                 "edges %f ms (%f %f) - neighbor updates %f ms - abort %f ms - "
                 "%u spins - %u / %u PE neighbors %s - partition window = %s - "
                 "aborting? %d - last step? %d\n", ctx->pe,
@@ -1531,6 +1535,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)fetch_neighbors_time / 1000.0,
                 (double)update_metadata_time / 1000.0,
                 (double)(finished_summary_update - finished_updates) / 1000.0,
+                (double)(finished_actor_partitions - finished_updates) / 1000.0,
+                (double)(finished_time_window - finished_actor_partitions) / 1000.0,
+                (double)(finished_summary_update - finished_time_window) / 1000.0,
                 (double)(finished_edge_adds - finished_summary_update) / 1000.0,
                 (double)getmem_time / 1000.0, (double)update_edge_time / 1000.0,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
