@@ -28,10 +28,10 @@ int main(int argc, char **argv) {
         for (int j = 0; j < NPES; j++) {
             if (j != i) assert(hvr_pe_set_contains(j, set) == 0);
         }
-        hvr_pe_set_clear(i, set);
-        for (int j = 0; j < NPES; j++) {
-            assert(hvr_pe_set_contains(j, set) == 0);
-        }
+        // hvr_pe_set_clear(i, set);
+        // for (int j = 0; j < NPES; j++) {
+        //     assert(hvr_pe_set_contains(j, set) == 0);
+        // }
     }
 
     hvr_pe_set_insert(2, set);

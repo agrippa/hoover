@@ -241,22 +241,26 @@ int update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
 }
 
 /*
- * Callback used to check if this PE might interact with another PE based on the
- * maximums and minimums of all vertices owned by each PE.
+ * Callback used to check if this PE might interact with another PE.
+ *
+ * If partition is neighboring any partition in partitions, they might
+ * interact.
  */
 int might_interact(const uint16_t partition, hvr_pe_set_t *partitions,
         hvr_ctx_t ctx) {
-    /*
-     * If partition is neighboring any partition in partitions, they might
-     * interact.
-     */
 
-    // Each partition has this length on each side
+    // The global dimensions of the full simulation space
     const double global_cols_dim = (double)pe_cols * cell_dim;
     const double global_rows_dim = (double)pe_rows * cell_dim;
 
+    // Dimension of each partition in the column and row direction
     double cols_dim = global_cols_dim / (double)PARTITION_DIM;
     double rows_dim = global_rows_dim / (double)PARTITION_DIM;
+
+    /*
+     * For the given partition, the (row, column) coordinate of this partition
+     * in a 2D space
+     */
     const int partition_row = partition / PARTITION_DIM;
     const int partition_col = partition % PARTITION_DIM;
 

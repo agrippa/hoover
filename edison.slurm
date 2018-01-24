@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 2
+#SBATCH -N 8
 #SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive

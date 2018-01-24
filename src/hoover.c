@@ -3,12 +3,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <pthread.h>
 #include <sys/time.h>
 #include <math.h>
 #include <limits.h>
 
 #include <shmem.h>
-#include <shmemx.h>
 
 #include "hoover.h"
 
@@ -18,10 +19,12 @@ static int have_default_sparse_vec_val = 0;
 static double default_sparse_vec_val = 0.0;
 
 static void lock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
+    assert(pe < ctx->npes);
     shmem_set_lock(ctx->actor_to_partition_locks + pe);
 }
 
 static void unlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
+    assert(pe < ctx->npes);
     shmem_clear_lock(ctx->actor_to_partition_locks + pe);
 }
 
@@ -551,12 +554,11 @@ void hvr_sparse_vec_cache_insert(hvr_sparse_vec_t *vec,
 }
 
 static hvr_pe_set_t *hvr_create_empty_pe_set_helper(hvr_internal_ctx_t *ctx,
-        const int nelements, bit_vec_element_type *bit_vector) {
-    hvr_pe_set_t *set = (hvr_pe_set_t *)malloc(sizeof(*set));
-    assert(set);
-
+        const int nelements, hvr_pe_set_t *set,
+        bit_vec_element_type *bit_vector) {
     set->bit_vector = bit_vector;
     set->nelements = nelements;
+    set->n_contained = 0;
 
     memset(set->bit_vector, 0x00, nelements * sizeof(bit_vec_element_type));
 
@@ -569,10 +571,12 @@ hvr_pe_set_t *hvr_create_empty_pe_set_symmetric_custom(const unsigned nvals,
     const int nelements = (nvals + (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE) - 1) / (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE);
+    hvr_pe_set_t *set = (hvr_pe_set_t *)shmem_malloc(sizeof(*set));
+    assert(set);
     bit_vec_element_type *bit_vector = (bit_vec_element_type *)shmem_malloc(
             nelements * sizeof(bit_vec_element_type));
     assert(bit_vector);
-    return hvr_create_empty_pe_set_helper(ctx, nelements, bit_vector);
+    return hvr_create_empty_pe_set_helper(ctx, nelements, set, bit_vector);
 }
 
 hvr_pe_set_t *hvr_create_empty_pe_set_symmetric(hvr_ctx_t in_ctx) {
@@ -586,10 +590,12 @@ hvr_pe_set_t *hvr_create_empty_pe_set_custom(const unsigned nvals,
     const int nelements = (nvals + (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE) - 1) / (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE);
+    hvr_pe_set_t *set = (hvr_pe_set_t *)malloc(sizeof(*set));
+    assert(set);
     bit_vec_element_type *bit_vector = (bit_vec_element_type *)malloc(
             nelements * sizeof(bit_vec_element_type));
     assert(bit_vector);
-    return hvr_create_empty_pe_set_helper(ctx, nelements, bit_vector);
+    return hvr_create_empty_pe_set_helper(ctx, nelements, set, bit_vector);
 }
 
 hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t in_ctx) {
@@ -597,32 +603,52 @@ hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t in_ctx) {
     return hvr_create_empty_pe_set_custom(ctx->npes, ctx);
 }
 
-static void hvr_pe_set_insert_internal(int pe,
+static int hvr_pe_set_insert_internal(int pe,
         bit_vec_element_type *bit_vector) {
     const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
     const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
-    bit_vector[element] = (old_val | ((bit_vec_element_type)1 << bit));
+    const bit_vec_element_type new_val =
+        (old_val | ((bit_vec_element_type)1 << bit));
+    bit_vector[element] = new_val;
+    return old_val != new_val;
 }
 
 void hvr_pe_set_insert(int pe, hvr_pe_set_t *set) {
-    hvr_pe_set_insert_internal(pe, set->bit_vector);
+    const int changed = hvr_pe_set_insert_internal(pe, set->bit_vector);
+    if (changed) {
+        if (set->n_contained < PE_SET_CACHE_SIZE) {
+            (set->cache)[set->n_contained] = pe;
+        }
+        set->n_contained++;
+    }
 }
 
-static void hvr_pe_set_clear_internal(int pe,
+/*
+ * No consume of this at the moment and it complicates caching set values, so
+ * remove for now.
+ */
+#if 0
+static int hvr_pe_set_clear_internal(int pe,
         bit_vec_element_type *bit_vector) {
     const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
     const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
-    bit_vector[element] = (old_val & ~((bit_vec_element_type)1 << bit));
+    const bit_vec_element_type new_val =
+        (old_val & ~((bit_vec_element_type)1 << bit));
+    bit_vector[element] = new_val;
+    return new_val != old_val;
 }
 
 void hvr_pe_set_clear(int pe, hvr_pe_set_t *set) {
-    hvr_pe_set_clear_internal(pe, set->bit_vector);
+    const int changed = hvr_pe_set_clear_internal(pe, set->bit_vector);
+    if (changed) set->n_contained--;
 }
+#endif
 
 void hvr_pe_set_wipe(hvr_pe_set_t *set) {
     memset(set->bit_vector, 0x00, set->nelements * sizeof(*(set->bit_vector)));
+    set->n_contained = 0;
 }
 
 int hvr_pe_set_contains_internal(int pe, bit_vec_element_type *bit_vector) {
@@ -640,21 +666,8 @@ int hvr_pe_set_contains(int pe, hvr_pe_set_t *set) {
     return hvr_pe_set_contains_internal(pe, set->bit_vector);
 }
 
-static unsigned hvr_pe_set_count_internal(bit_vec_element_type *bit_vector,
-        const unsigned nelements) {
-    unsigned count = 0;
-    for (int element = 0; element < nelements; element++) {
-        for (int bit = 0; bit < sizeof(*bit_vector) * BITS_PER_BYTE; bit++) {
-            if (bit_vector[element] & ((bit_vec_element_type)1 << bit)) {
-                count++;
-            }
-        }
-    }
-    return count;
-}
-
 unsigned hvr_pe_set_count(hvr_pe_set_t *set) {
-    return hvr_pe_set_count_internal(set->bit_vector, set->nelements);
+    return set->n_contained;
 }
 
 void hvr_pe_set_destroy(hvr_pe_set_t *set) {
@@ -691,8 +704,36 @@ void hvr_pe_set_merge_atomic(hvr_pe_set_t *set, hvr_pe_set_t *other) {
     assert(sizeof(unsigned long long) == sizeof(bit_vec_element_type));
 
     for (int i = 0; i < set->nelements; i++) {
-        shmemx_ulonglong_atomic_or(set->bit_vector + i, (other->bit_vector)[i],
+        shmem_ulonglong_atomic_or(set->bit_vector + i, (other->bit_vector)[i],
                 shmem_my_pe());
+    }
+}
+
+static unsigned *hvr_pe_set_non_zeros(hvr_pe_set_t *set,
+        unsigned *n_non_zeros, int *user_must_free) {
+    *n_non_zeros = set->n_contained;
+    if (set->n_contained <= PE_SET_CACHE_SIZE) {
+        *user_must_free = 0;
+        return set->cache;
+    } else {
+        unsigned count_non_zeros = 0;
+        unsigned *non_zeros = (unsigned *)malloc(
+                set->n_contained * sizeof(*non_zeros));
+        assert(non_zeros);
+        *user_must_free = 1;
+
+        for (unsigned i = 0; i < set->nelements; i++) {
+            const bit_vec_element_type ele = set->bit_vector[i];
+            for (unsigned bit = 0; bit < sizeof(ele) * BITS_PER_BYTE; bit++) {
+                if (ele & ((bit_vec_element_type)1 << bit)) {
+                    non_zeros[count_non_zeros++] =
+                        i * sizeof(ele) * BITS_PER_BYTE + bit;
+                }
+            }
+        }
+        assert(count_non_zeros == set->n_contained);
+
+        return non_zeros;
     }
 }
 
@@ -785,26 +826,77 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
  * that partition might interact with any actor in any partition we have actors
  * in locally. If so, add that PE as a neighbor.
  */
-static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx) {
-        hvr_pe_set_wipe(ctx->my_neighbors);
+static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
+        unsigned long long *out_lock_time, unsigned long long *out_getmem_time,
+        unsigned long long *out_unlock_time, unsigned long long *out_body_time) {
+    hvr_pe_set_wipe(ctx->my_neighbors);
 
-        for (unsigned p = 0; p < ctx->npes; p++) {
+    unsigned long long lock_time = 0;
+    unsigned long long getmem_time = 0;
+    unsigned long long unlock_time = 0;
+    unsigned long long body_time = 0;
 
-            lock_partition_time_window(p, ctx);
-            shmem_getmem(ctx->other_pe_partition_time_window->bit_vector,
-                    ctx->partition_time_window->bit_vector,
-                    ctx->other_pe_partition_time_window->nelements * sizeof(bit_vec_element_type), p);
-            unlock_partition_time_window(p, ctx);
+    for (unsigned p = 0; p < ctx->npes; p++) {
 
-            for (unsigned part = 0; part < ctx->n_partitions; part++) {
-                if (hvr_pe_set_contains(part, ctx->other_pe_partition_time_window)) {
-                    if (ctx->might_interact(part, ctx->partition_time_window, ctx)) {
-                        hvr_pe_set_insert(p, ctx->my_neighbors);
-                        break;
-                    }
-                }
+        const unsigned long long start_lock = hvr_current_time_us();
+        lock_partition_time_window(p, ctx);
+        const unsigned long long done_lock = hvr_current_time_us();
+
+        shmem_getmem_nbi(ctx->other_pe_partition_time_window->bit_vector,
+                ctx->partition_time_window->bit_vector,
+                ctx->other_pe_partition_time_window->nelements *
+                    sizeof(bit_vec_element_type), p);
+        shmem_getmem_nbi(ctx->other_pe_partition_time_window,
+                ctx->partition_time_window,
+                offsetof(hvr_pe_set_t, bit_vector), p);
+        shmem_quiet();
+
+        const unsigned long long start_unlock = hvr_current_time_us();
+        unlock_partition_time_window(p, ctx);
+        const unsigned long long done_unlock = hvr_current_time_us();
+
+        /*
+         * For each partition marked in the other PE's time window, check if
+         * this PE might interact with actors in that partition.
+         */
+        unsigned n_other_partitions;
+        int user_must_free;
+        unsigned *other_partitions = hvr_pe_set_non_zeros(
+                ctx->other_pe_partition_time_window, &n_other_partitions,
+                &user_must_free);
+        for (unsigned part_index = 0; part_index < n_other_partitions;
+                part_index++) {
+            const unsigned part = other_partitions[part_index];
+            if (ctx->might_interact(part, ctx->partition_time_window, ctx)) {
+                hvr_pe_set_insert(p, ctx->my_neighbors);
+                break;
             }
         }
+        if (user_must_free) free(other_partitions);
+
+        // for (unsigned part = 0; part < ctx->n_partitions; part++) {
+        //     if (hvr_pe_set_contains(part, ctx->other_pe_partition_time_window)) {
+        //         if (ctx->might_interact(part, ctx->partition_time_window, ctx)) {
+        //             hvr_pe_set_insert(p, ctx->my_neighbors);
+        //             break;
+        //         }
+        //     }
+        // }
+
+        const unsigned long long iter_done = hvr_current_time_us();
+
+        lock_time += (done_lock - start_lock);
+        getmem_time += (start_unlock - done_lock);
+        unlock_time += (done_unlock - start_unlock);
+        body_time += (iter_done - done_unlock);
+    }
+
+    if (out_lock_time) {
+        *out_lock_time = lock_time;
+        *out_getmem_time = getmem_time;
+        *out_unlock_time = unlock_time;
+        *out_body_time = body_time;
+    }
 
 #ifdef VERBOSE
     printf("PE %d is talking to %d other PEs\n", ctx->pe,
@@ -870,7 +962,7 @@ static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
 // GET the remote vector in a way that we don't see any partial updates.
 static void get_remote_vec_nbi(hvr_sparse_vec_t *dst, hvr_sparse_vec_t *src,
         const int src_pe) {
-    shmem_getmem_nbi(&(dst->next_bucket), &(src->next_bucket),
+    shmem_getmem_nbi((void *)&(dst->next_bucket), (void *)&(src->next_bucket),
             sizeof(src->next_bucket), src_pe);
 
     shmem_fence();
@@ -1295,6 +1387,13 @@ static void update_local_actor_metadata(const vertex_id_t actor,
     }
 }
 
+static void *aborting_thread(void *user_data) {
+    const unsigned long long start = hvr_current_time_us();
+    while (hvr_current_time_us() - start < 120 * 1000000) {
+        sleep(10);
+    }
+    abort(); // Get a core dump
+}
 
 void hvr_body(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
@@ -1316,7 +1415,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
      */
     shmem_barrier_all();
 
-    update_neighbors_based_on_partitions(ctx);
+    update_neighbors_based_on_partitions(ctx, NULL, NULL, NULL, NULL);
 
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
@@ -1324,6 +1423,11 @@ void hvr_body(hvr_ctx_t in_ctx) {
     update_edges(ctx, &unused, &unused);
 
     hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
+
+    pthread_t aborting_pthread;
+    const int pthread_err = pthread_create(&aborting_pthread, NULL,
+            aborting_thread, NULL);
+    assert(pthread_err == 0);
 
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
@@ -1359,7 +1463,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long finished_time_window = hvr_current_time_us();
 
         // Update neighboring PEs based on fuzzy partition windows
-        update_neighbors_based_on_partitions(ctx);
+        unsigned long long update_neighbors_lock_time,
+                      update_neighbors_getmem_time,
+                      update_neighbors_unlock_time,
+                      update_neighbors_body_time;
+        update_neighbors_based_on_partitions(ctx, &update_neighbors_lock_time,
+                &update_neighbors_getmem_time, &update_neighbors_unlock_time,
+                &update_neighbors_body_time);
 
         const unsigned long long finished_summary_update = hvr_current_time_us();
 
@@ -1384,7 +1494,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         for (int p = 0; p < ctx->npes; p++) {
             if (p != ctx->pe && hvr_pe_set_contains(p, ctx->coupled_pes)) {
                 for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
-                    shmemx_ulonglong_atomic_or(
+                    shmem_ulonglong_atomic_or(
                             ctx->coupled_pes->bit_vector + i,
                             (ctx->coupled_pes->bit_vector)[i], p);
                 }
@@ -1526,9 +1636,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 partition_time_window_str, 1024);
 #endif
 
-        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms (%f %f %f) - "
+        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms (%f %f %f | %f %f %f %f) - "
                 "edges %f ms (%f %f) - neighbor updates %f ms - abort %f ms - "
-                "%u spins - %u / %u PE neighbors %s - partition window = %s - "
+                "%u spins - %u / %u PE neighbors %s - partition window = %s, %d / %d active - "
                 "aborting? %d - last step? %d\n", ctx->pe,
                 (double)(finished_check_abort - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
@@ -1538,6 +1648,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)(finished_actor_partitions - finished_updates) / 1000.0,
                 (double)(finished_time_window - finished_actor_partitions) / 1000.0,
                 (double)(finished_summary_update - finished_time_window) / 1000.0,
+                (double)update_neighbors_lock_time / 1000.0,
+                (double)update_neighbors_getmem_time / 1000.0,
+                (double)update_neighbors_unlock_time / 1000.0,
+                (double)update_neighbors_body_time / 1000.0,
                 (double)(finished_edge_adds - finished_summary_update) / 1000.0,
                 (double)getmem_time / 1000.0, (double)update_edge_time / 1000.0,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
@@ -1548,6 +1662,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 #else
                 "", "",
 #endif
+                hvr_pe_set_count(ctx->partition_time_window), ctx->n_partitions,
                 abort, ctx->timestep >= ctx->max_timestep);
 
         if (ctx->strict_mode) {
@@ -1563,7 +1678,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
      * As I'm exiting, ensure that any PEs that are coupled with me (or may make
      * themselves coupled with me in the future) never block on me.
      */
-    shmem_set_lock(ctx->coupled_locks + ctx->pe);
+    shmem_set_lock((long *)(ctx->coupled_locks + ctx->pe));
     ctx->timestep += 1;
     unsigned n_features;
     unsigned features[HVR_BUCKET_SIZE];
@@ -1580,7 +1695,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 ctx->coupled_pes_values + ctx->pe, INT64_MAX);
     }
 
-    shmem_clear_lock(ctx->coupled_locks + ctx->pe);
+    shmem_clear_lock((long *)(ctx->coupled_locks + ctx->pe));
 
     update_my_timestep(ctx, INT64_MAX);
 

@@ -55,7 +55,7 @@ typedef struct _hvr_sparse_vec_t {
     int64_t timestamps[HVR_BUCKETS];
 
     // The oldest bucket or first unused bucket (used to evict quickly).
-    unsigned next_bucket;
+    volatile unsigned next_bucket;
 
     int64_t cached_timestamp;
     unsigned cached_timestamp_index;
@@ -146,9 +146,12 @@ typedef unsigned long long bit_vec_element_type;
  * Utilities used for storing a set of PEs. This class is used for storing both
  * neighbor PE lists and PE coupling lists.
  */
+#define PE_SET_CACHE_SIZE 100
 typedef struct _hvr_pe_set_t {
-    bit_vec_element_type *bit_vector;
+    unsigned cache[PE_SET_CACHE_SIZE];
     int nelements;
+    unsigned n_contained;
+    bit_vec_element_type *bit_vector;
 } hvr_pe_set_t;
 
 extern hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t ctx);
