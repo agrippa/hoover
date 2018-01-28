@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p opa
-#SBATCH -N 2
+#SBATCH -N 4
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -49,9 +49,36 @@ srun --ntasks-per-node=1 bash -c "rm -f /var/tmp/core.*"
 echo
 echo
 echo
-# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 10 # 70
-$OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) ./bin/init_test 50
+# $OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) ./bin/init_test 50
+
+if [[ $SLURM_NNODES -eq 2 ]]; then
+    # For 2 nodes
+    export CELL_DIM=200.0
+    export ACTORS_PER_CELL=800
+    export PE_ROWS=2
+    export PE_COLS=2
+elif [[ $SLURM_NNODES -eq 4 ]]; then
+    # For 4 nodes
+    export CELL_DIM=200.0
+    export ACTORS_PER_CELL=800
+    export PE_ROWS=4
+    export PE_COLS=2
+else
+    echo "Unsupported number of nodes! $SLURM_NNODES"
+    exit 1
+fi
+
+export N_PORTALS=0
+export N_INFECTED=1
+# export MAX_NUM_TIMESTEPS=1000
+export MAX_NUM_TIMESTEPS=300
+export INFECTION_RADIUS=4.0
+export MAX_DELTA_VELOCITY=0.01
+
+$OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) \
+        $HOME/hoover/bin/infectious_test \
+        $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
+        $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
 echo
 echo
 echo

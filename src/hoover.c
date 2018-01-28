@@ -1430,10 +1430,12 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
 
-    pthread_t aborting_pthread;
-    const int pthread_err = pthread_create(&aborting_pthread, NULL,
-            aborting_thread, NULL);
-    assert(pthread_err == 0);
+    if (getenv("HVR_HANG_ABORT")) {
+        pthread_t aborting_pthread;
+        const int pthread_err = pthread_create(&aborting_pthread, NULL,
+                aborting_thread, NULL);
+        assert(pthread_err == 0);
+    }
 
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
