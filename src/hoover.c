@@ -53,6 +53,7 @@ void hvr_sparse_vec_init(hvr_sparse_vec_t *vec) {
 
     for (unsigned i = 0; i < HVR_BUCKETS; i++) {
         vec->timestamps[i] = -1;
+        vec->finalized[i] = -1;
     }
 }
 
@@ -122,63 +123,50 @@ static void set_helper(hvr_sparse_vec_t *vec, const unsigned curr_bucket,
 /*
  * If set is called multiple times with the same timestep and feature, previous
  * values are wiped out.
+ *
+ * Assume that timestep is always >= the largest timestep value in this sparse
+ * vec.
  */
 static void hvr_sparse_vec_set_internal(const unsigned feature,
         const double val, hvr_sparse_vec_t *vec, const int64_t timestep) {
     unsigned initial_bucket = prev_bucket(vec->next_bucket);
 
-    unsigned curr_bucket = initial_bucket;
-    do {
-        // bucket size == 0 indicates an invalid bucket
-        if (vec->bucket_size[curr_bucket] > 0) {
-            if (vec->timestamps[curr_bucket] == timestep) {
-                // Handle an existing bucket for this timestep
-                set_helper(vec, curr_bucket, feature, val);
-                return;
-            } else if (vec->timestamps[curr_bucket] < timestep) {
-                /*
-                 * No need to iterate further, as buckets are sorted in
-                 * descending order so we won't find the bucket for timestep
-                 * below here.
-                 */
-                break;
-            }
+    if (vec->timestamps[initial_bucket] == timestep) {
+        // Doing an update on my current timestep, not finalized yet
+        assert(vec->finalized[initial_bucket] != timestep);
+        set_helper(vec, initial_bucket, feature, val);
+    } else {
+        // Don't have a bucket for my latest timestep yet
+        assert(vec->timestamps[initial_bucket] < timestep);
+
+        // Create a new bucket for this timestep
+        const unsigned bucket_to_replace = vec->next_bucket;
+
+        vec->timestamps[bucket_to_replace] = timestep;
+
+        __sync_synchronize();
+
+        if (vec->bucket_size[initial_bucket] > 0) {
+            /*
+             * If we have an existing bucket at initial_bucket, copy its
+             * contents over and then update so that we are making updates on
+             * top of initial state.
+             */
+            unsigned initial_bucket_size = vec->bucket_size[initial_bucket];
+            memcpy(vec->values[bucket_to_replace], vec->values[initial_bucket],
+                    initial_bucket_size * sizeof(double));
+            memcpy(vec->features[bucket_to_replace],
+                    vec->features[initial_bucket],
+                    initial_bucket_size * sizeof(unsigned));
+            vec->bucket_size[bucket_to_replace] = initial_bucket_size;
+        } else {
+            vec->bucket_size[bucket_to_replace] = 0;
         }
 
-        // Move to the next bucket
-        curr_bucket = prev_bucket(curr_bucket);
-    } while (curr_bucket != initial_bucket);
+        set_helper(vec, bucket_to_replace, feature, val);
 
-    // Create a new bucket for this timestep
-    const unsigned bucket_to_replace = vec->next_bucket;
-
-    vec->timestamps[bucket_to_replace] = -1;
-
-    __sync_synchronize();
-
-    vec->bucket_size[bucket_to_replace] = 0;
-
-    if (vec->bucket_size[initial_bucket] > 0) {
-        /*
-         * If we have an existing bucket at initial_bucket, copy its contents
-         * over and then update so that we are making updates on top of initial
-         * state.
-         */
-        const unsigned initial_bucket_size = vec->bucket_size[initial_bucket];
-        memcpy(vec->values[bucket_to_replace], vec->values[initial_bucket],
-                initial_bucket_size * sizeof(double));
-        memcpy(vec->features[bucket_to_replace], vec->features[initial_bucket],
-                initial_bucket_size * sizeof(unsigned));
-        vec->bucket_size[bucket_to_replace] = initial_bucket_size;
+        vec->next_bucket = (bucket_to_replace + 1) % HVR_BUCKETS;
     }
-
-    set_helper(vec, bucket_to_replace, feature, val);
-
-    __sync_synchronize();
-
-    vec->timestamps[bucket_to_replace] = timestep;
-    __sync_synchronize();
-    vec->next_bucket = (bucket_to_replace + 1) % HVR_BUCKETS;
 }
 
 void hvr_sparse_vec_set(const unsigned feature, const double val,
@@ -206,8 +194,8 @@ static int hvr_sparse_vec_get_internal(const unsigned feature,
 
     if (vec->cached_timestamp == curr_timestamp - 1 &&
             vec->cached_timestamp_index < HVR_BUCKETS &&
-            vec->timestamps[vec->cached_timestamp_index] ==
-                curr_timestamp - 1) {
+            vec->timestamps[vec->cached_timestamp_index] == curr_timestamp - 1 &&
+            vec->finalized[vec->cached_timestamp_index] == curr_timestamp - 1) {
         /*
          * If we might have the location of this timestamp in this vector
          * cached, double check and then use that information to do an O(1)
@@ -224,25 +212,18 @@ static int hvr_sparse_vec_get_internal(const unsigned feature,
 
     unsigned curr_bucket = initial_bucket;
     do {
-        // bucket size == 0 indicates an invalid bucket
-        if (vec->bucket_size[curr_bucket] == 0) break;
+        if (vec->timestamps[curr_bucket] < 0 ||
+                vec->timestamps[curr_bucket] != vec->finalized[curr_bucket]) {
+            continue;
+        }
 
-        if (vec->timestamps[curr_bucket] >= 0 &&
-                vec->timestamps[curr_bucket] < curr_timestamp) {
+        if (vec->timestamps[curr_bucket] < curr_timestamp) {
             // Handle finding an existing bucket for this timestep
             if (find_feature_in_bucket(vec, curr_bucket, feature, out_val)) {
                 vec->cached_timestamp = vec->timestamps[curr_bucket];
                 vec->cached_timestamp_index = curr_bucket;
                 return 1;
             }
-
-            // const unsigned bucket_size = vec->bucket_size[curr_bucket];
-            // for (unsigned i = 0; i < bucket_size; i++) {
-            //     if (vec->features[curr_bucket][i] == feature) {
-            //         *out_val = vec->values[curr_bucket][i];
-            //         return 1;
-            //     }
-            // }
             break;
         }
 
@@ -1457,6 +1438,19 @@ void hvr_body(hvr_ctx_t in_ctx) {
         }
 
         const unsigned long long finished_updates = hvr_current_time_us();
+
+        __sync_synchronize();
+
+        for (unsigned i = 0; i < ctx->n_local_vertices; i++) {
+            hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
+            unsigned latest_bucket = prev_bucket(curr->next_bucket);
+            if (curr->timestamps[latest_bucket] == ctx->timestep) {
+                assert(curr->finalized[latest_bucket] < ctx->timestep);
+                curr->finalized[latest_bucket] = ctx->timestep;
+            }
+        }
+
+        __sync_synchronize();
 
         *(ctx->symm_timestep) = ctx->timestep;
         ctx->timestep += 1;

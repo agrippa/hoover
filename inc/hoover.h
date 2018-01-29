@@ -54,6 +54,8 @@ typedef struct _hvr_sparse_vec_t {
     // Timestamp for each value set, all entries guaranteed unique
     int64_t timestamps[HVR_BUCKETS];
 
+    int64_t finalized[HVR_BUCKETS];
+
     // The oldest bucket or first unused bucket (used to evict quickly).
     volatile unsigned next_bucket;
 
