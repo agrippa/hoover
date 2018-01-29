@@ -50,6 +50,10 @@ void hvr_sparse_vec_init(hvr_sparse_vec_t *vec) {
     memset(vec, 0x00, sizeof(*vec));
     vec->pe = shmem_my_pe();
     vec->cached_timestamp = -1;
+
+    for (unsigned i = 0; i < HVR_BUCKETS; i++) {
+        vec->timestamps[i] = -1;
+    }
 }
 
 static inline unsigned prev_bucket(const unsigned bucket) {
