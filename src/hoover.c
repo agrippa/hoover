@@ -161,7 +161,8 @@ static void hvr_sparse_vec_set_internal(const unsigned feature,
     if (vec->bucket_size[initial_bucket] > 0) {
         /*
          * If we have an existing bucket at initial_bucket, copy its contents
-         * over and then update.
+         * over and then update so that we are making updates on top of initial
+         * state.
          */
         const unsigned initial_bucket_size = vec->bucket_size[initial_bucket];
         memcpy(vec->values[bucket_to_replace], vec->values[initial_bucket],
@@ -1336,6 +1337,11 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     shmem_barrier_all();
 }
 
+/*
+ * Given the local ID of an actor, fetch the latest information on each of its
+ * neighbors from their owning PEs, and then call the user-defined
+ * update_metadata function to update information on this actor.
+ */
 static void update_local_actor_metadata(const vertex_id_t actor,
         hvr_pe_set_t *to_couple_with, unsigned long long *fetch_neighbors_time,
        unsigned long long *update_metadata_time, hvr_internal_ctx_t *ctx) {
@@ -1428,10 +1434,12 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
 
-    pthread_t aborting_pthread;
-    const int pthread_err = pthread_create(&aborting_pthread, NULL,
-            aborting_thread, NULL);
-    assert(pthread_err == 0);
+    if (getenv("HVR_HANG_ABORT")) {
+        pthread_t aborting_pthread;
+        const int pthread_err = pthread_create(&aborting_pthread, NULL,
+                aborting_thread, NULL);
+        assert(pthread_err == 0);
+    }
 
     int abort = 0;
     while (!abort && ctx->timestep < ctx->max_timestep) {
