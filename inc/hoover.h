@@ -31,6 +31,9 @@
 typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
 typedef hvr_internal_ctx_t *hvr_ctx_t;
 
+typedef int32_t hvr_time_t;
+#define MAX_TIMESTAMP INT32_MAX
+
 /*
  * Sparse vector for representing properties on each vertex, and accompanying
  * utilities.
@@ -52,14 +55,14 @@ typedef struct _hvr_sparse_vec_t {
     unsigned bucket_size[HVR_BUCKETS];
 
     // Timestamp for each value set, all entries guaranteed unique
-    int64_t timestamps[HVR_BUCKETS];
+    hvr_time_t timestamps[HVR_BUCKETS];
 
-    int64_t finalized[HVR_BUCKETS];
+    hvr_time_t finalized[HVR_BUCKETS];
 
     // The oldest bucket or first unused bucket (used to evict quickly).
     volatile unsigned next_bucket;
 
-    int64_t cached_timestamp;
+    hvr_time_t cached_timestamp;
     unsigned cached_timestamp_index;
 } hvr_sparse_vec_t;
 
@@ -104,6 +107,7 @@ int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec);
 #define HVR_CACHE_MAX_BUCKET_SIZE 1024
 
 typedef struct _hvr_sparse_vec_cache_node_t {
+    unsigned offset;
     hvr_sparse_vec_t vec;
     struct _hvr_sparse_vec_cache_node_t *next;
 } hvr_sparse_vec_cache_node_t;
@@ -112,16 +116,17 @@ typedef struct _hvr_sparse_vec_cache_t {
     hvr_sparse_vec_cache_node_t *buckets[HVR_CACHE_BUCKETS];
     unsigned bucket_size[HVR_CACHE_BUCKETS];
     hvr_sparse_vec_cache_node_t *pool;
+    unsigned nhits, nmisses, nmisses_due_to_age;
 } hvr_sparse_vec_cache_t;
 
 void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache);
 
 void hvr_sparse_vec_cache_clear(hvr_sparse_vec_cache_t *cache);
 
-hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(vertex_id_t vert,
-        hvr_sparse_vec_cache_t *cache, int64_t timestep);
+hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(unsigned offset,
+        hvr_sparse_vec_cache_t *cache, hvr_time_t target_timestep);
 
-void hvr_sparse_vec_cache_insert(hvr_sparse_vec_t *vec,
+void hvr_sparse_vec_cache_insert(unsigned offset, hvr_sparse_vec_t *vec,
         hvr_sparse_vec_cache_t *cache);
 
 /*
@@ -221,12 +226,12 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_edge_set_t *edges;
 
-    int64_t timestep;
-    volatile int64_t *symm_timestep;
-    int64_t *all_pe_timesteps;
-    int64_t *all_pe_timesteps_buffer;
+    hvr_time_t timestep;
+    volatile hvr_time_t *symm_timestep;
+    hvr_time_t *all_pe_timesteps;
+    hvr_time_t *all_pe_timesteps_buffer;
     long *all_pe_timesteps_locks;
-    int64_t *last_timestep_using_partition;
+    hvr_time_t *last_timestep_using_partition;
     /*
      * We re-appropriate the pe_set structure here and just use it as a bit
      * vector. TODO rename to bitvector.
@@ -245,7 +250,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_actor_to_partition actor_to_partition;
     double connectivity_threshold;
     unsigned min_spatial_feature, max_spatial_feature;
-    int64_t max_timestep;
+    hvr_time_t max_timestep;
 
     hvr_sparse_vec_t *buffer;
 
@@ -282,13 +287,13 @@ extern void hvr_init(const uint16_t n_partitions,
         const double connectivity_threshold,
         const unsigned min_spatial_feature_inclusive,
         const unsigned max_spatial_feature_inclusive,
-        const int64_t max_timestep, hvr_ctx_t ctx);
+        const hvr_time_t max_timestep, hvr_ctx_t ctx);
 
 extern void hvr_body(hvr_ctx_t ctx);
 
 extern void hvr_finalize(hvr_ctx_t ctx);
 
-extern int64_t hvr_current_timestep(hvr_ctx_t ctx);
+extern hvr_time_t hvr_current_timestep(hvr_ctx_t ctx);
 extern unsigned long long hvr_current_time_us();
 
 #endif

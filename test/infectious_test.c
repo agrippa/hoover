@@ -7,7 +7,8 @@
 
 #include <hoover.h>
 
-#define PARTITION_DIM 150
+// #define PARTITION_DIM 150
+#define PARTITION_DIM 170
 
 #define PX 0
 #define PY 1
@@ -326,7 +327,7 @@ int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
 
     unsigned long long this_time = hvr_current_time_us();
     printf("PE %d - timestep %lu - set %lu / %lu - %f ms\n", pe,
-            hvr_current_timestep(ctx), nset, n_vertices,
+            (uint64_t)hvr_current_timestep(ctx), nset, n_vertices,
             last_time == 0 ? 0 : (double)(this_time - last_time) / 1000.0);
     last_time = this_time;
 

@@ -222,7 +222,7 @@ int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
 
     unsigned long long this_time = hvr_current_time_us();
     printf("PE %d - timestep %lu - set %lu / %lu - %f ms\n", pe,
-            hvr_current_timestep(ctx), nset, n_vertices,
+            (uint64_t)hvr_current_timestep(ctx), nset, n_vertices,
             last_time == 0 ? 0 : (double)(this_time - last_time) / 1000.0);
     last_time = this_time;
 
@@ -333,7 +333,7 @@ int main(int argc, char **argv) {
     hvr_init(PARTITION_DIM * PARTITION_DIM, grid_cells_this_pe, vertices,
             update_metadata, might_interact, check_abort,
             vertex_owner, actor_to_partition, CONNECTIVITY_THRESHOLD, 0, 1,
-            INT64_MAX, hvr_ctx);
+            MAX_TIMESTAMP, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);

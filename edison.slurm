@@ -1,8 +1,8 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 2
-#SBATCH -t 00:05:00
+#SBATCH -N 8
+#SBATCH -t 00:15:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 #SBATCH --contiguous
@@ -11,6 +11,8 @@
 # set -e
 
 ulimit -c unlimited
+
+echo "Running with OpenSHMEM installation at $OPENSHMEM_INSTALL"
 
 export PMI_MAX_KVS_ENTRIES=$((1000 * $SLURM_NNODES))
 export LD_LIBRARY_PATH=$OPENSHMEM_INSTALL/lib:$LD_LIBRARY_PATH
@@ -24,6 +26,7 @@ export LD_LIBRARY_PATH=$OFI_HOME/lib:$LD_LIBRARY_PATH
 export LD_PRELOAD=/opt/intel/compilers_and_libraries_2017.1.132/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
+export SHMEM_SYMMETRIC_SIZE=$((1024 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
@@ -44,19 +47,21 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 if [[ $SLURM_NNODES -eq 2 ]]; then
     # For 2 nodes
     export CELL_DIM=200.0
-    export ACTORS_PER_CELL=800
+    export ACTORS_PER_CELL=3200
     export PE_ROWS=6
     export PE_COLS=8
 elif [[ $SLURM_NNODES -eq 8 ]]; then
     # For 8 nodes
-    export CELL_DIM=100.0
-    export ACTORS_PER_CELL=200
+    # export CELL_DIM=100.0
+    # export ACTORS_PER_CELL=800
+    export CELL_DIM=200.0
+    export ACTORS_PER_CELL=3200
     export PE_ROWS=12
     export PE_COLS=16
 elif [[ $SLURM_NNODES -eq 32 ]]; then
     # For 32 nodes
     export CELL_DIM=50.0
-    export ACTORS_PER_CELL=50
+    export ACTORS_PER_CELL=200
     export PE_ROWS=24
     export PE_COLS=32
 else
@@ -67,7 +72,8 @@ fi
 export N_PORTALS=0
 export N_INFECTED=1
 # export MAX_NUM_TIMESTEPS=1000
-export MAX_NUM_TIMESTEPS=300
+# export MAX_NUM_TIMESTEPS=300
+export MAX_NUM_TIMESTEPS=2
 export INFECTION_RADIUS=4.0
 export MAX_DELTA_VELOCITY=0.01
 
