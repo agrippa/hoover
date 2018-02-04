@@ -271,6 +271,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_sparse_vec_t *coupled_pes_values;
     hvr_sparse_vec_t *coupled_pes_values_buffer;
     volatile long *coupled_locks;
+
+    unsigned n_vector_cache_hits, n_vector_cache_misses;
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init

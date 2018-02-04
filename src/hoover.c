@@ -14,6 +14,15 @@
 
 #include "hoover.h"
 
+// #define TRACK_VECTOR_GET_CACHE
+
+#if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || \
+                         SHMEM_MAJOR_VERSION >= 2
+#define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
+#else
+#define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
+#endif
+
 #define EDGE_GET_BUFFERING 1024
 
 static int have_default_sparse_vec_val = 0;
@@ -190,8 +199,8 @@ static int find_feature_in_bucket(const hvr_sparse_vec_t *vec,
     return 0;
 }
 
-static int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
-        const hvr_time_t curr_timestamp) {
+static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
+        const hvr_time_t curr_timestamp, unsigned *nhits, unsigned *nmisses) {
     if (vec->cached_timestamp == curr_timestamp - 1 &&
             vec->cached_timestamp_index < HVR_BUCKETS &&
             vec->timestamps[vec->cached_timestamp_index] == curr_timestamp - 1 &&
@@ -201,8 +210,15 @@ static int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
          * cached, double check and then use that information to do an O(1)
          * lookup if possible.
          */
+#ifdef TRACK_VECTOR_GET_CACHE
+        (*nhits)++;
+#endif
         return vec->cached_timestamp_index;
     }
+#ifdef TRACK_VECTOR_GET_CACHE
+        (*nhits)++;
+#endif
+    (*nmisses)++;
 
     unsigned initial_bucket = prev_bucket(vec->next_bucket);
 
@@ -216,6 +232,8 @@ static int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
         } else {
             if (vec->timestamps[curr_bucket] < curr_timestamp) {
                 // Handle finding an existing bucket for this timestep
+                vec->cached_timestamp = vec->timestamps[curr_bucket];
+                vec->cached_timestamp_index = curr_bucket;
                 return curr_bucket;
             }
         }
@@ -229,9 +247,10 @@ static int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
 
 static int hvr_sparse_vec_get_internal(const unsigned feature,
         hvr_sparse_vec_t *vec, const hvr_time_t curr_timestamp,
-        double *out_val) {
+        double *out_val, unsigned *nhits, unsigned *nmisses) {
 
-    int target_bucket = hvr_sparse_vec_find_bucket(vec, curr_timestamp);
+    int target_bucket = hvr_sparse_vec_find_bucket(vec, curr_timestamp, nhits,
+            nmisses);
 
     if (target_bucket >= 0 && find_feature_in_bucket(vec, target_bucket,
                 feature, out_val)) {
@@ -248,7 +267,8 @@ double hvr_sparse_vec_get(const unsigned feature, hvr_sparse_vec_t *vec,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     double result;
-    if (hvr_sparse_vec_get_internal(feature, vec, ctx->timestep, &result)) {
+    if (hvr_sparse_vec_get_internal(feature, vec, ctx->timestep, &result,
+                &ctx->n_vector_cache_hits, &ctx->n_vector_cache_misses)) {
         return result;
     } else {
         /*
@@ -261,7 +281,8 @@ double hvr_sparse_vec_get(const unsigned feature, hvr_sparse_vec_t *vec,
 }
 
 static void hvr_sparse_vec_dump_internal(hvr_sparse_vec_t *vec, char *buf,
-        const size_t buf_size, const hvr_time_t timestep) {
+        const size_t buf_size, const hvr_time_t timestep, unsigned *nhits,
+        unsigned *nmisses) {
     char *iter = buf;
     int first = 1;
 
@@ -273,7 +294,8 @@ static void hvr_sparse_vec_dump_internal(hvr_sparse_vec_t *vec, char *buf,
         const unsigned feat = features[i];
         double val;
 
-        const int err = hvr_sparse_vec_get_internal(feat, vec, timestep, &val);
+        const int err = hvr_sparse_vec_get_internal(feat, vec, timestep, &val,
+                nhits, nmisses);
         assert(err == 1);
 
         const int capacity = buf_size - (iter - buf);
@@ -295,7 +317,8 @@ static void hvr_sparse_vec_dump_internal(hvr_sparse_vec_t *vec, char *buf,
 void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
         const size_t buf_size, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    hvr_sparse_vec_dump_internal(vec, buf, buf_size, ctx->timestep);
+    hvr_sparse_vec_dump_internal(vec, buf, buf_size, ctx->timestep,
+            &ctx->n_vector_cache_hits, &ctx->n_vector_cache_misses);
 }
 
 void hvr_sparse_vec_set_id(const vertex_id_t id, hvr_sparse_vec_t *vec) {
@@ -715,7 +738,7 @@ void hvr_pe_set_merge_atomic(hvr_pe_set_t *set, hvr_pe_set_t *other) {
     assert(sizeof(unsigned long long) == sizeof(bit_vec_element_type));
 
     for (int i = 0; i < set->nelements; i++) {
-        shmem_ulonglong_atomic_or(set->bit_vector + i, (other->bit_vector)[i],
+        SHMEM_ULONGLONG_ATOMIC_OR(set->bit_vector + i, (other->bit_vector)[i],
                 shmem_my_pe());
     }
 }
@@ -918,23 +941,26 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
 static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
         hvr_sparse_vec_t *b, const hvr_time_t a_max_timestep,
         const hvr_time_t b_max_timestep, const unsigned min_spatial_feature,
-        const unsigned max_spatial_feature) {
-    const int a_bucket = hvr_sparse_vec_find_bucket(a, a_max_timestep + 1);
+        const unsigned max_spatial_feature, unsigned *nhits,
+        unsigned *nmisses) {
+    const int a_bucket = hvr_sparse_vec_find_bucket(a, a_max_timestep + 1,
+            nhits, nmisses);
     assert(a_bucket >= 0);
-    const int b_bucket = hvr_sparse_vec_find_bucket(b, b_max_timestep + 1);
+    const int b_bucket = hvr_sparse_vec_find_bucket(b, b_max_timestep + 1,
+            nhits, nmisses);
     assert(b_bucket >= 0);
 
     double acc = 0.0;
-    for (unsigned f = min_spatial_feature; f <= max_spatial_feature; f++) {
-        double a_val, b_val;
-        const int a_err = find_feature_in_bucket(a, a_bucket, f, &a_val);
-        assert(a_err == 1);
-        const int b_err = find_feature_in_bucket(b, b_bucket, f, &b_val);
-        assert(b_err == 1);
+    // for (unsigned f = min_spatial_feature; f <= max_spatial_feature; f++) {
+    //     double a_val, b_val;
+    //     const int a_err = find_feature_in_bucket(a, a_bucket, f, &a_val);
+    //     assert(a_err == 1);
+    //     const int b_err = find_feature_in_bucket(b, b_bucket, f, &b_val);
+    //     assert(b_err == 1);
 
-        const double delta = b_val - a_val;
-        acc += (delta * delta);
-    }
+    //     const double delta = b_val - a_val;
+    //     acc += (delta * delta);
+    // }
     return acc;
 }
 
@@ -943,8 +969,8 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
  * actor on PE target_pe (whose data is stored in vec).
  */
 static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
-        const int target_pe, const int j, unsigned long long *update_edge_time,
-        const hvr_time_t other_pes_timestep, hvr_internal_ctx_t *ctx) {
+        const int target_pe, const int j, const hvr_time_t other_pes_timestep,
+        hvr_internal_ctx_t *ctx) {
     /*
      * For each local vertex, check if we want to add an edge from
      * other to this.
@@ -958,17 +984,15 @@ static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
 
         hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
 
-        const unsigned long long start_update_time = hvr_current_time_us();
         const double distance = sparse_vec_distance_measure(curr,
                 vec, ctx->timestep - 1, other_pes_timestep,
-                ctx->min_spatial_feature, ctx->max_spatial_feature);
-        const unsigned long long end_update_time = hvr_current_time_us();
-        *update_edge_time += (end_update_time - start_update_time);
+                ctx->min_spatial_feature, ctx->max_spatial_feature,
+                &ctx->n_vector_cache_hits, &ctx->n_vector_cache_misses);
 
         if (distance < ctx->connectivity_threshold *
                 ctx->connectivity_threshold) {
-            // Add edge
-            hvr_add_edge(curr->id, vec->id, ctx->edges);
+//             // Add edge
+//             hvr_add_edge(curr->id, vec->id, ctx->edges);
         }
     }
 }
@@ -1011,16 +1035,26 @@ static void get_remote_vec_nbi(hvr_sparse_vec_t *dst, const unsigned offset,
     }
 }
 
+/*
+ * For each local actor, update the edges it has to other PEs in the simulation
+ * based on its current position.
+ */
 static void update_edges(hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *vec_caches,
         unsigned long long *getmem_time, unsigned long long *update_edge_time) {
-    // For each PE
     uint16_t *other_actor_to_partition_map = (uint16_t *)malloc(
             ctx->max_n_local_vertices * sizeof(uint16_t));
     assert(other_actor_to_partition_map);
 
+    // For each PE
     for (unsigned p = 0; p < ctx->npes; p++) {
         const unsigned target_pe = (ctx->pe + p) % ctx->npes;
+
+        /*
+         * If this PE is not in my neighbor set (i.e. has no chance of
+         * interaction based on partitions of the problem domain), skip it when
+         * looking for new edges.
+         */
         if (!hvr_pe_set_contains(target_pe, ctx->my_neighbors)) {
             continue;
         }
@@ -1031,6 +1065,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                 ctx->max_n_local_vertices * sizeof(uint16_t), target_pe);
         unlock_actor_to_partition(target_pe, ctx);
 
+        // Check what timestep the remote PE is on currently.
         hvr_time_t other_pes_timestep;
         shmem_getmem(&other_pes_timestep, (hvr_time_t *)ctx->symm_timestep,
                 sizeof(other_pes_timestep), target_pe);
@@ -1070,9 +1105,11 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                     shmem_quiet();
 
                     for (int f = 0; f < filled; f++) {
+                        const unsigned long long start_time = hvr_current_time_us();
                         check_for_edge_to_add(&vecs[f], target_pe,
-                                vecs_local_offset[f], update_edge_time,
+                                vecs_local_offset[f],
                                 other_pes_timestep, ctx);
+                        *update_edge_time += (hvr_current_time_us() - start_time);
                     }
                     filled = 0;
                 }
@@ -1083,8 +1120,10 @@ static void update_edges(hvr_internal_ctx_t *ctx,
             shmem_quiet();
 
             for (int f = 0; f < filled; f++) {
+                const unsigned long long start_time = hvr_current_time_us();
                 check_for_edge_to_add(&vecs[f], target_pe, vecs_local_offset[f],
-                        update_edge_time, other_pes_timestep, ctx);
+                        other_pes_timestep, ctx);
+                *update_edge_time += (hvr_current_time_us() - start_time);
             }
         }
     }
@@ -1548,6 +1587,11 @@ void hvr_body(hvr_ctx_t in_ctx) {
         update_edges(ctx, vec_caches, &getmem_time, &update_edge_time);
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
+        fprintf(stderr, "PE %d - %f ms for edge checking, %f of that for "
+                "update edge, %f for getmem\n", shmem_my_pe(),
+                (double)(finished_edge_adds - finished_summary_update) / 1000.0,
+                (double)update_edge_time / 1000.0,
+                (double)getmem_time / 1000.0);
 
         hvr_sparse_vec_t coupled_metric;
         memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
@@ -1562,7 +1606,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         for (int p = 0; p < ctx->npes; p++) {
             if (p != ctx->pe && hvr_pe_set_contains(p, ctx->coupled_pes)) {
                 for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
-                    shmem_ulonglong_atomic_or(
+                    SHMEM_ULONGLONG_ATOMIC_OR(
                             ctx->coupled_pes->bit_vector + i,
                             (ctx->coupled_pes->bit_vector)[i], p);
                 }
@@ -1711,7 +1755,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms (%f %f %f | %f %f %f %f) - "
                 "edges %f ms (%f %f) - neighbor updates %f ms - abort %f ms - "
                 "%u spins - %u / %u PE neighbors %s - partition window = %s, %d / %d active - "
-                "aborting? %d - last step? %d - cache hits=%u misses=%u age misses=%u\n", ctx->pe,
+                "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
+                "age misses=%u, feature cache hits=%u misses=%u\n", ctx->pe,
                 (double)(finished_check_abort - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)fetch_neighbors_time / 1000.0,
@@ -1736,7 +1781,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
 #endif
                 hvr_pe_set_count(ctx->partition_time_window), ctx->n_partitions,
                 abort, ctx->timestep >= ctx->max_timestep,
-                nhits, nmisses, nmisses_due_to_age);
+                nhits, nmisses, nmisses_due_to_age, ctx->n_vector_cache_hits,
+                ctx->n_vector_cache_misses);
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;
@@ -1761,7 +1807,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         double last_val;
         int success = hvr_sparse_vec_get_internal(features[f],
                 ctx->coupled_pes_values + ctx->pe, ctx->timestep + 1,
-                &last_val);
+                &last_val, &ctx->n_vector_cache_hits,
+                &ctx->n_vector_cache_misses);
         assert(success == 1);
 
         hvr_sparse_vec_set_internal(features[f], last_val,
