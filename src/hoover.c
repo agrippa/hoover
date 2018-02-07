@@ -16,14 +16,13 @@
 
 // #define TRACK_VECTOR_GET_CACHE
 
-#if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || \
-                         SHMEM_MAJOR_VERSION >= 2
+// #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
 #define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
-#else
-#define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
-#endif
+// #else
+// #define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
+// #endif
 
-#define EDGE_GET_BUFFERING 1024
+#define EDGE_GET_BUFFERING 4096
 
 static int have_default_sparse_vec_val = 0;
 static double default_sparse_vec_val = 0.0;
@@ -216,9 +215,8 @@ static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
         return vec->cached_timestamp_index;
     }
 #ifdef TRACK_VECTOR_GET_CACHE
-        (*nhits)++;
-#endif
     (*nmisses)++;
+#endif
 
     unsigned initial_bucket = prev_bucket(vec->next_bucket);
 
@@ -991,13 +989,13 @@ static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
 
         if (distance < ctx->connectivity_threshold *
                 ctx->connectivity_threshold) {
-//             // Add edge
-//             hvr_add_edge(curr->id, vec->id, ctx->edges);
+            // Add edge
+            hvr_add_edge(curr->id, vec->id, ctx->edges);
         }
     }
 }
 
-static void get_remote_vec_nbi(hvr_sparse_vec_t *dst, const unsigned offset,
+static int get_remote_vec_nbi(hvr_sparse_vec_t *dst, const unsigned offset,
         const int src_pe, hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *vec_caches) {
     hvr_sparse_vec_cache_t *cache = vec_caches + src_pe;
@@ -1005,6 +1003,7 @@ static void get_remote_vec_nbi(hvr_sparse_vec_t *dst, const unsigned offset,
             ctx->timestep - 1);
     if (cached) {
         memcpy(dst, cached, sizeof(*dst));
+        return 0;
     } else {
         hvr_sparse_vec_t *src = &(ctx->vertices[offset]);
 
@@ -1032,6 +1031,7 @@ static void get_remote_vec_nbi(hvr_sparse_vec_t *dst, const unsigned offset,
 
         shmem_quiet();
         hvr_sparse_vec_cache_insert(offset, dst, cache);
+        return 1;
     }
 }
 
@@ -1432,7 +1432,11 @@ static void update_local_actor_metadata(const vertex_id_t actor,
                 &neighbors_capacity, vertex_edge_tree->subtree);
 
         // Simplifying assumption for now
-        assert(n_neighbors < EDGE_GET_BUFFERING);
+        if (n_neighbors > EDGE_GET_BUFFERING) {
+            fprintf(stderr, "Invalid # neighbors - %lu > %u\n", n_neighbors,
+                    EDGE_GET_BUFFERING);
+            abort();
+        }
 
         const unsigned long long start_single_update = hvr_current_time_us();
         for (unsigned n = 0; n < n_neighbors; n++) {
@@ -1587,11 +1591,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
         update_edges(ctx, vec_caches, &getmem_time, &update_edge_time);
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
-        fprintf(stderr, "PE %d - %f ms for edge checking, %f of that for "
-                "update edge, %f for getmem\n", shmem_my_pe(),
+
+        fprintf(stderr, "Rank %d - overall %f update %f getmem %f\n", shmem_my_pe(),
                 (double)(finished_edge_adds - finished_summary_update) / 1000.0,
-                (double)update_edge_time / 1000.0,
-                (double)getmem_time / 1000.0);
+                (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0);
 
         hvr_sparse_vec_t coupled_metric;
         memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,

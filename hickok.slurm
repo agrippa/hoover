@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p opa
-#SBATCH -N 4
+#SBATCH -N 1
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -18,8 +18,9 @@ echo
 echo "Using OpenSHMEM @ $OPENSHMEM_INSTALL"
 echo
 
-export SMA_SYMMETRIC_SIZE=$((1024 * 1024 * 1024))
+export SMA_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024))
 
+export PSM2_SHAREDCONTEXTS=0
 export PMI_MAX_KVS_ENTRIES=$((1000 * $SLURM_NNODES))
 export LD_LIBRARY_PATH=$OPENSHMEM_INSTALL/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$OPENSHMEM_INSTALL/lib64:$LD_LIBRARY_PATH
@@ -32,7 +33,7 @@ export SMA_OFI_PROVIDER=psm2
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
 # 2 sockets x 8 cores per socket for Hickok (2 hardware threads per core)
-export CORES_PER_SOCKET=1
+export CORES_PER_SOCKET=8
 export SOCKETS_PER_NODE=2
 export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
@@ -49,20 +50,19 @@ srun --ntasks-per-node=1 bash -c "rm -f /var/tmp/core.*"
 echo
 echo
 echo
-# $OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) ./bin/init_test 50
 
-if [[ $SLURM_NNODES -eq 2 ]]; then
+if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 2 nodes
-    export CELL_DIM=200.0
-    export ACTORS_PER_CELL=800
-    export PE_ROWS=2
-    export PE_COLS=2
+    export CELL_DIM=400.0
+    export ACTORS_PER_CELL=500
+    export PE_ROWS=4
+    export PE_COLS=4
 elif [[ $SLURM_NNODES -eq 4 ]]; then
     # For 4 nodes
     export CELL_DIM=200.0
-    export ACTORS_PER_CELL=800
-    export PE_ROWS=4
-    export PE_COLS=2
+    export ACTORS_PER_CELL=250
+    export PE_ROWS=8
+    export PE_COLS=8
 else
     echo "Unsupported number of nodes! $SLURM_NNODES"
     exit 1
@@ -71,7 +71,7 @@ fi
 export N_PORTALS=0
 export N_INFECTED=1
 # export MAX_NUM_TIMESTEPS=1000
-export MAX_NUM_TIMESTEPS=300
+export MAX_NUM_TIMESTEPS=2
 export INFECTION_RADIUS=4.0
 export MAX_DELTA_VELOCITY=0.01
 
@@ -82,45 +82,7 @@ $OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) \
 echo
 echo
 echo
+echo "Listing core files"
+srun --ntasks-per-node=1 bash -c "ls -l /var/tmp/"
 echo "Copying out old core files"
 srun --ntasks-per-node=1 bash -c "cp /var/tmp/core.* $COPY_TO/"
-
-# # for flat parallelism on 8 nodes
-# # export CELL_DIM=100.0
-# # export ACTORS_PER_CELL=50
-# # export PE_ROWS=12
-# # export PE_COLS=16
-# 
-# # for flat parallelism, 1 PE per socket
-# export CELL_DIM=400.0
-# export ACTORS_PER_CELL=600
-# export PE_ROWS=4
-# export PE_COLS=2
-# 
-# export N_PORTALS=4
-# export N_INFECTED=1
-# # export MAX_NUM_TIMESTEPS=400
-# export MAX_NUM_TIMESTEPS=15
-# export INFECTION_RADIUS=4.0
-# export MAX_DELTA_VELOCITY=0.01
-# 
-# COPY_TO=$(pwd)
-# echo "Clearing out old core files"
-# srun --ntasks-per-node=1 bash -c "rm -f /var/tmp/core.*"
-# echo
-# echo
-# echo
-# time srun --ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) \
-#     --ntasks-per-socket=1 --cpus-per-task=1 ./bin/infectious_test \
-#     $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
-#     $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
-# echo
-# echo
-# echo
-# echo "Copying out old core files"
-# srun --ntasks-per-node=1 bash -c "cp /var/tmp/core.* $COPY_TO/"
-# 
-# # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-# #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/infectious_test \
-# #     $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
-# #     $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
