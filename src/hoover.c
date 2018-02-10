@@ -1479,7 +1479,6 @@ static void *aborting_thread(void *user_data) {
 }
 
 void hvr_body(hvr_ctx_t in_ctx) {
-    sleep(20);
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
 
     hvr_sparse_vec_cache_t *vec_caches =
@@ -1613,11 +1612,11 @@ void hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long finished_neighbor_updates =
             hvr_current_time_us();
 
-        shmem_set_lock((long *)ctx->coupled_locks + ctx->pe);
-        shmem_putmem(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
-                sizeof(coupled_metric), ctx->pe);
-        shmem_quiet();
-        shmem_clear_lock((long *)ctx->coupled_locks + ctx->pe);
+        // shmem_set_lock((long *)ctx->coupled_locks + ctx->pe);
+        // shmem_putmem(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
+        //         sizeof(coupled_metric), ctx->pe);
+        // shmem_quiet();
+        // shmem_clear_lock((long *)ctx->coupled_locks + ctx->pe);
 
         // /*
         //  * For each PE I know I'm coupled with, lock their coupled_timesteps
@@ -1795,25 +1794,25 @@ void hvr_body(hvr_ctx_t in_ctx) {
      * As I'm exiting, ensure that any PEs that are coupled with me (or may make
      * themselves coupled with me in the future) never block on me.
      */
-    shmem_set_lock((long *)(ctx->coupled_locks + ctx->pe));
-    ctx->timestep += 1;
-    unsigned n_features;
-    unsigned features[HVR_BUCKET_SIZE];
-    hvr_sparse_vec_unique_features(ctx->coupled_pes_values + ctx->pe,
-            ctx->timestep + 1, features, &n_features);
-    for (unsigned f = 0; f < n_features; f++) {
-        double last_val;
-        int success = hvr_sparse_vec_get_internal(features[f],
-                ctx->coupled_pes_values + ctx->pe, ctx->timestep + 1,
-                &last_val, &ctx->n_vector_cache_hits,
-                &ctx->n_vector_cache_misses);
-        assert(success == 1);
+    // shmem_set_lock((long *)(ctx->coupled_locks + ctx->pe));
+    // ctx->timestep += 1;
+    // unsigned n_features;
+    // unsigned features[HVR_BUCKET_SIZE];
+    // hvr_sparse_vec_unique_features(ctx->coupled_pes_values + ctx->pe,
+    //         ctx->timestep + 1, features, &n_features);
+    // for (unsigned f = 0; f < n_features; f++) {
+    //     double last_val;
+    //     int success = hvr_sparse_vec_get_internal(features[f],
+    //             ctx->coupled_pes_values + ctx->pe, ctx->timestep + 1,
+    //             &last_val, &ctx->n_vector_cache_hits,
+    //             &ctx->n_vector_cache_misses);
+    //     assert(success == 1);
 
-        hvr_sparse_vec_set_internal(features[f], last_val,
-                ctx->coupled_pes_values + ctx->pe, MAX_TIMESTAMP);
-    }
+    //     hvr_sparse_vec_set_internal(features[f], last_val,
+    //             ctx->coupled_pes_values + ctx->pe, MAX_TIMESTAMP);
+    // }
 
-    shmem_clear_lock((long *)(ctx->coupled_locks + ctx->pe));
+    // shmem_clear_lock((long *)(ctx->coupled_locks + ctx->pe));
 
     update_my_timestep(ctx, MAX_TIMESTAMP);
 

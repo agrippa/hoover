@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p connectx5
-#SBATCH -N 16
+#SBATCH -N 1
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -81,7 +81,7 @@ export MAX_NUM_TIMESTEPS=11
 export INFECTION_RADIUS=4.0
 export MAX_DELTA_VELOCITY=0.01
 
-$OPENSHMEM_INSTALL/bin/oshrun -n $(($SLURM_NNODES * $CORES_PER_NODE)) \
+$OPENSHMEM_INSTALL/bin/oshrun -npernode $CORES_PER_NODE \
         $HOME/hoover/bin/infectious_test \
         $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
         $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
