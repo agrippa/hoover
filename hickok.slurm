@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p connectx5
-#SBATCH -N 1
+#SBATCH -N 4
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -51,6 +51,7 @@ echo
 echo
 echo
 
+export SCALING=weak
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 2 nodes
     export CELL_DIM=400.0
@@ -59,16 +60,30 @@ if [[ $SLURM_NNODES -eq 1 ]]; then
     export PE_COLS=4
 elif [[ $SLURM_NNODES -eq 4 ]]; then
     # For 4 nodes
-    export CELL_DIM=200.0
-    export ACTORS_PER_CELL=800
-    export PE_ROWS=8
-    export PE_COLS=8
+    if [[ $SCALING == strong ]]; then
+        export CELL_DIM=200.0
+        export ACTORS_PER_CELL=800
+        export PE_ROWS=8
+        export PE_COLS=8
+    else
+        export CELL_DIM=400.0
+        export ACTORS_PER_CELL=3200
+        export PE_ROWS=8
+        export PE_COLS=8
+    fi
 elif [[ $SLURM_NNODES -eq 16 ]]; then
     # For 16 nodes
-    export CELL_DIM=100.0
-    export ACTORS_PER_CELL=200
-    export PE_ROWS=16
-    export PE_COLS=16
+    if [[ $SCALING == strong ]]; then
+        export CELL_DIM=100.0
+        export ACTORS_PER_CELL=200
+        export PE_ROWS=16
+        export PE_COLS=16
+    else
+        export CELL_DIM=400.0
+        export ACTORS_PER_CELL=3200
+        export PE_ROWS=16
+        export PE_COLS=16
+    fi
 else
     echo "Unsupported number of nodes! $SLURM_NNODES"
     exit 1
