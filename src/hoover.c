@@ -27,6 +27,9 @@
 static int have_default_sparse_vec_val = 0;
 static double default_sparse_vec_val = 0.0;
 
+static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
+        const hvr_time_t curr_timestamp, unsigned *nhits, unsigned *nmisses);
+
 static void lock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
     assert(pe < ctx->npes);
     shmem_set_lock(ctx->actor_to_partition_locks + pe);
@@ -88,26 +91,18 @@ static int uint_compare(const void *_a, const void *_b) {
  * call.
  */
 static void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
-        unsigned *out_features, unsigned *n_out_features) {
+        const hvr_time_t curr_timestep, unsigned *out_features,
+        unsigned *n_out_features) {
     *n_out_features = 0;
 
-    for (unsigned i = 0; i < HVR_BUCKETS; i++) {
-        for (unsigned j = 0; j < vec->bucket_size[i]; j++) {
-            const unsigned curr_feature = vec->features[i][j];
-            int already_have = 0;
+    unsigned unused;
+    const int bucket = hvr_sparse_vec_find_bucket(vec, curr_timestep, &unused,
+            &unused);
+    assert(bucket >= 0);
 
-            for (unsigned k = 0; k < *n_out_features; k++) {
-                if (out_features[k] == curr_feature) {
-                    already_have = 1;
-                    break;
-                }
-            }
-
-            if (!already_have) {
-                out_features[*n_out_features] = curr_feature;
-                *n_out_features += 1;
-            }
-        }
+    for (unsigned i = 0; i < vec->bucket_size[bucket]; i++) {
+        out_features[*n_out_features] = vec->features[bucket][i];
+        *n_out_features += 1;
     }
 
     qsort(out_features, *n_out_features, sizeof(*out_features), uint_compare);
@@ -286,7 +281,7 @@ static void hvr_sparse_vec_dump_internal(hvr_sparse_vec_t *vec, char *buf,
 
     unsigned n_features;
     unsigned features[HVR_BUCKET_SIZE];
-    hvr_sparse_vec_unique_features(vec, features, &n_features);
+    hvr_sparse_vec_unique_features(vec, timestep, features, &n_features);
 
     for (unsigned i = 0; i < n_features; i++) {
         const unsigned feat = features[i];
@@ -1458,16 +1453,20 @@ static void update_local_actor_metadata(const vertex_id_t actor,
     }
 }
 
+static inline void finalize_actor_for_timestep(hvr_sparse_vec_t *actor,
+        hvr_internal_ctx_t *ctx, const hvr_time_t timestep) {
+    unsigned latest_bucket = prev_bucket(actor->next_bucket);
+    if (actor->timestamps[latest_bucket] == timestep) {
+        assert(actor->finalized[latest_bucket] < timestep);
+        actor->finalized[latest_bucket] = timestep;
+    }
+}
 
 static void finalize_actors_for_timestep(hvr_internal_ctx_t *ctx,
         const hvr_time_t timestep) {
     for (unsigned i = 0; i < ctx->n_local_vertices; i++) {
         hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
-        unsigned latest_bucket = prev_bucket(curr->next_bucket);
-        if (curr->timestamps[latest_bucket] == timestep) {
-            assert(curr->finalized[latest_bucket] < timestep);
-            curr->finalized[latest_bucket] = timestep;
-        }
+        finalize_actor_for_timestep(curr, ctx, timestep);
     }
 }
 
@@ -1480,6 +1479,7 @@ static void *aborting_thread(void *user_data) {
 }
 
 void hvr_body(hvr_ctx_t in_ctx) {
+    sleep(20);
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
 
     hvr_sparse_vec_cache_t *vec_caches =
@@ -1522,6 +1522,12 @@ void hvr_body(hvr_ctx_t in_ctx) {
         const int pthread_err = pthread_create(&aborting_pthread, NULL,
                 aborting_thread, NULL);
         assert(pthread_err == 0);
+    }
+
+    if (ctx->timestep >= ctx->max_timestep) {
+        fprintf(stderr, "Invalid number of timesteps entered, must be > %u\n",
+                ctx->timestep);
+        exit(1);
     }
 
     int abort = 0;
@@ -1583,15 +1589,12 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
-        fprintf(stderr, "Rank %d - overall %f update %f getmem %f\n", shmem_my_pe(),
-                (double)(finished_edge_adds - finished_summary_update) / 1000.0,
-                (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0);
-
         hvr_sparse_vec_t coupled_metric;
         memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
                 sizeof(coupled_metric));
         abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
                 ctx, &coupled_metric);
+        finalize_actor_for_timestep(&coupled_metric, ctx, ctx->timestep);
 
         // Update my local information on PEs I am coupled with.
         hvr_pe_set_merge_atomic(ctx->coupled_pes, to_couple_with);
@@ -1610,11 +1613,11 @@ void hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long finished_neighbor_updates =
             hvr_current_time_us();
 
-        // shmem_set_lock(ctx->coupled_locks + ctx->pe);
-        // shmem_putmem(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
-        //         sizeof(coupled_metric), ctx->pe);
-        // shmem_quiet();
-        // shmem_clear_lock(ctx->coupled_locks + ctx->pe);
+        shmem_set_lock((long *)ctx->coupled_locks + ctx->pe);
+        shmem_putmem(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
+                sizeof(coupled_metric), ctx->pe);
+        shmem_quiet();
+        shmem_clear_lock((long *)ctx->coupled_locks + ctx->pe);
 
         // /*
         //  * For each PE I know I'm coupled with, lock their coupled_timesteps
@@ -1718,7 +1721,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
             // Assume that all vertices have the same features.
             unsigned nfeatures;
             unsigned features[HVR_BUCKET_SIZE];
-            hvr_sparse_vec_unique_features(ctx->vertices, features, &nfeatures);
+            hvr_sparse_vec_unique_features(ctx->vertices, ctx->timestep,
+                    features, &nfeatures);
 
             for (unsigned v = 0; v < ctx->n_local_vertices; v++) {
                 hvr_sparse_vec_t *vertex = ctx->vertices + v;
@@ -1795,8 +1799,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
     ctx->timestep += 1;
     unsigned n_features;
     unsigned features[HVR_BUCKET_SIZE];
-    hvr_sparse_vec_unique_features(ctx->coupled_pes_values + ctx->pe, features,
-            &n_features);
+    hvr_sparse_vec_unique_features(ctx->coupled_pes_values + ctx->pe,
+            ctx->timestep + 1, features, &n_features);
     for (unsigned f = 0; f < n_features; f++) {
         double last_val;
         int success = hvr_sparse_vec_get_internal(features[f],
