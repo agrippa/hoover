@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
-#SBATCH -p opa
-#SBATCH -N 1
+#SBATCH -p connectx5
+#SBATCH -N 16
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -54,15 +54,21 @@ echo
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 2 nodes
     export CELL_DIM=400.0
-    export ACTORS_PER_CELL=500
+    export ACTORS_PER_CELL=3200
     export PE_ROWS=4
     export PE_COLS=4
 elif [[ $SLURM_NNODES -eq 4 ]]; then
     # For 4 nodes
     export CELL_DIM=200.0
-    export ACTORS_PER_CELL=250
+    export ACTORS_PER_CELL=800
     export PE_ROWS=8
     export PE_COLS=8
+elif [[ $SLURM_NNODES -eq 16 ]]; then
+    # For 16 nodes
+    export CELL_DIM=100.0
+    export ACTORS_PER_CELL=200
+    export PE_ROWS=16
+    export PE_COLS=16
 else
     echo "Unsupported number of nodes! $SLURM_NNODES"
     exit 1
@@ -71,7 +77,7 @@ fi
 export N_PORTALS=0
 export N_INFECTED=1
 # export MAX_NUM_TIMESTEPS=1000
-export MAX_NUM_TIMESTEPS=2
+export MAX_NUM_TIMESTEPS=20
 export INFECTION_RADIUS=4.0
 export MAX_DELTA_VELOCITY=0.01
 

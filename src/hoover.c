@@ -906,15 +906,6 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
         }
         if (user_must_free) free(other_partitions);
 
-        // for (unsigned part = 0; part < ctx->n_partitions; part++) {
-        //     if (hvr_pe_set_contains(part, ctx->other_pe_partition_time_window)) {
-        //         if (ctx->might_interact(part, ctx->partition_time_window, ctx)) {
-        //             hvr_pe_set_insert(p, ctx->my_neighbors);
-        //             break;
-        //         }
-        //     }
-        // }
-
         const unsigned long long iter_done = hvr_current_time_us();
 
         lock_time += (done_lock - start_lock);
@@ -949,16 +940,16 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
     assert(b_bucket >= 0);
 
     double acc = 0.0;
-    // for (unsigned f = min_spatial_feature; f <= max_spatial_feature; f++) {
-    //     double a_val, b_val;
-    //     const int a_err = find_feature_in_bucket(a, a_bucket, f, &a_val);
-    //     assert(a_err == 1);
-    //     const int b_err = find_feature_in_bucket(b, b_bucket, f, &b_val);
-    //     assert(b_err == 1);
+    for (unsigned f = min_spatial_feature; f <= max_spatial_feature; f++) {
+        double a_val, b_val;
+        const int a_err = find_feature_in_bucket(a, a_bucket, f, &a_val);
+        assert(a_err == 1);
+        const int b_err = find_feature_in_bucket(b, b_bucket, f, &b_val);
+        assert(b_err == 1);
 
-    //     const double delta = b_val - a_val;
-    //     acc += (delta * delta);
-    // }
+        const double delta = b_val - a_val;
+        acc += (delta * delta);
+    }
     return acc;
 }
 
