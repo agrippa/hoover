@@ -874,6 +874,11 @@ static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
     /*
      * For each local vertex, check if we want to add an edge from
      * other to this.
+     *
+     * TODO We shouldn't have to check against all local vertices, as we know
+     * the remote actor's partition and the local actor's partition, and can
+     * tell if they might interact. We may be able to use this information to
+     * cut down on the number of distance measures we take here.
      */
     for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
         /*
@@ -931,6 +936,13 @@ static int get_remote_vec_nbi(hvr_sparse_vec_t *dst, const unsigned offset,
         dst->cached_timestamp = -1;
         dst->cached_timestamp_index = 0;
 
+        /*
+         * TODO we need this quiet here at the moment so that communication
+         * completes before cache insertion occurs because we copy out of dst
+         * and into the cache inside hvr_sparse_vec_cache_insert. Is there a way
+         * to work around this? e.g. by requesting a buffer to copy to from the
+         * cache? Would enable more asynchrony, possible performance gains.
+         */
         shmem_quiet();
         hvr_sparse_vec_cache_insert(offset, dst, cache);
         return 1;
