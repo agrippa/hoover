@@ -134,6 +134,7 @@ static void set_helper(hvr_sparse_vec_t *vec, const unsigned curr_bucket,
  */
 static void hvr_sparse_vec_set_internal(const unsigned feature,
         const double val, hvr_sparse_vec_t *vec, const hvr_time_t timestep) {
+    assert(timestep <= MAX_TIMESTAMP);
     unsigned initial_bucket = prev_bucket(vec->next_bucket);
 
     if (vec->timestamps[initial_bucket] == timestep) {
@@ -223,7 +224,8 @@ static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
         if (vec->timestamps[curr_bucket] != vec->finalized[curr_bucket]) {
             // Ignore partial entry
         } else {
-            if (vec->timestamps[curr_bucket] < curr_timestamp) {
+            if (vec->timestamps[curr_bucket] < curr_timestamp ||
+                    vec->timestamps[curr_bucket] == MAX_TIMESTAMP) {
                 // Handle finding an existing bucket for this timestep
                 vec->cached_timestamp = vec->timestamps[curr_bucket];
                 vec->cached_timestamp_index = curr_bucket;
@@ -326,129 +328,65 @@ int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec) {
     return vec->pe;
 }
 
-// static int hvr_sparse_vec_timestamp_bounds(hvr_sparse_vec_t *vec,
-//         uint64_t *out_min, uint64_t *out_max) {
-//     unsigned initial_bucket;
-//     if (vec->next_bucket == 0) {
-//         initial_bucket = HVR_BUCKETS - 1;
-//     } else {
-//         initial_bucket = vec->next_bucket - 1;
-//     }
-// 
-//     if (vec->bucket_size[initial_bucket] == 0) {
-//         // No values;
-//         return 0;
-//     }
-// 
-//     uint64_t max_timestamp = vec->timestamps[initial_bucket];
-//     uint64_t min_timestamp;
-//     unsigned curr_bucket = initial_bucket;
-//     do {
-//         min_timestamp = vec->timestamps[curr_bucket];
-// 
-//         // Move to the next bucket
-//         if (curr_bucket == 0) curr_bucket = HVR_BUCKETS - 1;
-//         else curr_bucket -= 1;
-//     } while (curr_bucket != initial_bucket && vec->bucket_size[curr_bucket] > 0);
-// 
-//     *out_min = min_timestamp;
-//     *out_max = max_timestamp;
-//     return 1;
-// 
-// }
+static hvr_time_t hvr_sparse_vec_max_timestamp(hvr_sparse_vec_t *vec) {
+    unsigned unused;
+    int highest_bucket = hvr_sparse_vec_find_bucket(vec, MAX_TIMESTAMP + 1,
+            &unused, &unused);
+    if (highest_bucket < 0) {
+        return -1;
+    } else {
+        return vec->timestamps[highest_bucket];
+    }
+}
 
 #define HAS_TIMESTAMP -1
-#define NEVER_TIMESTAMP -2
+#define NOT_HAVE_TIMESTAMP -2
 
-// static int hvr_sparse_vec_has_timestamp(hvr_sparse_vec_t *vec,
-//         const uint64_t timestamp) {
-//     unsigned initial_bucket;
-//     if (vec->next_bucket == 0) initial_bucket = HVR_BUCKETS - 1;
-//     else initial_bucket = vec->next_bucket - 1;
-// 
-//     if (vec->bucket_size[initial_bucket] == 0) {
-//         // No values;
-//         return 0;
-//     }
-// 
-//     uint64_t min_timestamp;
-//     unsigned curr_bucket = initial_bucket;
-//     do {
-//         if (vec->timestamps[curr_bucket] == timestamp ||
-//                 vec->timestamps[curr_bucket] == INT64_MAX) {
-//             return HAS_TIMESTAMP;
-//         }
-//         min_timestamp = vec->timestamps[curr_bucket];
-// 
-//         // Move to the next bucket
-//         if (curr_bucket == 0) curr_bucket = HVR_BUCKETS - 1;
-//         else curr_bucket -= 1;
-//     } while (curr_bucket != initial_bucket && vec->bucket_size[curr_bucket] > 0);
-// 
-//     if (min_timestamp > timestamp) {
-//         return NEVER_TIMESTAMP;
-//     } else {
-//         return min_timestamp;
-//     }
-// }
+static int hvr_sparse_vec_has_timestamp(hvr_sparse_vec_t *vec,
+        const uint64_t timestamp) {
+    unsigned unused;
+    int target_bucket = hvr_sparse_vec_find_bucket(vec, timestamp + 1,
+            &unused, &unused);
+    if (target_bucket >= 0 && (vec->timestamps[target_bucket] == timestamp ||
+            vec->timestamps[target_bucket] == MAX_TIMESTAMP)) {
+        return HAS_TIMESTAMP;
+    } else {
+        return NOT_HAVE_TIMESTAMP;
+    }
+}
 
-// static int find_time_slot_for(hvr_sparse_vec_t *vec,
-//         const uint64_t target_timestamp) {
-//     unsigned initial_bucket;
-//     if (vec->next_bucket == 0) initial_bucket = HVR_BUCKETS - 1;
-//     else initial_bucket = vec->next_bucket - 1;
-// 
-//     assert(vec->bucket_size[initial_bucket] > 0);
-// 
-//     int time_index = -1;
-//     unsigned curr_bucket = initial_bucket;
-//     do {
-//         if (vec->timestamps[curr_bucket] < target_timestamp) {
-//             break;
-//         } else if (vec->timestamps[curr_bucket] == target_timestamp) {
-//             time_index = curr_bucket;
-//         } else if (vec->timestamps[curr_bucket] == INT64_MAX) {
-//             time_index = curr_bucket;
-//             break;
-//         }
-// 
-//         // Move to the next bucket
-//         if (curr_bucket == 0) curr_bucket = HVR_BUCKETS - 1;
-//         else curr_bucket -= 1;
-//     } while (curr_bucket != initial_bucket && vec->bucket_size[curr_bucket] > 0);
-// 
-//     return time_index;
-// }
+static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
+        hvr_sparse_vec_t *src, const uint64_t target_timestamp) {
+    unsigned unused;
+    const int dst_bucket = hvr_sparse_vec_find_bucket(dst, target_timestamp + 1,
+            &unused, &unused);
+    assert(dst_bucket >= 0);
 
-// static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
-//         hvr_sparse_vec_t *src, const uint64_t target_timestamp) {
-//     int dst_time_index = find_time_slot_for(dst, target_timestamp);
-//     assert(dst_time_index >= 0);
-// 
-//     int src_time_index = find_time_slot_for(src, target_timestamp);
-//     assert(src_time_index >= 0);
-// 
-//     const unsigned n_dst_features = dst->bucket_size[dst_time_index];
-//     const unsigned n_src_features = src->bucket_size[src_time_index];
-//     assert(n_dst_features == n_src_features);
-// 
-//     for (unsigned i = 0; i < n_dst_features; i++) {
-//         unsigned feature = dst->features[dst_time_index][i];
-//         unsigned dst_feature_index = i;
-// 
-//         int src_feature_index = -1;
-//         for (unsigned j = 0; j < n_src_features; j++) {
-//             if (src->features[src_time_index][j] == feature) {
-//                 src_feature_index = j;
-//                 break;
-//             }
-//         }
-//         assert(src_feature_index >= 0);
-// 
-//         dst->values[dst_time_index][dst_feature_index] +=
-//             src->values[src_time_index][src_feature_index];
-//     }
-// }
+    const int src_bucket = hvr_sparse_vec_find_bucket(src, target_timestamp + 1,
+            &unused, &unused);
+    assert(src_bucket >= 0);
+
+    const unsigned n_dst_features = dst->bucket_size[dst_bucket];
+    const unsigned n_src_features = src->bucket_size[src_bucket];
+    assert(n_dst_features == n_src_features);
+
+    for (unsigned i = 0; i < n_dst_features; i++) {
+        unsigned feature = dst->features[dst_bucket][i];
+        unsigned dst_feature_index = i;
+
+        int src_feature_index = -1;
+        for (unsigned j = 0; j < n_src_features; j++) {
+            if (src->features[src_bucket][j] == feature) {
+                src_feature_index = j;
+                break;
+            }
+        }
+        assert(src_feature_index >= 0);
+
+        dst->values[dst_bucket][dst_feature_index] +=
+            src->values[src_bucket][src_feature_index];
+    }
+}
 
 static int get_newest_timestamp(hvr_sparse_vec_t *vec,
         hvr_time_t *out_timestamp) {
@@ -1618,83 +1556,77 @@ void hvr_body(hvr_ctx_t in_ctx) {
         shmem_quiet();
         shmem_clear_lock((long *)ctx->coupled_locks + ctx->pe);
 
-        // /*
-        //  * For each PE I know I'm coupled with, lock their coupled_timesteps
-        //  * list and update my copy with any newer entries in my
-        //  * coupled_timesteps list.
-        //  */
-        // int ncoupled = 1; // include myself
-        // for (int p = 0; p < ctx->npes; p++) {
-        //     if (p == ctx->pe) continue;
+        /*
+         * For each PE I know I'm coupled with, lock their coupled_timesteps
+         * list and update my copy with any newer entries in my
+         * coupled_timesteps list.
+         */
+        int ncoupled = 1; // include myself
+        for (int p = 0; p < ctx->npes; p++) {
+            if (p == ctx->pe) continue;
 
-        //     if (hvr_pe_set_contains(p, ctx->coupled_pes)) {
+            if (hvr_pe_set_contains(p, ctx->coupled_pes)) {
+                /*
+                 * Wait until we've found an update to p's coupled value that is
+                 * for this timestep.
+                 */
+                assert(hvr_sparse_vec_has_timestamp(&coupled_metric,
+                            ctx->timestep) == HAS_TIMESTAMP);
+                int other_has_timestamp = hvr_sparse_vec_has_timestamp(
+                        ctx->coupled_pes_values + p, ctx->timestep);
+                while (other_has_timestamp != HAS_TIMESTAMP) {
+                    shmem_set_lock((long *)ctx->coupled_locks + p);
 
-        //         /*
-        //          * Wait until we've found an update to p's coupled value that is
-        //          * for this timestep.
-        //          */
-        //         assert(hvr_sparse_vec_has_timestamp(&coupled_metric,
-        //                     ctx->timestep) == HAS_TIMESTAMP);
-        //         int other_has_timestamp = hvr_sparse_vec_has_timestamp(
-        //                 ctx->coupled_pes_values + p, ctx->timestep);
-        //         while (other_has_timestamp != HAS_TIMESTAMP) {
-        //             shmem_set_lock(ctx->coupled_locks + p);
+                    // Pull in the coupled PEs current values
+                    shmem_getmem(ctx->coupled_pes_values_buffer,
+                            ctx->coupled_pes_values,
+                            ctx->npes * sizeof(hvr_sparse_vec_t), p);
 
-        //             // Pull in the coupled PEs current values
-        //             shmem_getmem(ctx->coupled_pes_values_buffer,
-        //                     ctx->coupled_pes_values,
-        //                     ctx->npes * sizeof(hvr_sparse_vec_t), p);
+                    shmem_clear_lock((long *)ctx->coupled_locks + p);
 
-        //             shmem_clear_lock(ctx->coupled_locks + p);
+                    for (int i = 0; i < ctx->npes; i++) {
+                        hvr_sparse_vec_t *other =
+                            ctx->coupled_pes_values_buffer + i;
+                        hvr_sparse_vec_t *mine = ctx->coupled_pes_values + i;
 
-        //             // int i = p;
-        //             for (int i = 0; i < ctx->npes; i++) {
-        //                 hvr_sparse_vec_t *other =
-        //                     ctx->coupled_pes_values_buffer + i;
-        //                 hvr_sparse_vec_t *mine = ctx->coupled_pes_values + i;
+                        const hvr_time_t other_max_timestamp =
+                            hvr_sparse_vec_max_timestamp(other);
+                        const hvr_time_t mine_max_timestamp =
+                            hvr_sparse_vec_max_timestamp(mine);
 
-        //                 uint64_t other_min_timestamp, other_max_timestamp;
-        //                 uint64_t mine_min_timestamp, mine_max_timestamp;
-        //                 const int other_success =
-        //                     hvr_sparse_vec_timestamp_bounds(other,
-        //                             &other_min_timestamp, &other_max_timestamp);
-        //                 const int mine_success =
-        //                     hvr_sparse_vec_timestamp_bounds(mine,
-        //                             &mine_min_timestamp, &mine_max_timestamp);
+                        if (other_max_timestamp >= 0) {
+                            if (mine_max_timestamp < 0) {
+                                memcpy(mine, other, sizeof(*mine));
+                            } else if (other_max_timestamp > mine_max_timestamp) {
+                                memcpy(mine, other, sizeof(*mine));
+                            }
+                        }
+                    }
 
-        //                 if (other_success) {
-        //                     if (!mine_success) {
-        //                         memcpy(mine, other, sizeof(*mine));
-        //                     } else if (other_max_timestamp > mine_max_timestamp) {
-        //                         memcpy(mine, other, sizeof(*mine));
-        //                     }
-        //                 }
-        //             }
+                    other_has_timestamp = hvr_sparse_vec_has_timestamp(
+                            ctx->coupled_pes_values + p, ctx->timestep);
+                }
 
-        //             other_has_timestamp = hvr_sparse_vec_has_timestamp(
-        //                     ctx->coupled_pes_values + p, ctx->timestep);
-        //         }
-        //         assert(other_has_timestamp != NEVER_TIMESTAMP);
+                hvr_sparse_vec_add_internal(&coupled_metric,
+                        ctx->coupled_pes_values + p, ctx->timestep);
 
-        //         hvr_sparse_vec_add_internal(&coupled_metric,
-        //                 ctx->coupled_pes_values + p, ctx->timestep);
+                ncoupled++;
+            }
+        }
 
-        //         ncoupled++;
-        //     }
-        // }
-
-        // /*
-        //  * TODO coupled_metric here contains the aggregate values over all
-        //  * coupled PEs, including this one.
-        //  */
-        // if (ncoupled > 1) {
-        //     char buf[1024];
-        //     hvr_sparse_vec_dump_internal(&coupled_metric, buf, 1024,
-        //             ctx->timestep + 1);
-        //     fprintf(stderr, "PE %d - computed coupled value {%s} from %d "
-        //             "coupled PEs on timestep %lu\n", ctx->pe, buf, ncoupled,
-        //             ctx->timestep - 1);
-        // }
+        /*
+         * TODO coupled_metric here contains the aggregate values over all
+         * coupled PEs, including this one.
+         */
+        if (ncoupled > 1) {
+            char buf[1024];
+            unsigned unused;
+            hvr_sparse_vec_dump_internal(&coupled_metric, buf, 1024,
+                    ctx->timestep + 1, &unused, &unused);
+            fprintf(stderr, "PE %d - computed coupled value {%s} from %d "
+                    "coupled PEs on timestep %d\n", ctx->pe, buf, ncoupled,
+                    ctx->timestep - 1);
+        }
 
         /*
          * Throttle the progress of much faster PEs to ensure we don't get out

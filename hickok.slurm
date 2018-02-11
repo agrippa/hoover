@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p connectx5
-#SBATCH -N 4
+#SBATCH -N 16
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -91,9 +91,9 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-# export MAX_NUM_TIMESTEPS=1000
-export MAX_NUM_TIMESTEPS=11
-export INFECTION_RADIUS=4.0
+export MAX_NUM_TIMESTEPS=1000
+# export INFECTION_RADIUS=4.0
+export INFECTION_RADIUS=10.0
 export MAX_DELTA_VELOCITY=0.01
 
 $OPENSHMEM_INSTALL/bin/oshrun -npernode $CORES_PER_NODE \

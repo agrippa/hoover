@@ -32,7 +32,7 @@ typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
 typedef hvr_internal_ctx_t *hvr_ctx_t;
 
 typedef int32_t hvr_time_t;
-#define MAX_TIMESTAMP INT32_MAX
+#define MAX_TIMESTAMP (INT32_MAX - 1)
 
 /*
  * Sparse vector for representing properties on each vertex, and accompanying
