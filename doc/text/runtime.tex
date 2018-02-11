@@ -1,1 +1,31 @@
 \section{Runtime}
+
+With our understanding of the user-facing APIs for HOOVER, we can now discuss
+how HOOVER operates on the backend. We will split this into two discussions: 1)
+a description of the vertex/sparse vector data structure used, and 2) a
+description of the various steps taken by the HOOVER runtime on each timestep of
+an iterative simulation.
+
+\subsection{Versioned Sparse Vectors}
+
+While HOOVER sparse vectors expose simple read and modify APIs to the user, they
+are subtely complex.
+
+The root of this complexity is the decoupled nature of HOOVER's execution. For
+scalability reasons, HOOVER was designed to avoid all two-sided, blocking, or
+collective operations between any two de-coupled PEs. As such, any PE may
+fetch vertex data from any other PE at any time during the simulation without
+any involvement from the PE being accessed. As such, the sparse vector data
+structure must be designed to be always consistent, such that remote accessors
+can get information from it even if the owning PE is currently modifying it.
+
+Additionally, because HOOVER is iterative it has some measure of progress, time,
+and ordering between timesteps. Indeed, de-coupled PEs may have
+reached very different timesteps in the simulation before their first
+interaction. However, it would be undesirable for the slower PE to be able to
+read data from the future on the faster PE - we would like any information
+accessed to be mostly consistent for a given timestep (though perhaps not from
+that precise timestep). As a result, it is necessary to have some history or
+versioning built in to HOOVER's sparse vector data structure such that
+de-coupled PEs on different timesteps can still fetch consistent data from each
+other.
