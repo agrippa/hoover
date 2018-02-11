@@ -29,3 +29,61 @@ that precise timestep). As a result, it is necessary to have some history or
 versioning built in to HOOVER's sparse vector data structure such that
 de-coupled PEs on different timesteps can still fetch consistent data from each
 other.
+
+Hence, internally the sparse vector data structure stores its state going back
+many timesteps. Additionally, when updating a sparse vector with new values,
+those values are tagged with the current timestep. A simplified version of the
+actual sparse vector declaration is shown below:
+
+\begin{verbatim}
+typedef struct _hvr_sparse_vec_t {
+    // Globally unique ID for this node
+    vertex_id_t id;
+
+    // PE that owns this vertex
+    int pe;
+
+    // Values for each feature
+    double values[HVR_BUCKETS][HVR_BUCKET_SIZE];
+
+    // Feature IDs, all entries in each bucket guaranteed unique
+    unsigned features[HVR_BUCKETS][HVR_BUCKET_SIZE];
+
+    // Number of features present in each bucket
+    unsigned bucket_size[HVR_BUCKETS];
+
+    // Timestamp for each bucket
+    hvr_time_t timestamps[HVR_BUCKETS];
+} hvr_sparse_vec_t;
+\end{verbatim}
+
+Here, the key fields are \texttt{timestamps}, \texttt{bucket\_size},
+\texttt{values}, and \texttt{features} each of which is a circular buffer. The
+sparse vector above has the ability to store history for this sparse vector's
+state going back \texttt{HVR\_BUCKETS} timesteps, with up to
+\texttt{HVR\_BUCKET\_SIZE} features in the sparse vector.
+
+Each time the first attribute is set on a new timestep, a bucket is allocated to
+it by finding the oldest bucket. The most recent state of the sparse vector from
+the most recent timestep is copied to the new bucket, including its
+\texttt{features}, \texttt{values}, and \texttt{bucket\_size}. Then, additional
+changes for the current timestep are made on top of those copied values.
+
+Anytime a feature needs to be read from a sparse vector, a timestep to read the
+value for is also passed in (either explicitly if from the HOOVER runtime or
+implicitly using the calling PE's context). The bucket that is closest to that
+timestep but not past it is then used to return the requested feature.
+
+While this design is flexible and solves the problem of de-coupled data accesses
+in a massively distributed system, it naturally comes with drawbacks. It is
+relatively wasteful of memory, consuming many times the number of bytes than
+what would be needed to simply store the current state of the sparse vector. Of
+course, this also has implications for bytes transferred over the network. This
+design also limits how out-of-sync two PEs can become as a result of using a
+fixed-size circular buffer. If one PE becomes more than \texttt{HVR\_BUCKETS}
+behind the other PE, it will no longer be able to fetch valid values from the
+other's vertices.
+
+\subsection{Core Runtime Execution Flow}
+
+
