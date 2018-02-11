@@ -1,0 +1,239 @@
+\section{API}
+
+\subsection{Vertex APIs}
+
+The core data structure of HOOVER is the graph vertex, represented by objects of
+type \texttt{hvr\_sparse\_vec\_t}. Application developers are not expected to
+manipulate the internal state of this object directly, but rather using the
+following APIs.
+
+Below, several terms may be used to refer to a simulation vertex, including
+vertex, sparse vector, or actor.
+
+\subsubsection{\texttt{hvr\_sparse\_vec\_create\_n}}
+
+\begin{verbatim}
+hvr_sparse_vec_t *hvr_sparse_vec_create_n(
+        const size_t nvecs);
+\end{verbatim}
+
+Create \texttt{nvecs} sparse vectors/vertices. This API must be called
+collectively on all PEs with the same value of \texttt{nvecs} on each PE. This
+will return initialized but empty vertices to the user, to be populated with
+initial information.
+
+\subsubsection{\texttt{hvr\_sparse\_vec\_set\_id}}
+
+\begin{verbatim}
+void hvr_sparse_vec_set_id(const vertex_id_t id,
+        hvr_sparse_vec_t *vec);
+\end{verbatim}
+
+Set a globally unique ID \texttt{id} for vertex \texttt{vec} in the current
+simulation. It is the programmer's responsibility to provide each vertex a
+globally unique ID, and the runtime performs no checks to verify the uniqueness
+of each ID. This API must be called once for each vertex in a given simulation
+before launching the simulation with the \texttt{hvr\_body} API (described
+below).
+
+Vertex IDs do not need to follow any pattern or be contiguous, but application
+developers are advised to assign their vertex IDs in such a way that looking up
+the PE for a given vertex is a quick, efficient, and preferrably constant time
+operation.
+
+\subsubsection{\texttt{hvr\_sparse\_vec\_get\_id}}
+
+\begin{verbatim}
+vertex_id_t hvr_sparse_vec_get_id(hvr_sparse_vec_t *vec);
+\end{verbatim}
+
+Fetch the globally unique ID assigned to the passed vertex.
+
+\subsubsection{\texttt{hvr\_sparse\_vec\_get\_owning\_pe}}
+
+\begin{verbatim}
+int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec);
+\end{verbatim}
+
+Fetch the PE that owns the passed vertex, i.e. the PE that created and
+initialized it. Information on PE ownership is automatically maintained by the
+HOOVER runtime. No dynamic load balancing of vertices is performed in HOOVER,
+and so vertex ownership is a static and one-to-one relationship.
+
+\subsubsection{\texttt{hvr\_sparse\_vec\_set}}
+
+\begin{verbatim}
+void hvr_sparse_vec_set(const unsigned feature,
+        const double val, hvr_sparse_vec_t *vec,
+        hvr_ctx_t in_ctx);
+\end{verbatim}
+
+Set the vertex attribute identified by \texttt{feature} to store the value
+\texttt{val} in the vertex \texttt{vec}.
+
+\subsubsection{\texttt{hvr\_sparse\_vec\_get}}
+
+\begin{verbatim}
+double hvr_sparse_vec_get(const unsigned feature,
+        hvr_sparse_vec_t *vec, hvr_ctx_t in_ctx);
+\end{verbatim}
+
+Fetch the value stored for attribute \texttt{feature} in vertex \texttt{vec}. If
+the specified attribute was never set on this vertex, the default behavior is to
+abort the current simulation.
+
+\subsubsection{\texttt{hvr\_sparse\_vec\_dump}}
+
+\begin{verbatim}
+void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
+        const size_t buf_size, hvr_ctx_t in_ctx);
+\end{verbatim}
+
+A utility function for creating a human-readable string for the passed vertex
+into the provided character \texttt{buf}, which is at least of length
+\texttt{buf\_size} bytes. This API can be useful for debugging or other user
+diagnostics.
+
+\subsection{Core APIS}
+
+The core of HOOVER is encapsulated in four APIS.
+
+\subsubsection{\texttt{hvr\_ctx\_create}}
+
+\begin{verbatim}
+extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
+\end{verbatim}
+
+\texttt{hvr\_ctx\_create} initializes the state of a user-allocated HOOVER
+context object to be used in later HOOVER user and runtime operations. This API
+does not allocate space for the context, the \texttt{out\_ctx} parameter is
+expected to point to at least \texttt{sizeof(hvr\_ctx\_t)} bytes of valid
+memory. \texttt{out\_ctx} may be on the stack or heap memory segment.
+
+The HOOVER context is used to store several pieces of global state for a given HOOVER
+simulation, such as a pointer to the local vertices in the simulation being
+managed by the current PE. This should be considered an opaque object by any
+application developers, and internal context state should not be directly
+manipulated.
+
+HOOVER assumes that the user has already called \texttt{shmem\_init} to
+initialize the OpenSHMEM runtime before calling \texttt{hvr\_ctx\_create}.
+
+\subsubsection{\texttt{hvr\_init}}
+
+\begin{verbatim}
+extern void hvr_init(const uint16_t n_partitions,
+        const vertex_id_t n_local_vertices,
+        hvr_sparse_vec_t *vertices,
+        hvr_update_metadata_func update_metadata,
+        hvr_might_interact_func might_interact,
+        hvr_check_abort_func check_abort,
+        hvr_vertex_owner_func vertex_owner,
+        hvr_actor_to_partition actor_to_partition,
+        const double connectivity_threshold,
+        const unsigned min_spatial_feature_inclusive,
+        const unsigned max_spatial_feature_inclusive,
+        const hvr_time_t max_timestep, hvr_ctx_t ctx);
+\end{verbatim}
+
+\texttt{hvr\_init} completes initialization of the HOOVER context object by
+populating it with several pieces of user-provided information (e.g. callbacks)
+and allocating internal data structures. \texttt{hvr\_init} does not launch the
+simulation itself, but is the last step before doing so. The arguments passed
+are described below:
+
+\begin{enumerate}
+    \item \texttt{n\_partitions} - During execution, HOOVER divides the
+        simulation space up into partitions as directed by the
+        \texttt{actor\_to\_partition} callback (described below). These
+        partitions are used to approximately detect interactions between actors
+        by first finding actor-to-partition interaction. This is similar but not
+        identical to techniques used in the Fast Multipole Method. This argument
+        specifies the number of partitions the application developer will use.
+    \item \texttt{n\_local\_vertices} - The number of vertices managed by the
+        local PE.
+    \item \texttt{vertices} - The vertices managed by the local PE. This array
+        should be allocated using \texttt{hvr\_sparse\_vec\_create\_n}, and each
+        vertex in it should have been initialized using
+        \texttt{hvr\_sparse\_vec\_set\_id} and \texttt{hvr\_sparse\_vec\_set}.
+    \item \texttt{update\_metadata} - A user callback. On each timestep,
+        \texttt{update\_metadata} is passed each local vertex one-by-one along
+        with all vertices that the current vertex has edges with (including
+        remote vertices). update\_metadata is responsible for updating the local
+        state of the current vertex, and deciding if based on those updates any
+        remote PEs should become coupled with the current PE's execution.
+    \item \texttt{might\_interact} - A user callback. \texttt{might\_interact}
+        is called with a single partition ID and a set of partitions to
+        determine if a vertex in the provided partition may interact with any
+        actor in any partition in the passed set.
+    \item \texttt{check\_abort} - A user callback. \texttt{check\_abort}
+        is used by the application developer to determine if the current
+        simulation should exit based on the state of all local vertices
+        following a full timestep. \texttt{check\_abort} also computes any
+        local metrics, which are then shared with coupled PEs to compute coupled
+        metrics.
+    \item \texttt{vertex\_owner} - A user callback. Given a globally unique
+        vertex ID, the user is expected to return the PE owning that vertex and
+        the offset in that PE's vertices of the specified vertex.
+    \item \texttt{actor\_to\_partition} - A user callback. Given a vertex,
+        return the partition it belongs in.
+    \item \texttt{connectivity\_threshold}, \\
+        \texttt{min\_spatial\_feature\_inclusive}, \\
+        \texttt{max\_spatial\_feature\_inclusive} - These arguments are all used
+        to update edges. Recall that HOOVER automatically updates inter-vertex
+        edges based on their ``nearness'' to other vertices in the simulation,
+        by some distance measure. Today, that is simply an N-dimensional
+        Euclidean distance measure on the features in the range
+        [\texttt{min\_spatial\_feature\_inclusive},
+        \texttt{max\_spatial\_feature\_inclusive}]. If the computed distance is
+        less than \texttt{connectivity\_threshold} those vertices have an edge
+        created between them.
+    \item \texttt{max\_timestep} - A limit on the number of timesteps for HOOVER
+        to run.
+    \item \texttt{ctx} - The HOOVER context to initialize. This ctx should
+        already have been zeroed using \texttt{hvr\_ctx\_create}.
+\end{enumerate}
+
+\subsubsection{\texttt{hvr\_body}}
+
+\begin{verbatim}
+extern void hvr_body(hvr_ctx_t ctx);
+\end{verbatim}
+
+Launch the simulation problem, as specified by the provided \texttt{ctx}.
+\texttt{hvr\_body} only returns when the local PE has completed execution,
+either by exceeding the maximum number of timesteps or through a non-zero return
+code from the \texttt{check\_abort} callback.
+
+\subsubsection{\texttt{hvr\_finalize}}
+
+\begin{verbatim}
+extern void hvr_finalize(hvr_ctx_t ctx);
+\end{verbatim}
+
+Perform cleanup of the simulation state. HOOVER assumes that
+\texttt{shmem\_finalize} is called after \texttt{hvr\_finalize}.
+
+\subsection{HOOVER Application Skeleton}
+
+Given the above APIs, a standard HOOVER application has the following structure:
+
+\begin{verbatim}
+hvr_ctx_t ctx;
+hvr_ctx_create(&ctx);
+
+// Create and initialize the vertices in the simulation
+hvr_sparse_vec_t *vertices = hvr_sparse_vec_create_n(...);
+...
+
+hvr_init(...);
+
+// Launch the simulation
+hvr_body(ctx);
+
+// Analyze and display the results of the simulation
+...
+
+hvr_finalize(ctx);
+
+\end{verbatim}
