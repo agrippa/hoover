@@ -2,7 +2,7 @@
 
 #SBATCH -p connectx5
 #SBATCH -N 16
-#SBATCH -t 00:10:00
+#SBATCH -t 00:30:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 #SBATCH --contiguous
@@ -51,7 +51,7 @@ echo
 echo
 echo
 
-export SCALING=weak
+export SCALING=strong
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 2 nodes
     export CELL_DIM=400.0
@@ -91,9 +91,13 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=1000
-# export INFECTION_RADIUS=4.0
-export INFECTION_RADIUS=10.0
+
+export MAX_NUM_TIMESTEPS=10
+# export MAX_NUM_TIMESTEPS=100
+# export MAX_NUM_TIMESTEPS=200
+
+export INFECTION_RADIUS=4.0
+# export INFECTION_RADIUS=10.0
 export MAX_DELTA_VELOCITY=0.01
 
 $OPENSHMEM_INSTALL/bin/oshrun -npernode $CORES_PER_NODE \

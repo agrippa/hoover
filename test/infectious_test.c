@@ -510,8 +510,9 @@ int main(int argc, char **argv) {
     shmem_finalize();
 
     if (pe == 0) {
-        printf("%d PEs, total CPU time = %f ms, max elapsed = %f ms, ~%u "
-                "actors per PE\n", npes, (double)total_time / 1000.0,
+        printf("%d PEs, %d timesteps, infection radius of %f, total CPU time = "
+                "%f ms, max elapsed = %f ms, ~%u actors per PE\n", npes,
+                max_num_timesteps, infection_radius, (double)total_time / 1000.0,
                 (double)max_elapsed / 1000.0, actors_per_cell);
     }
 
