@@ -1,9 +1,79 @@
-\section{Performance of Example Use Cases}
+\section{Performance of Example Use Case}
+
+As an example, we use a simplified infectious disease modeling problem to
+demonstrate and benchmark the current state of the HOOVER framework.
+
+Our simple infectious disease model is expressed on a two-dimensional problem
+space, which represents some geographic area. Partitions are created as a
+regular, two-dimensional grid across the whole problem space.
+
+Each actor in the problem is given 7 attributes:
+
+\begin{enumerate}
+    \item A two-component position.
+    \item A two-component home location for this vertex.
+    \item A two-component current destination location for this vertex.
+    \item A single attribute indicating if a vertex is infected or uninfected.
+\end{enumerate}
+
+On each timestep, each actor does the following:
+
+\begin{enumerate}
+    \item If the current actor is still uninfected, it iterates over all
+        vertices with which it shares edges and checks if any are infected. If
+        any are infected, the current actor marks itself infected.
+    \item The current actor then updates its current position based on its home
+        location and its destination location. An actor's home location is some
+        point in the 2D problem space which it never moves more than a certain
+        distance from. A point's destination location is the current point in
+        the 2D problem space that an actor is moving towards, which must be near
+        its home location.
+        \begin{enumerate}
+            \item If the actor has not yet reached its destination location, it
+                simply updates its current location to continue moving towards
+                it.
+            \item If the actor has reached its destination location, it
+                computes a new destination location within some radius of its
+                home and begins moving towards its new destination.
+        \end{enumerate}
+\end{enumerate}
+
+Benchmarking scalability of irregular problems like those that the HOOVER
+framework targets can be difficult, as even small changes in the scale of the
+problem or compute resources available can drastically impact the communication
+or computational patterns of the application.
+
+Additionally, we would like to emphasize that all performance results shown here
+are works-in-progress. Performance bottlenecks and issues continue to be ironed
+out of the HOOVER framework, and scalability improves on a weekly basis.
+
+Still, we try to use this example problem to illustrate the current scaling
+characteristics of the HOOVER framework as several parameters and tunables are
+changed.
+
+These experiments are run on a small cluster at Los Alamos National Laboratory
+consisting of SGI/HPE C1104-GP2 servers connected with Mellanox ConnectX5 HCAs.
+Each server has 2 sockets, each containing 8 hyperthreaded cores, and 64 GB of
+memory. In the experiments below, we run with one PE per core (i.e. 8 PEs per
+socket).
+
+These experiments are run with both Sandia OpenSHMEM over libfabric and OSSS
+OpenSHMEM over UCX. HOOVER is compiled using gcc 6.3.0.
+
+\subsection{Strong Scaling}
+
+
+
+\subsection{Weak Scaling}
 
 Tunables to experiment with:
 
 HVR\_BUCKETS
 
 cache size
+
+number of partitions
+
+Increasing number of timesteps
 
 can we re-enable asynchronous remote vector gets?
