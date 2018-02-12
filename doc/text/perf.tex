@@ -21,7 +21,9 @@ On each timestep, each actor does the following:
 \begin{enumerate}
     \item If the current actor is still uninfected, it iterates over all
         vertices with which it shares edges and checks if any are infected. If
-        any are infected, the current actor marks itself infected.
+        any are infected, the current actor marks itself infected. If the actor
+        which infects this actor comes from another PE, the current PE becomes
+        coupled with the remote PE.
     \item The current actor then updates its current position based on its home
         location and its destination location. An actor's home location is some
         point in the 2D problem space which it never moves more than a certain
@@ -43,41 +45,194 @@ framework targets can be difficult, as even small changes in the scale of the
 problem or compute resources available can drastically impact the communication
 or computational patterns of the application.
 
-Additionally, we would like to emphasize that all performance results shown here
-are works-in-progress. Performance bottlenecks and issues continue to be ironed
+Additionally, we would like to strongly emphasize that all performance results shown here
+are works-in-progress and that this report will be frequently updated as scaling
+improves. Performance bottlenecks and issues continue to be ironed
 out of the HOOVER framework, and scalability improves on a weekly basis.
+However, this report will serve as a useful document for tracking those
+improvements.
 
 Still, we try to use this example problem to illustrate the current scaling
 characteristics of the HOOVER framework as several parameters and tunables are
 changed.
 
 These experiments are run on a small cluster at Los Alamos National Laboratory
-consisting of SGI/HPE C1104-GP2 servers connected with Mellanox ConnectX5 HCAs.
+consisting of SGI/HPE C1104-GP2 servers connected with Mellanox ConnectX5.
 Each server has 2 sockets, each containing 8 hyperthreaded cores, and 64 GB of
 memory. In the experiments below, we run with one PE per core (i.e. 8 PEs per
 socket).
 
-These experiments are run with both Sandia OpenSHMEM over libfabric and OSSS
-OpenSHMEM over UCX. HOOVER is compiled using gcc 6.3.0.
+These experiments are run with OSSS OpenSHMEM over UCX. HOOVER is compiled using
+gcc 6.3.0 with -O2 optimization turned on.
 
 \subsection{Strong Scaling}
+\label{sec:strong_scaling}
 
+These experiments test the strong scaling of HOOVER while varying two
+simulation parameters but keeping the problem space fixed. We vary the number of
+timesteps/iterations to run the simulation for, and the infection radius.
+Infection radius controls how quickly the infection spreads from one actor to
+another, and so an increased infection radius leads to more infected actors
+across more PEs (and hence, more rapid PE coupling).
+Table~\ref{tab:strong_scaling} shows the results of these experiments.
 
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | l || X | X | X | X | X | X | }
+\hline
+\textbf{\# Iters}           & \multicolumn{2}{|X|}{\textbf{10}} & \multicolumn{2}{|X|}{\textbf{100}} & \multicolumn{2}{|X|}{\textbf{200}} \\\hline
+\textbf{Infection Radius}   & 4.0          & 10.0         & 4.0           & 10.0          & 4.0           & 10.0 \\\hline
+1 node                      & 22,360 & 29,299 & 239,527 & 298,234 & 459,211 & 676,952 \\\hline
+4 nodes                     & 1,725  & 3,075  & 16,167  & 32,620  & 32,915  & 66,724 \\\hline
+16 nodes                    & 4,389  & 2,916  & 31,517  & 50,068  & 60,293  & 115,186 \\\hline
+\end{tabularx}
+\caption{Strong scaling of the HOOVER framework on OSSS OpenSHMEM running a
+    simple infectious disease model with varying \# of iters and infection
+    radius.}
+\label{tab:strong_scaling}
+\end{table}
+
+Table~\ref{tab:strong_scaling} exhibits a few interesting trends:
+
+\begin{enumerate}
+    \item HOOVER does not currently exhibit linear strong scaling from 4 to 16
+        nodes (16 to 256 PEs). Indeed, there are many cases where inefficiencies
+        cause a loss in performance at 16 nodes, relative to 4 nodes.
+    \item In many cases, HOOVER sees super-linear scaling from 1 node to 4
+        nodes, likely due to drastic changes in communication patterns as we
+        spread the same dataset more thinly across PEs.
+    \item Increasing the infection radius significantly increases simulation
+        time. A likely cause of this is that it increases the number of edges on
+        each actor, increasing the amount of time it takes to update each
+        actor's attributes when checking for infection.
+\end{enumerate}
 
 \subsection{Weak Scaling}
+\label{sec:weak_scaling}
 
-Tunables to experiment with:
+These experiments test the weak scaling of HOOVER. We test in multiples of 4
+PEs. In each quadrupling of PEs, we increase the problem space size by 2$\times$
+on each axis while keeping the number of actors per PE fixed. Hence, with each
+quadrupling of PEs the problem space size and number of actors quadruples.
+Table~\ref{tab:weak_scaling} shows the results of these experiments.
 
-HVR\_BUCKETS
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | l || X | X | X | X | X | X | }
+\hline
+\textbf{\# Iters}           & \multicolumn{2}{|X|}{\textbf{10}} & \multicolumn{2}{|X|}{\textbf{100}} & \multicolumn{2}{|X|}{\textbf{200}} \\\hline
+\textbf{Infection Radius}   & 4.0          & 10.0         & 4.0           & 10.0          & 4.0           & 10.0 \\\hline
+1 node                      & 14,957 & 21,729 & 160,171 & 225,808 & 310,550 & 446,786 \\\hline
+4 nodes                     & 17,245 & 22,664 & 178,586 & 235,632 & 344,221 & 482,851 \\\hline
+16 nodes                    & 22,696 & 28,988 & 232,528 & 297,360 & 469,306 & 600,663 \\\hline
+\end{tabularx}
+\caption{Weak scaling of the HOOVER framework on OSSS OpenSHMEM running a
+    simple infectious disease model with varying \# of iters and infection
+    radius.}
+\label{tab:weak_scaling}
+\end{table}
 
-cache size
+Like the strong scaling results, the weak scaling results in
+Table~\ref{tab:weak_scaling} show imperfect scaling from 1 to 4 to 16 nodes as
+more PEs require more compute time.
 
-number of partitions
+\subsection{Parameter Design Space Exploration}
 
-Increasing number of timesteps
+The HOOVER runtime itself has many parameters that can be varied. In the
+sections that follow, we explore how varying these parameters impacts execution
+time for a fixed problem size and number of nodes. We focus on 16 nodes, 100
+timesteps, and an infection radius of 10.0.
 
-Increasing numbers of PEs per node
+\subsection{Sparse Vector Buckets}
 
-Infection radius
+One tunable parameter is the amount of history to retain per sparse vector. By
+default in the tests run above, each sparse vector retains its history for the
+past 1,024 timesteps.
 
-can we re-enable asynchronous remote vector gets?
+Varying the number of timesteps retained offers an interesting performance
+tradeoff. While reducing the retained timesteps reduces the size of the sparse
+vector data structure and the bytes over the network, it also can reduce the amount
+of inter-PE asynchrony that is possible as PEs will begin to throttle themselves
+if they detect they are beginning to exceed the number of retained timesteps.
+
+Table~\ref{tab:timesteps_retained} clearly shows the performance benefit of
+reduced bytes over the wire from a reduced number of retained timesteps. It is
+possible that for only 100 timesteps, the PE throttling does not become a major
+factor.
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X | X | }
+\hline
+Number of timesteps retained & Execution time (ms) \\\hline
+100 & 31,169 \\\hline
+50  & 20,639 \\\hline
+25  & 28,604 \\\hline
+10  & 18,442 \\\hline
+2   & 3,964 \\\hline
+\end{tabularx}
+\caption{Execution time as a function of retained timesteps in each sparse vector.}
+\label{tab:timesteps_retained}
+\end{table}
+
+\subsection{Remote Sparse Vector Cache Size}
+
+As a simple optimization, HOOVER supports caching of remote sparse vectors in a
+local PE. This optimization is particularly useful when fetching remote actors
+with edges shared with local actors, as many remote actors may have multiple
+edges shared with local actors. This cache allows us to fetch a read-only copy
+of the remote actor once, and then re-use it.
+
+The remote actor cache is designed as a simple hashmap, with a fixed number of
+top-level buckets (keyed on the offset of the remote actor in the remote PE's
+list of actors) and a maximum number of entries allowed per bucket. Hence, we
+can expect that reducing both the number of top-level buckets and the number of
+entries allowed per bucket will both increase cache bucket evictions.
+
+Table~\ref{tab:cache} illustrates that for very small numbers of
+top-level buckets and entries per bucket, performance suffers. However, HOOVER
+appears to be fairly resilient to varying values for each cache parameter, with
+the same performance across many different configurations.
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X | X | X | }
+\hline
+Number of top-level buckets & Max entries per bucket & Execution time (ms) \\\hline
+64                          & 64                     & 43,620 \\\hline
+64                          & 16                     & 41,276 \\\hline
+64                          & 4                      & 41,505 \\\hline
+16                          & 64                     & 49,284 \\\hline
+16                          & 16                     & 53,973 \\\hline
+16                          & 4                      & 47,930 \\\hline
+4                           & 64                     & 42,128 \\\hline
+4                           & 16                     & 59,965 \\\hline
+4                           & 4                      & 81,023 \\\hline
+\end{tabularx}
+\caption{Execution time as a function of remote cache configuration.}
+\label{tab:cache}
+\end{table}
+
+\subsection{Number of Partitions}
+
+The importance of partitions was explained in Section~\ref{sec:edge_updates}. In
+this section, we study how varying the number of partitions for the infectious
+disease simulator affects performance. By default, in previous experiments we
+have used 170$\times$170 = 28,900 partitions formatted as a regular grid on the
+two-dimensional problem space. Table~\ref{tab:partitions} shows how performance
+changes with partition configuration.
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X | X | }
+\hline
+Partition Configuration & Execution time (ms) \\\hline
+50$\times$50            & 13,090 \\\hline
+100$\times$100          & 11,047 \\\hline
+150$\times$150          & 18,875 \\\hline
+200$\times$200          & 14,472 \\\hline
+\end{tabularx}
+\caption{Execution time as a function of partition configuration for the
+    infectious disease modeling application.}
+\label{tab:partitions}
+\end{table}
