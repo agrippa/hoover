@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p connectx5
-#SBATCH -N 1
+#SBATCH -N 16
 #SBATCH -t 00:30:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -51,7 +51,7 @@ echo
 echo
 echo
 
-export SCALING=weak
+export SCALING=strong
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 2 nodes
     if [[ $SCALING == strong ]]; then
@@ -111,9 +111,10 @@ else
     exit 1
 fi
 
-
-for MAX_NUM_TIMESTEPS in 10 100 200; do
-    for INFECTION_RADIUS in 4.0 10.0; do
+# for MAX_NUM_TIMESTEPS in 10 100 200; do
+for MAX_NUM_TIMESTEPS in 100; do
+    # for INFECTION_RADIUS in 4.0 10.0; do
+    for INFECTION_RADIUS in 10.0; do
 
         $OPENSHMEM_INSTALL/bin/oshrun $PROCESS_CONFIG \
                 $HOME/hoover/bin/infectious_test \
@@ -121,6 +122,7 @@ for MAX_NUM_TIMESTEPS in 10 100 200; do
                 $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
     done
 done
+
 echo
 echo
 echo

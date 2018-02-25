@@ -104,7 +104,6 @@ vertex_id_t hvr_sparse_vec_get_id(hvr_sparse_vec_t *vec);
 int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec);
 
 #define HVR_CACHE_BUCKETS 512
-#define HVR_CACHE_MAX_BUCKET_SIZE 1024
 
 typedef struct _hvr_sparse_vec_cache_node_t {
     unsigned offset;
@@ -117,6 +116,8 @@ typedef struct _hvr_sparse_vec_cache_t {
     unsigned bucket_size[HVR_CACHE_BUCKETS];
     hvr_sparse_vec_cache_node_t *pool;
     unsigned nhits, nmisses, nmisses_due_to_age;
+
+    int hvr_cache_max_bucket_size;
 } hvr_sparse_vec_cache_t;
 
 void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache);
@@ -240,7 +241,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_pe_set_t *other_pe_partition_time_window;
 
     long *actor_to_partition_locks;
-    long *partition_time_window_locks;
+    long *partition_time_window_lock;
     uint16_t *actor_to_partition_map;
 
     hvr_update_metadata_func update_metadata;
