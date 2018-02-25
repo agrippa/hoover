@@ -13,6 +13,7 @@
 #include <shmemx.h>
 
 #include "hoover.h"
+#include "shmem_rw_lock.h"
 
 // #define TRACK_VECTOR_GET_CACHE
 
@@ -40,14 +41,24 @@ static void unlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
     shmem_clear_lock(ctx->actor_to_partition_locks + pe);
 }
 
-static void lock_partition_time_window(const int pe, hvr_internal_ctx_t *ctx) {
-    shmem_set_lock(ctx->partition_time_window_locks + pe);
+static void rlock_partition_time_window(const int pe, hvr_internal_ctx_t *ctx) {
+    hvr_rwlock_rlock(ctx->partition_time_window_lock, pe);
 }
 
-static void unlock_partition_time_window(const int pe,
+static void runlock_partition_time_window(const int pe,
         hvr_internal_ctx_t *ctx) {
-    shmem_clear_lock(ctx->partition_time_window_locks + pe);
+    hvr_rwlock_runlock(ctx->partition_time_window_lock, pe);
 }
+
+static void wlock_partition_time_window(const int pe, hvr_internal_ctx_t *ctx) {
+    hvr_rwlock_wlock(ctx->partition_time_window_lock, pe);
+}
+
+static void wunlock_partition_time_window(const int pe,
+        hvr_internal_ctx_t *ctx) {
+    hvr_rwlock_wunlock(ctx->partition_time_window_lock, pe);
+}
+
 
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
     hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc(
@@ -445,6 +456,12 @@ void hvr_sparse_vec_cache_clear(hvr_sparse_vec_cache_t *cache) {
 
 void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache) {
     memset(cache, 0x00, sizeof(*cache));
+    if (getenv("HVR_CACHE_MAX_BUCKET_SIZE")) {
+        cache->hvr_cache_max_bucket_size = atoi(
+                getenv("HVR_CACHE_MAX_BUCKET_SIZE"));
+    } else {
+        cache->hvr_cache_max_bucket_size = 1024;
+    }
 }
 
 hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(unsigned offset,
@@ -499,7 +516,7 @@ void hvr_sparse_vec_cache_insert(unsigned offset, hvr_sparse_vec_t *vec,
         hvr_sparse_vec_cache_t *cache) {
     // Assume that vec is not already in the cache, but don't enforce this
     const unsigned bucket = offset % HVR_CACHE_BUCKETS;
-    if (cache->bucket_size[bucket] == HVR_CACHE_MAX_BUCKET_SIZE) {
+    if (cache->bucket_size[bucket] == cache->hvr_cache_max_bucket_size) {
         // Evict and re-use
         hvr_sparse_vec_cache_node_t *iter = cache->buckets[bucket];
         hvr_sparse_vec_cache_node_t *prev = NULL;
@@ -829,7 +846,7 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
     for (unsigned p = 0; p < ctx->npes; p++) {
 
         const unsigned long long start_lock = hvr_current_time_us();
-        lock_partition_time_window(p, ctx);
+        rlock_partition_time_window(p, ctx);
         const unsigned long long done_lock = hvr_current_time_us();
 
         shmem_getmem_nbi(ctx->other_pe_partition_time_window->bit_vector,
@@ -842,7 +859,7 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
         shmem_quiet();
 
         const unsigned long long start_unlock = hvr_current_time_us();
-        unlock_partition_time_window(p, ctx);
+        runlock_partition_time_window(p, ctx);
         const unsigned long long done_unlock = hvr_current_time_us();
 
         /*
@@ -1114,7 +1131,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
  * update_actor_partitions.
  */
 static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
-    lock_partition_time_window(ctx->pe, ctx);
+    wlock_partition_time_window(ctx->pe, ctx);
 
     hvr_pe_set_wipe(ctx->partition_time_window);
 
@@ -1128,7 +1145,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
         }
     }
 
-    unlock_partition_time_window(ctx->pe, ctx);
+    wunlock_partition_time_window(ctx->pe, ctx);
 }
 
 static void update_all_pe_timesteps_helper(const int target_pe,
@@ -1269,11 +1286,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     memset(new_ctx->actor_to_partition_locks, 0x00, new_ctx->npes *
             sizeof(long));
 
-    new_ctx->partition_time_window_locks = (long *)shmem_malloc(new_ctx->npes *
-            sizeof(long));
-    assert(new_ctx->partition_time_window_locks);
-    memset(new_ctx->partition_time_window_locks, 0x00,
-            new_ctx->npes * sizeof(long));
+    new_ctx->partition_time_window_lock = hvr_rwlock_create_n(1);
 
     new_ctx->n_partitions = n_partitions;
     new_ctx->n_local_vertices = n_local_vertices;

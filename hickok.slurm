@@ -54,10 +54,17 @@ echo
 export SCALING=strong
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 2 nodes
-    export CELL_DIM=400.0
-    export ACTORS_PER_CELL=3200
-    export PE_ROWS=4
-    export PE_COLS=4
+    if [[ $SCALING == strong ]]; then
+        export CELL_DIM=400.0
+        export ACTORS_PER_CELL=3200
+        export PE_ROWS=4
+        export PE_COLS=4
+    else
+        export CELL_DIM=400.0
+        export ACTORS_PER_CELL=2800
+        export PE_ROWS=4
+        export PE_COLS=4
+    fi
 elif [[ $SLURM_NNODES -eq 4 ]]; then
     # For 4 nodes
     if [[ $SCALING == strong ]]; then
@@ -67,7 +74,7 @@ elif [[ $SLURM_NNODES -eq 4 ]]; then
         export PE_COLS=8
     else
         export CELL_DIM=400.0
-        export ACTORS_PER_CELL=3200
+        export ACTORS_PER_CELL=2800
         export PE_ROWS=8
         export PE_COLS=8
     fi
@@ -80,7 +87,7 @@ elif [[ $SLURM_NNODES -eq 16 ]]; then
         export PE_COLS=16
     else
         export CELL_DIM=400.0
-        export ACTORS_PER_CELL=3200
+        export ACTORS_PER_CELL=2800
         export PE_ROWS=16
         export PE_COLS=16
     fi
@@ -91,19 +98,31 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-
-export MAX_NUM_TIMESTEPS=10
-# export MAX_NUM_TIMESTEPS=100
-# export MAX_NUM_TIMESTEPS=200
-
-export INFECTION_RADIUS=4.0
-# export INFECTION_RADIUS=10.0
 export MAX_DELTA_VELOCITY=0.01
 
-$OPENSHMEM_INSTALL/bin/oshrun -npernode $CORES_PER_NODE \
-        $HOME/hoover/bin/infectious_test \
-        $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
-        $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
+if [[ "$(basename $OPENSHMEM_INSTALL)" == "SOS-install" ]]; then
+    # For SoS
+    export PROCESS_CONFIG="-n $(($CORES_PER_NODE * $SLURM_NNODES))"
+elif [[ "$(basename $OPENSHMEM_INSTALL)" == "osss-ucx" ]]; then
+    # For OSSS
+    export PROCESS_CONFIG="-npernode $CORES_PER_NODE"
+else 
+    echo "Unexpected OPENSHMEM_INSTALL when auto-configuring PROCESS_CONFIG? $OPENSHMEM_INSTALL"
+    exit 1
+fi
+
+# for MAX_NUM_TIMESTEPS in 10 100 200; do
+for MAX_NUM_TIMESTEPS in 100; do
+    # for INFECTION_RADIUS in 4.0 10.0; do
+    for INFECTION_RADIUS in 10.0; do
+
+        $OPENSHMEM_INSTALL/bin/oshrun $PROCESS_CONFIG \
+                $HOME/hoover/bin/infectious_test \
+                $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
+                $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
+    done
+done
+
 echo
 echo
 echo
