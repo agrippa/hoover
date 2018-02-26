@@ -1594,6 +1594,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         shmem_quiet();
         shmem_clear_lock((long *)ctx->coupled_locks + ctx->pe);
 
+        const unsigned long long finished_coupled_values = hvr_current_time_us();
+
         /*
          * For each PE I know I'm coupled with, lock their coupled_timesteps
          * list and update my copy with any newer entries in my
@@ -1729,7 +1731,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms "
                 "(%f %f %f | %f %f %f %f) - edges %f ms (%f %f) - neighbor "
-                "updates %f ms - coupling %f ms - throttling %f ms - %u spins - %u / %u PE "
+                "updates %f ms - coupled values %f ms - coupling %f ms - throttling %f ms - %u spins - %u / %u PE "
                 "neighbors %s - partition window = %s, %d / %d active - "
                 "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
                 "age misses=%u, feature cache hits=%u misses=%u\n", ctx->pe,
@@ -1748,7 +1750,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)(finished_edge_adds - finished_summary_update) / 1000.0,
                 (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
-                (double)(finished_coupling - finished_neighbor_updates) / 1000.0,
+                (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0,
+                (double)(finished_coupling - finished_coupled_values) / 1000.0,
                 (double)(finished_throttling - finished_coupling) / 1000.0,
                 nspins, hvr_pe_set_count(ctx->my_neighbors), ctx->npes,
 #ifdef VERBOSE
