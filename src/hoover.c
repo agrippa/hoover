@@ -1356,11 +1356,8 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     hvr_pe_set_insert(new_ctx->pe, new_ctx->coupled_pes);
     new_ctx->coupled_pes_values = hvr_sparse_vec_create_n(new_ctx->npes);
     new_ctx->coupled_pes_values_buffer = hvr_sparse_vec_create_n(new_ctx->npes);
-    new_ctx->coupled_locks = (long *)shmem_malloc(
-            new_ctx->npes * sizeof(*(new_ctx->coupled_locks)));
-    assert(new_ctx->coupled_locks);
-    memset((long *)new_ctx->coupled_locks, 0x00,
-            new_ctx->npes * sizeof(*(new_ctx->coupled_locks)));
+
+    new_ctx->coupled_lock = hvr_rwlock_create_n(1);
 
     shmem_barrier_all();
 }
@@ -1588,11 +1585,11 @@ void hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long finished_neighbor_updates =
             hvr_current_time_us();
 
-        shmem_set_lock((long *)ctx->coupled_locks + ctx->pe);
+        hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
         shmem_putmem(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
                 sizeof(coupled_metric), ctx->pe);
         shmem_quiet();
-        shmem_clear_lock((long *)ctx->coupled_locks + ctx->pe);
+        hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
 
         const unsigned long long finished_coupled_values = hvr_current_time_us();
 
@@ -1618,14 +1615,14 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
                 unsigned nspins = 0;
                 while (other_has_timestamp != HAS_TIMESTAMP) {
-                    shmem_set_lock((long *)ctx->coupled_locks + p);
+                    hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
 
                     // Pull in the coupled PEs current values
                     shmem_getmem(ctx->coupled_pes_values_buffer,
                             ctx->coupled_pes_values,
                             ctx->npes * sizeof(hvr_sparse_vec_t), p);
 
-                    shmem_clear_lock((long *)ctx->coupled_locks + p);
+                    hvr_rwlock_runlock((long *)ctx->coupled_lock, p);
 
                     for (int i = 0; i < ctx->npes; i++) {
                         hvr_sparse_vec_t *other =
@@ -1777,7 +1774,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
      * As I'm exiting, ensure that any PEs that are coupled with me (or may make
      * themselves coupled with me in the future) never block on me.
      */
-    shmem_set_lock((long *)(ctx->coupled_locks + ctx->pe));
+    hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
     ctx->timestep += 1;
     unsigned n_features;
     unsigned features[HVR_BUCKET_SIZE];
@@ -1797,7 +1794,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
     finalize_actor_for_timestep(ctx->coupled_pes_values + ctx->pe, ctx,
             MAX_TIMESTAMP);
 
-    shmem_clear_lock((long *)(ctx->coupled_locks + ctx->pe));
+    hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
 
     update_my_timestep(ctx, MAX_TIMESTAMP);
 

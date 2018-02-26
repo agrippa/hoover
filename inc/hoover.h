@@ -271,7 +271,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_pe_set_t *coupled_pes;
     hvr_sparse_vec_t *coupled_pes_values;
     hvr_sparse_vec_t *coupled_pes_values_buffer;
-    volatile long *coupled_locks;
+    volatile long *coupled_lock;
 
     unsigned n_vector_cache_hits, n_vector_cache_misses;
 } hvr_internal_ctx_t;
