@@ -1598,6 +1598,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
          * list and update my copy with any newer entries in my
          * coupled_timesteps list.
          */
+        unsigned n_coupled_spins = 0;
         int ncoupled = 1; // include myself
         for (int p = 0; p < ctx->npes; p++) {
             if (p == ctx->pe) continue;
@@ -1613,7 +1614,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
                         ctx->coupled_pes_values + p, ctx->timestep);
                 assert(other_has_timestamp != NEVER_HAVE_TIMESTAMP);
 
-                unsigned nspins = 0;
                 while (other_has_timestamp != HAS_TIMESTAMP) {
                     hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
 
@@ -1646,7 +1646,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     other_has_timestamp = hvr_sparse_vec_has_timestamp(
                             ctx->coupled_pes_values + p, ctx->timestep);
                     assert(other_has_timestamp != NEVER_HAVE_TIMESTAMP);
-                    nspins++;
+                    n_coupled_spins++;
                 }
 
                 hvr_sparse_vec_add_internal(&coupled_metric,
@@ -1728,7 +1728,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms "
                 "(%f %f %f | %f %f %f %f) - edges %f ms (%f %f) - neighbor "
-                "updates %f ms - coupled values %f ms - coupling %f ms - throttling %f ms - %u spins - %u / %u PE "
+                "updates %f ms - coupled values %f ms - coupling %f ms (%u) - throttling %f ms - %u spins - %u / %u PE "
                 "neighbors %s - partition window = %s, %d / %d active - "
                 "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
                 "age misses=%u, feature cache hits=%u misses=%u\n", ctx->pe,
@@ -1748,7 +1748,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
                 (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0,
-                (double)(finished_coupling - finished_coupled_values) / 1000.0,
+                (double)(finished_coupling - finished_coupled_values) / 1000.0, n_coupled_spins,
                 (double)(finished_throttling - finished_coupling) / 1000.0,
                 nspins, hvr_pe_set_count(ctx->my_neighbors), ctx->npes,
 #ifdef VERBOSE
