@@ -1726,12 +1726,12 @@ void hvr_body(hvr_ctx_t in_ctx) {
         sum_hits_and_misses(vec_caches, ctx->npes, &nhits, &nmisses,
                 &nmisses_due_to_age);
 
-        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms "
+        printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f) - summary %f ms "
                 "(%f %f %f | %f %f %f %f) - edges %f ms (%f %f) - neighbor "
                 "updates %f ms - coupled values %f ms - coupling %f ms (%u) - throttling %f ms - %u spins - %u / %u PE "
                 "neighbors %s - partition window = %s, %d / %d active - "
                 "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
-                "age misses=%u, feature cache hits=%u misses=%u\n", ctx->pe,
+                "age misses=%u, feature cache hits=%u misses=%u\n", ctx->pe, ctx->timestep,
                 (double)(finished_throttling - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)fetch_neighbors_time / 1000.0,
