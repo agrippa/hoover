@@ -1659,7 +1659,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         /*
          * TODO coupled_metric here contains the aggregate values over all
-         * coupled PEs, including this one.
+         * coupled PEs, including this one. Do we want to do anything with this,
+         * other than print it?
          */
         if (ncoupled > 1) {
             char buf[1024];
@@ -1670,6 +1671,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     "coupled PEs on timestep %d\n", ctx->pe, buf, ncoupled,
                     ctx->timestep);
         }
+
+        const unsigned long long finished_coupling = hvr_current_time_us();
 
         /*
          * Throttle the progress of much faster PEs to ensure we don't get out
@@ -1689,7 +1692,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
             nspins++;
         }
 
-        const unsigned long long finished_check_abort = hvr_current_time_us();
+        const unsigned long long finished_throttling = hvr_current_time_us();
 
         if (ctx->dump_mode) {
             // Assume that all vertices have the same features.
@@ -1724,12 +1727,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
         sum_hits_and_misses(vec_caches, ctx->npes, &nhits, &nmisses,
                 &nmisses_due_to_age);
 
-        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms (%f %f %f | %f %f %f %f) - "
-                "edges %f ms (%f %f) - neighbor updates %f ms - abort %f ms - "
-                "%u spins - %u / %u PE neighbors %s - partition window = %s, %d / %d active - "
+        printf("PE %d - total %f ms - metadata %f ms (%f %f) - summary %f ms "
+                "(%f %f %f | %f %f %f %f) - edges %f ms (%f %f) - neighbor "
+                "updates %f ms - coupling %f ms - throttling %f ms - %u spins - %u / %u PE "
+                "neighbors %s - partition window = %s, %d / %d active - "
                 "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
                 "age misses=%u, feature cache hits=%u misses=%u\n", ctx->pe,
-                (double)(finished_check_abort - start_iter) / 1000.0,
+                (double)(finished_throttling - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)fetch_neighbors_time / 1000.0,
                 (double)update_metadata_time / 1000.0,
@@ -1744,7 +1748,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)(finished_edge_adds - finished_summary_update) / 1000.0,
                 (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
-                (double)(finished_check_abort - finished_neighbor_updates) / 1000.0,
+                (double)(finished_coupling - finished_neighbor_updates) / 1000.0,
+                (double)(finished_throttling - finished_coupling) / 1000.0,
                 nspins, hvr_pe_set_count(ctx->my_neighbors), ctx->npes,
 #ifdef VERBOSE
                 neighbors_str, partition_time_window_str,
