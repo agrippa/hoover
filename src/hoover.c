@@ -844,22 +844,23 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
     unsigned long long body_time = 0;
 
     for (unsigned p = 0; p < ctx->npes; p++) {
+        const unsigned target_pe = (ctx->pe + p) % ctx->npes;
 
         const unsigned long long start_lock = hvr_current_time_us();
-        rlock_partition_time_window(p, ctx);
+        rlock_partition_time_window(target_pe, ctx);
         const unsigned long long done_lock = hvr_current_time_us();
 
         shmem_getmem_nbi(ctx->other_pe_partition_time_window->bit_vector,
                 ctx->partition_time_window->bit_vector,
                 ctx->other_pe_partition_time_window->nelements *
-                    sizeof(bit_vec_element_type), p);
+                    sizeof(bit_vec_element_type), target_pe);
         shmem_getmem_nbi(ctx->other_pe_partition_time_window,
                 ctx->partition_time_window,
-                offsetof(hvr_pe_set_t, bit_vector), p);
+                offsetof(hvr_pe_set_t, bit_vector), target_pe);
         shmem_quiet();
 
         const unsigned long long start_unlock = hvr_current_time_us();
-        runlock_partition_time_window(p, ctx);
+        runlock_partition_time_window(target_pe, ctx);
         const unsigned long long done_unlock = hvr_current_time_us();
 
         /*
@@ -875,7 +876,7 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
                 part_index++) {
             const unsigned part = other_partitions[part_index];
             if (ctx->might_interact(part, ctx->partition_time_window, ctx)) {
-                hvr_pe_set_insert(p, ctx->my_neighbors);
+                hvr_pe_set_insert(target_pe, ctx->my_neighbors);
                 break;
             }
         }
