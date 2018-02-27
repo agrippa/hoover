@@ -62,6 +62,25 @@ Each server has 2 sockets, each containing 8 hyperthreaded cores, and 64 GB of
 memory. In the experiments below, we run with one PE per core (i.e. 8 PEs per
 socket).
 
+As performance continues to improve over time, this report will be updated with
+those improvements. Table~\ref{tab:hoover_versions} maps from version numbers used in the text
+below to commit hashes in the Github repo. In general, any figures/tables will
+include in their caption which version of HOOVER the results are collected from.
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X | X | X | }
+\hline
+\textbf{Version Number} & \textbf{Git Hash}                         & \textbf{Date} \\\hline
+0.1                     & 385911bb27f74fd74a8f038f95a2447cda372ec4  & Sat Feb 10 \\\hline
+0.2                     & 2f6d1d9adf732c144ced382175348031f8518bad  & Tue Feb 27 \\\hline
+\end{tabularx}
+\caption{Strong scaling of the HOOVER framework on OSSS OpenSHMEM running a
+    simple infectious disease model with varying \# of iters and infection
+    radius.}
+\label{tab:strong_scaling}
+\end{table}
+
 These experiments are run with OSSS OpenSHMEM over UCX. HOOVER is compiled using
 gcc 6.3.0 with -O2 optimization turned on.
 
@@ -74,7 +93,7 @@ timesteps/iterations to run the simulation for, and the infection radius.
 Infection radius controls how quickly the infection spreads from one actor to
 another, and so an increased infection radius leads to more infected actors
 across more PEs (and hence, more rapid PE coupling).
-Table~\ref{tab:strong_scaling} shows the results of these experiments.
+Tables~\ref{tab:strong_scaling1} and~\ref{tab:strong_scaling2} show the results of these experiments.
 
 \begin{table}
 \centering
@@ -86,21 +105,37 @@ Table~\ref{tab:strong_scaling} shows the results of these experiments.
 4 nodes                     & 1,725  & 3,075  & 16,167  & 32,620  & 32,915  & 66,724 \\\hline
 16 nodes                    & 4,389  & 2,916  & 31,517  & 50,068  & 60,293  & 115,186 \\\hline
 \end{tabularx}
-\caption{Strong scaling of the HOOVER framework on OSSS OpenSHMEM running a
+\caption{Strong scaling of the HOOVER framework v0.1 on OSSS OpenSHMEM running a
     simple infectious disease model with varying \# of iters and infection
     radius.}
-\label{tab:strong_scaling}
+\label{tab:strong_scaling1}
 \end{table}
 
-Table~\ref{tab:strong_scaling} exhibits a few interesting trends:
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | l || X | X | X | X | X | X | }
+\hline
+\textbf{\# Iters}           & \multicolumn{2}{|X|}{\textbf{10}} & \multicolumn{2}{|X|}{\textbf{100}} & \multicolumn{2}{|X|}{\textbf{200}} \\\hline
+\textbf{Infection Radius}   & 4.0          & 10.0         & 4.0           & 10.0          & 4.0           & 10.0 \\\hline
+1 node                      & 15,169        & 18,321        & 145,107        & 197,610        & 291,928        & 399,285 \\\hline
+4 nodes                     & 1,813         & 2,804         & 13,043         & 22,007         & 25,785         & 44,847 \\\hline
+16 nodes                    & 1,870         & 1,877         & 7,201          &  12,364        & 9,658          & 27,461 \\\hline
+\end{tabularx}
+\caption{Strong scaling of the HOOVER framework v0.2 on OSSS OpenSHMEM running a
+    simple infectious disease model with varying \# of iters and infection
+    radius.}
+\label{tab:strong_scaling2}
+\end{table}
+
+
+Tables~\ref{tab:strong_scaling1} and~\ref{tab:strong_scaling2} exhibit a few interesting trends:
 
 \begin{enumerate}
     \item HOOVER does not currently exhibit linear strong scaling from 4 to 16
-        nodes (16 to 256 PEs). Indeed, there are many cases where inefficiencies
-        cause a loss in performance at 16 nodes, relative to 4 nodes.
+        nodes (16 to 256 PEs), but in most cases does see significant speedup.
     \item In many cases, HOOVER sees super-linear scaling from 1 node to 4
         nodes, likely due to drastic changes in communication patterns as we
-        spread the same dataset more thinly across PEs.
+        spread the same dataset more thinly across PEs connected by a network.
     \item Increasing the infection radius significantly increases simulation
         time. A likely cause of this is that it increases the number of edges on
         each actor, increasing the amount of time it takes to update each
@@ -126,11 +161,28 @@ Table~\ref{tab:weak_scaling} shows the results of these experiments.
 4 nodes                     & 17,245 & 22,664 & 178,586 & 235,632 & 344,221 & 482,851 \\\hline
 16 nodes                    & 22,696 & 28,988 & 232,528 & 297,360 & 469,306 & 600,663 \\\hline
 \end{tabularx}
-\caption{Weak scaling of the HOOVER framework on OSSS OpenSHMEM running a
+\caption{Weak scaling of the HOOVER framework v0.1 on OSSS OpenSHMEM running a
     simple infectious disease model with varying \# of iters and infection
     radius.}
-\label{tab:weak_scaling}
+\label{tab:weak_scaling1}
 \end{table}
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | l || X | X | X | X | X | X | }
+\hline
+\textbf{\# Iters}           & \multicolumn{2}{|X|}{\textbf{10}} & \multicolumn{2}{|X|}{\textbf{100}} & \multicolumn{2}{|X|}{\textbf{200}} \\\hline
+\textbf{Infection Radius}   & 4.0          & 10.0         & 4.0           & 10.0          & 4.0           & 10.0 \\\hline
+1 node                      &  \\\hline
+4 nodes                     &  \\\hline
+16 nodes                    &  \\\hline
+\end{tabularx}
+\caption{Weak scaling of the HOOVER framework v0.2 on OSSS OpenSHMEM running a
+    simple infectious disease model with varying \# of iters and infection
+    radius.}
+\label{tab:weak_scaling2}
+\end{table}
+
 
 Like the strong scaling results, the weak scaling results in
 Table~\ref{tab:weak_scaling} show imperfect scaling from 1 to 4 to 16 nodes as
@@ -171,7 +223,7 @@ Number of timesteps retained & Execution time (ms) \\\hline
 10  & 18,442 \\\hline
 2   & 3,964 \\\hline
 \end{tabularx}
-\caption{Execution time as a function of retained timesteps in each sparse vector.}
+\caption{Execution time as a function of retained timesteps in each sparse vector on HOOVER v0.1.}
 \label{tab:timesteps_retained}
 \end{table}
 
@@ -209,7 +261,7 @@ Number of top-level buckets & Max entries per bucket & Execution time (ms) \\\hl
 4                           & 16                     & 59,965 \\\hline
 4                           & 4                      & 81,023 \\\hline
 \end{tabularx}
-\caption{Execution time as a function of remote cache configuration.}
+\caption{Execution time as a function of remote cache configuration on HOOVER v0.1.}
 \label{tab:cache}
 \end{table}
 
@@ -233,6 +285,6 @@ Partition Configuration & Execution time (ms) \\\hline
 200$\times$200          & 14,472 \\\hline
 \end{tabularx}
 \caption{Execution time as a function of partition configuration for the
-    infectious disease modeling application.}
+    infectious disease modeling application on HOOVER v0.1.}
 \label{tab:partitions}
 \end{table}
