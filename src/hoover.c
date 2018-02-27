@@ -1,3 +1,4 @@
+#define _BSD_SOURCE
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -821,6 +822,11 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
         have_default_sparse_vec_val = 1;
         default_sparse_vec_val = atof(getenv("HVR_DEFAULT_SPARSE_VEC_VAL"));
     }
+
+    int err = gethostname(new_ctx->my_hostname, 1024);
+    assert(err == 0);
+
+    printf("PE %d is on host %s.\n", new_ctx->pe, new_ctx->my_hostname);
 
     *out_ctx = new_ctx;
 }

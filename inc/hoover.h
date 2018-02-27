@@ -274,6 +274,8 @@ typedef struct _hvr_internal_ctx_t {
     volatile long *coupled_lock;
 
     unsigned n_vector_cache_hits, n_vector_cache_misses;
+
+    char my_hostname[1024];
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init
