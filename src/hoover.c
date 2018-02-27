@@ -961,41 +961,48 @@ static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
     }
 }
 
+static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
+        hvr_sparse_vec_t *src, const int src_pe) {
+    shmem_getmem_nbi((void *)&(dst->next_bucket),
+            (void *)&(src->next_bucket),
+            sizeof(src->next_bucket), src_pe);
+
+    shmem_fence();
+
+    shmem_getmem_nbi(&(dst->finalized[0]), &(src->finalized[0]),
+            HVR_BUCKETS * sizeof(src->finalized[0]), src_pe);
+
+    shmem_fence();
+
+    shmem_getmem_nbi(&(dst->timestamps[0]), &(src->timestamps[0]),
+            HVR_BUCKETS * sizeof(src->timestamps[0]), src_pe);
+
+    shmem_fence();
+
+    shmem_getmem_nbi(dst, src,
+            offsetof(hvr_sparse_vec_t, timestamps), src_pe);
+
+    dst->cached_timestamp = -1;
+    dst->cached_timestamp_index = 0;
+
+    shmem_quiet();
+}
+
 static int get_remote_vec_nbi(hvr_sparse_vec_t *dst, const unsigned offset,
         const int src_pe, hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *vec_caches) {
     hvr_sparse_vec_cache_t *cache = vec_caches + src_pe;
     hvr_sparse_vec_t *cached = hvr_sparse_vec_cache_lookup(offset, cache,
             ctx->timestep - 1);
+
     if (cached) {
         memcpy(dst, cached, sizeof(*dst));
         return 0;
     } else {
         hvr_sparse_vec_t *src = &(ctx->vertices[offset]);
 
-        shmem_getmem_nbi((void *)&(dst->next_bucket),
-                (void *)&(src->next_bucket),
-                sizeof(src->next_bucket), src_pe);
+        get_remote_vec_nbi_uncached(dst, src, src_pe);
 
-        shmem_fence();
-
-        shmem_getmem_nbi(&(dst->finalized[0]), &(src->finalized[0]),
-                HVR_BUCKETS * sizeof(src->finalized[0]), src_pe);
-
-        shmem_fence();
-
-        shmem_getmem_nbi(&(dst->timestamps[0]), &(src->timestamps[0]),
-                HVR_BUCKETS * sizeof(src->timestamps[0]), src_pe);
-
-        shmem_fence();
-
-        shmem_getmem_nbi(dst, src,
-                offsetof(hvr_sparse_vec_t, timestamps), src_pe);
-
-        dst->cached_timestamp = -1;
-        dst->cached_timestamp_index = 0;
-
-        shmem_quiet();
         hvr_sparse_vec_cache_insert(offset, dst, cache);
         return 1;
     }
@@ -1566,7 +1573,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 sizeof(coupled_metric));
         abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
                 ctx, &coupled_metric);
-        finalize_actor_for_timestep(&coupled_metric, ctx, ctx->timestep);
+        finalize_actor_for_timestep(
+                &coupled_metric, ctx, ctx->timestep);
 
         // Update my local information on PEs I am coupled with.
         hvr_pe_set_merge_atomic(ctx->coupled_pes, to_couple_with);
@@ -1618,6 +1626,12 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
 
                     // Pull in the coupled PEs current values
+                    // for (int i = 0; i < ctx->npes; i++) {
+                    //     get_remote_vec_nbi_uncached(
+                    //             ctx->coupled_pes_values_buffer + i,
+                    //             ctx->coupled_pes_values + i,
+                    //             p);
+                    // }
                     shmem_getmem(ctx->coupled_pes_values_buffer,
                             ctx->coupled_pes_values,
                             ctx->npes * sizeof(hvr_sparse_vec_t), p);
