@@ -81,8 +81,8 @@ elif [[ $SLURM_NNODES -eq 4 ]]; then
 elif [[ $SLURM_NNODES -eq 16 ]]; then
     # For 16 nodes
     if [[ $SCALING == strong ]]; then
-        # export CELL_DIM=100.0
-        export CELL_DIM=1000.0
+        # export CELL_DIM=100.0 # for illustrating coupled execution
+        export CELL_DIM=1000.0 # for illustrating uncoupled execution
         export ACTORS_PER_CELL=200
         export PE_ROWS=16
         export PE_COLS=16
