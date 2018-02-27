@@ -7,8 +7,8 @@ type \texttt{hvr\_sparse\_vec\_t}. Application developers are not expected to
 manipulate the internal state of this object directly, but rather by using the
 following APIs.
 
-Below, several terms may be used to refer to a simulation vertex, including
-vertex, sparse vector, or actor.
+Below, several terms may be used interchangeably to refer to a simulation
+vertex, including vertex, sparse vector, or actor.
 
 \subsubsection{\texttt{hvr\_sparse\_vec\_create\_n}}
 
@@ -20,7 +20,7 @@ hvr_sparse_vec_t *hvr_sparse_vec_create_n(
 Create \texttt{nvecs} sparse vectors/vertices. This API must be called
 collectively on all PEs with the same value of \texttt{nvecs} on each PE. This
 will return initialized but empty vertices to the user, to be populated with
-initial information.
+initial state.
 
 \subsubsection{\texttt{hvr\_sparse\_vec\_set\_id}}
 
@@ -38,8 +38,8 @@ below).
 
 Vertex IDs do not need to follow any pattern or be contiguous, but application
 developers are advised to assign their vertex IDs in such a way that looking up
-the PE for a given vertex is a quick, efficient, and preferrably constant time
-operation.
+the PE for a given vertex based on its ID is a quick, efficient, and preferrably
+constant time operation.
 
 \subsubsection{\texttt{hvr\_sparse\_vec\_get\_id}}
 
@@ -80,7 +80,7 @@ double hvr_sparse_vec_get(const unsigned feature,
 
 Fetch the value stored for attribute \texttt{feature} in vertex \texttt{vec}. If
 the specified attribute was never set on this vertex, the default behavior is to
-abort the current simulation.
+abort.
 
 \subsubsection{\texttt{hvr\_sparse\_vec\_dump}}
 
@@ -89,7 +89,7 @@ void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
         const size_t buf_size, hvr_ctx_t in_ctx);
 \end{verbatim}
 
-A utility function for creating a human-readable string for the passed vertex
+A utility function for generating a human-readable string for the passed vertex
 into the provided character \texttt{buf}, which is at least of length
 \texttt{buf\_size} bytes. This API can be useful for debugging or other user
 diagnostics.
@@ -112,7 +112,7 @@ memory. \texttt{out\_ctx} may be on the stack or heap memory segment.
 
 The HOOVER context is used to store several pieces of global state for a given HOOVER
 simulation, such as a pointer to the local vertices in the simulation being
-managed by the current PE. This should be considered an opaque object by any
+managed by the current PE. This should be considered an opaque object by
 application developers, and internal context state should not be directly
 manipulated.
 

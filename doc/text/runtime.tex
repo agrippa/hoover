@@ -3,12 +3,12 @@
 With our understanding of the user-facing APIs for HOOVER, we can now discuss
 how HOOVER operates on the backend. We will split this into two discussions: 1)
 a description of the vertex/sparse vector data structure used, and 2) a
-description of the various steps taken by the HOOVER runtime on each timestep of
+description of the steps taken by the HOOVER runtime on each timestep of
 an iterative simulation.
 
 \subsection{Versioned Sparse Vectors}
 
-While HOOVER sparse vectors expose simple read and modify APIs to the user, they
+While HOOVER sparse vectors expose simple get and set APIs to the user, they
 are subtely complex.
 
 The root of this complexity is the decoupled nature of HOOVER's execution. For
@@ -76,7 +76,7 @@ timestep but not past it is then used to return the requested feature.
 
 While this design is flexible and solves the problem of de-coupled data accesses
 in a massively distributed system, it naturally comes with drawbacks. It is
-relatively wasteful of memory, consuming many times the number of bytes than
+memory inefficient, consuming many times the number of bytes than
 what would be needed to simply store the current state of the sparse vector. Of
 course, this also has implications for bytes transferred over the network. This
 design also limits how out-of-sync two PEs can become as a result of using a
@@ -94,20 +94,20 @@ The core of \texttt{hvr\_body} is a loop over timesteps. On each iteration of
 this time loop, the following high level actions are taken:
 
 \begin{enumerate}
-    \item All local vertices have their attributes updated using the
+    \item \textbf{Update Local Actors}: All local vertices have their attributes updated using the
         \texttt{update\_metadata} user callback.
-    \item Information on the problem space partitions that contain local actors
+    \item \textbf{Update Local Partitions}: Information on the problem space partitions that contain local actors
         is updated on the local PE and made accessible by remote PEs. This step
         uses the \texttt{actor\_to\_partition} user callback.
-    \item Based on the partition information of other PEs, this PE constructs a
+    \item \textbf{Find Nearby PEs}: Based on the partition information of other PEs, this PE constructs a
         list of all PEs which have actors that local actors may interact with
         using the \texttt{might\_interact} user callback.
-    \item Communicating only with the PEs that may have nearby actors, update
+    \item \textbf{Update Graph Edges}: Communicating only with the PEs that may have nearby actors, update
         all inter-vertex edges.
-    \item Check if any updates to local actors lead to this PE aborting using
+    \item \textbf{Check Abort}: Check if any updates to local actors lead to this PE aborting using
         the \texttt{check\_abort} user callback, and compute the local actor's
         contribution to any coupled metric.
-    \item If coupled with other PEs, jointly compute a coupled metric with them
+    \item \textbf{Compute Coupled Metric}: If coupled with other PEs, jointly compute a coupled metric with them
         through an all-reduction.
     \item Continue to the next iteration if no abort was indicated and we have
         not reached the maximum number of timesteps.
@@ -152,8 +152,9 @@ shape or bounds of any partition. They simply must define:
 
 \begin{enumerate}
     \item A maximum number of partitions (passed to \texttt{hvr\_init}).
-    \item A callback for returning the partition for a given actor.
-    \item A callback that tests for possible partition-to-partition interaction.
+    \item A callback for returning the partition for a given actor (note that
+        this may change over time as the attributes on an actor change).
+    \item A callback that tests for the possibility of partition-to-partition interaction.
 \end{enumerate}
 
 Partitions are key to reducing the number of pairwise distance checks needed
