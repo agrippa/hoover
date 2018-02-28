@@ -78,7 +78,7 @@ include in their caption which version of HOOVER the results are collected from.
 \caption{Strong scaling of the HOOVER framework on OSSS OpenSHMEM running a
     simple infectious disease model with varying \# of iters and infection
     radius.}
-\label{tab:strong_scaling}
+\label{tab:hoover_versions}
 \end{table}
 
 These experiments are run with OSSS OpenSHMEM over UCX. HOOVER is compiled using
@@ -149,7 +149,7 @@ These experiments test the weak scaling of HOOVER. We test in multiples of 4
 PEs. In each quadrupling of PEs, we increase the problem space size by 2$\times$
 on each axis while keeping the number of actors per PE fixed. Hence, with each
 quadrupling of PEs the problem space size and number of actors quadruples.
-Table~\ref{tab:weak_scaling} shows the results of these experiments.
+Tables~\ref{tab:weak_scaling1} and~\ref{tab:weak_scaling2} show the results of these experiments.
 
 \begin{table}
 \centering
@@ -184,7 +184,7 @@ Table~\ref{tab:weak_scaling} shows the results of these experiments.
 \end{table}
 
 Like the strong scaling results, the weak scaling results in
-Table~\ref{tab:weak_scaling} show imperfect scaling from 1 to 4 to 16 nodes as
+Tables~\ref{tab:weak_scaling1} and~\ref{tab:weak_scaling2} show imperfect scaling from 1 to 4 to 16 nodes as
 more PEs require more compute time.
 
 \subsection{Parameter Design Space Exploration}
@@ -206,7 +206,7 @@ vector data structure and the bytes over the network, it also can reduce the amo
 of inter-PE asynchrony that is possible as PEs will begin to throttle themselves
 if they detect they are beginning to exceed the number of retained timesteps.
 
-Table~\ref{tab:timesteps_retained} clearly shows the performance benefit of
+Tables~\ref{tab:timesteps_retained1} and~\ref{tab:timesteps_retained2} clearly shows the performance benefit of
 reduced bytes over the wire from a reduced number of retained timesteps. It is
 possible that for only 100 timesteps, the PE throttling does not become a major
 factor.
@@ -223,7 +223,7 @@ Number of timesteps retained & Execution time (ms) \\\hline
 2   & 3,964 \\\hline
 \end{tabularx}
 \caption{Execution time as a function of retained timesteps in each sparse vector on HOOVER v0.1.}
-\label{tab:timesteps_retained}
+\label{tab:timesteps_retained1}
 \end{table}
 
 \begin{table}
@@ -240,7 +240,7 @@ Number of timesteps retained & Execution time (ms) \\\hline
 \caption{Execution time as a function of retained timesteps in each sparse
     vector on HOOVER v0.2 (with a larger dataset than the previous tests, the
     same dataset as was used for weak scaling in the previous section).}
-\label{tab:timesteps_retained}
+\label{tab:timesteps_retained2}
 \end{table}
 
 \subsection{Remote Sparse Vector Cache Size}
