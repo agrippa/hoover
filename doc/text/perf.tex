@@ -69,12 +69,12 @@ include in their caption which version of HOOVER the results are collected from.
 
 \begin{table}
 \centering
-\begin{tabularx}{\textwidth}{ | X | X | X | }
+\begin{tabular}{ | l | l | l | }
 \hline
 \textbf{Version Number} & \textbf{Git Hash}                         & \textbf{Date} \\\hline
-0.1                     & 385911bb27f74fd74a8f038f95a2447cda372ec4  & Sat Feb 10 \\\hline
-0.2                     & 2f6d1d9adf732c144ced382175348031f8518bad  & Tue Feb 27 \\\hline
-\end{tabularx}
+0.1                     & \texttt{385911bb27f74fd74a8f038f95a2447cda372ec4}  & Sat Feb 10 \\\hline
+0.2                     & \texttt{38591d9adf732c144ced382175348031f8518bad}  & Tue Feb 27 \\\hline
+\end{tabular}
 \caption{Strong scaling of the HOOVER framework on OSSS OpenSHMEM running a
     simple infectious disease model with varying \# of iters and infection
     radius.}
@@ -173,16 +173,15 @@ Table~\ref{tab:weak_scaling} shows the results of these experiments.
 \hline
 \textbf{\# Iters}           & \multicolumn{2}{|X|}{\textbf{10}} & \multicolumn{2}{|X|}{\textbf{100}} & \multicolumn{2}{|X|}{\textbf{200}} \\\hline
 \textbf{Infection Radius}   & 4.0          & 10.0         & 4.0           & 10.0          & 4.0           & 10.0 \\\hline
-1 node                      &  \\\hline
-4 nodes                     &  \\\hline
-16 nodes                    &  \\\hline
+1 node                      & 9,415  & 12,875 & 96,341  & 135,000 & 198,050 & 289,314 \\\hline
+4 nodes                     & 11,820 & 18,629 & 124,190 & 158,152 & 250,276 & 323,039 \\\hline
+16 nodes                    & 18,377 & 20,299 & 181,467 & 216,053 & 374,546 & 443,111 \\\hline
 \end{tabularx}
 \caption{Weak scaling of the HOOVER framework v0.2 on OSSS OpenSHMEM running a
     simple infectious disease model with varying \# of iters and infection
     radius.}
 \label{tab:weak_scaling2}
 \end{table}
-
 
 Like the strong scaling results, the weak scaling results in
 Table~\ref{tab:weak_scaling} show imperfect scaling from 1 to 4 to 16 nodes as
@@ -224,6 +223,23 @@ Number of timesteps retained & Execution time (ms) \\\hline
 2   & 3,964 \\\hline
 \end{tabularx}
 \caption{Execution time as a function of retained timesteps in each sparse vector on HOOVER v0.1.}
+\label{tab:timesteps_retained}
+\end{table}
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X | X | }
+\hline
+Number of timesteps retained & Execution time (ms) \\\hline
+100 & 83,020 \\\hline
+50  & 78,255 \\\hline
+25  & 102,503 \\\hline
+10  & 65,855 \\\hline
+2   & 66,070 \\\hline
+\end{tabularx}
+\caption{Execution time as a function of retained timesteps in each sparse
+    vector on HOOVER v0.2 (with a larger dataset than the previous tests, the
+    same dataset as was used for weak scaling in the previous section).}
 \label{tab:timesteps_retained}
 \end{table}
 
