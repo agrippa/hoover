@@ -1,0 +1,134 @@
+%%% AUTHORS %%%
+
+%\newcommand{\kumar}{Kumar et al.\xspace}
+
+\newcommand{\comment}[2]{\begin{quote}\textsf{\bf #1:} #2\end{quote}}
+\newcommand{\fix}[1]{\textcolor{red}{#1}}
+
+%%% SYTEMS %%%
+
+\newcommand{\umpi}{UTS\_MPI\xspace}
+\newcommand{\uupc}{UTS\_UPC\xspace}
+\newcommand{\baseline}{BaselineWS\xspace}
+\newcommand{\modified}{SuccessOnlyWS\xspace}
+\newcommand{\wlOne}{T1WL\xspace}
+\newcommand{\wlTwo}{T3WL\xspace}
+\newcommand{\hcupcdef}{HabaneroUPC++ (default)\xspace}
+\newcommand{\hcupcnew}{HabaneroUPC++ (parallel steals)\xspace}
+\newcommand{\mpi}{MPI\xspace}
+\newcommand{\upc}{UPC\xspace}
+\newcommand{\outd}{out\_deque\xspace}
+\newcommand{\ind}{in\_deque\xspace}
+\newcommand{\ocr}{OCR\xspace}
+\newcommand{\hcupc}{HabaneroUPC++\xspace}
+\newcommand{\hcpp}{Habanero-C++\xspace}
+\newcommand{\cpus}{6K\xspace}
+\newcommand{\gnet}{GASNet\xspace}
+\newcommand{\hcmpi}{HCMPI\xspace}
+\newcommand{\hclib}{HClib\xspace}
+\newcommand{\hci}{Habanero-C\xspace}
+\newcommand{\hc}{Habanero\xspace}
+\newcommand{\hj}{Habanero-Java\xspace}
+\newcommand{\omp}{OpenMP\xspace}
+\newcommand{\cppl}{C++11\xspace}
+\newcommand{\cpp}{C++\xspace}
+\newcommand{\upcp}{UPC++\xspace}
+\newcommand{\xten}{X10\xspace}
+\newcommand{\cilkp}{Cilk++\xspace}
+\newcommand{\cilk}{Cilk\xspace}
+\newcommand{\finish}{\textjava{finish}\xspace}
+\newcommand{\fspmd}{\textjava{finish_spmd}\xspace}
+\newcommand{\place}{\textjava{place}\xspace}
+\newcommand{\places}{places\xspace}
+\newcommand{\fasync}{\textjava{forasync}\xspace}
+\newcommand{\async}{\textjava{async}\xspace}
+\newcommand{\aany}{\textjava{asyncAny}\xspace}
+\newcommand{\upcadvance}{\textjava{upcxx::advance}\xspace}
+\newcommand{\upcasync}{\textjava{upcxx::async}\xspace}
+\newcommand{\asyncat}{\textjava{asyncAt}\xspace}
+\newcommand{\acopy}{\textjava{asyncCopy}\xspace}
+\newcommand{\true}{\textjava{true}\xspace}
+\newcommand{\false}{\textjava{false}\xspace}
+\newcommand{\upccopy}{\textjava{upcxx::async_copy}\xspace}
+\newcommand{\upcwait}{\textjava{upcxx::async_wait}\xspace}
+\newcommand{\aawait}{\textjava{asyncAwait}\xspace}
+\newcommand{\aphased}{\textjava{asyncPhased}\xspace}
+\newcommand{\isolated}{\textjava{isolated}\xspace}
+\newcommand{\when}{\textjava{when}\xspace}
+\newcommand{\klass}{\textjava{class}\xspace}
+\newcommand{\xatomic}{\textjava{atomic}\xspace}
+
+%%% BENCHMARKS %%%
+
+\newcommand{\lulesh}{\textbmx{LULESH}\xspace}
+\newcommand{\ssort}{\textbmx{SampleSort}\xspace}
+
+%%% PAGE NUMBERS %%%
+
+\newcommand{\page}[1]{Section~\ref{#1}, page~\pageref{#1}}
+\newcommand{\pageb}[1]{Section~\ref{#1} (page~\pageref{#1})}
+
+%%% FONT %%%
+
+\newcommand*{\textbmx}[1]{#1}  % No Sanserif in ACM SIG style file
+%\newcommand*{\textbmx}[1]{\textsf{#1}}
+\newcommand*{\textbm}[1]{\textbmx{#1}\xspace}
+\newcommand{\cc}[1]{{\tt #1}}
+
+\newcommand{\RemoveSpaces}[1]{%
+  \begingroup
+  \spaceskip=1sp
+  \xspaceskip=1sp
+  #1%
+  \endgroup}
+
+%%% FIX INFO %%%
+
+%%% hyperreferences %%%
+
+\newcommand{\doi}[1]{doi:~\href{http://dx.doi.org/#1}{\Hurl{#1}}}
+
+%
+% abbreviations
+%
+
+\newcommand{\eg}{e.g., }
+\newcommand{\ie}{i.e., }
+\newcommand{\etal}{et al. }
+
+%
+% Trademarks
+%
+
+\newcommand{\othertm}{\textsuperscript{$\star$}}
+\newcommand{\regtm}{\textsuperscript{\textregistered{}}}
+\newcommand{\tm}{{\scriptsize\texttrademark{}}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Stuff for pretty printing the source code using listings.sty
+%
+
+\lstloadlanguages{java}
+\lstset{
+  %numbers=left,
+  numberstyle=\tiny\sffamily,
+  stepnumber=1,
+  numbersep=1em,
+  language=java,                         % the language
+  basicstyle=\scriptsize\ttfamily,     % the basic font family to use
+  commentstyle=\scriptsize\it\ttfamily,% the font for comments
+  stringstyle=\ttfamily,
+  escapechar={\$},
+  morekeywords={advance, event, forasync, finish_spmd, asyncAny, upcxx, asyncCopy, asyncAt, asyncAwait, asyncPhased, Address, Word, Offset, Extent, async, finish, def, val, fork, join}
+}
+
+% This command allows us to conviniently put java text inline.
+%\newcommand{\textjava}[1]{{\lstset{basicstyle=\ttfamily}\lstinline@#1@}}
+\DeclareRobustCommand{\textjava}[1]{{\lstset{basicstyle=\ttfamily}\lstinline@#1@}}
+\newcommand{\cnull}{\textjava{NULL}\xspace}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% End:
