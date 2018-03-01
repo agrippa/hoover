@@ -52,7 +52,7 @@ echo
 echo
 echo
 
-export SCALING=weak
+export SCALING=strong
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 2 nodes
     if [[ $SCALING == strong ]]; then
