@@ -156,24 +156,24 @@ typedef unsigned long long bit_vec_element_type;
  * neighbor PE lists and PE coupling lists.
  */
 #define PE_SET_CACHE_SIZE 100
-typedef struct _hvr_pe_set_t {
+typedef struct _hvr_set_t {
     unsigned cache[PE_SET_CACHE_SIZE];
     int nelements;
     unsigned n_contained;
     bit_vec_element_type *bit_vector;
-} hvr_pe_set_t;
+} hvr_set_t;
 
-extern hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t ctx);
-extern hvr_pe_set_t *hvr_create_empty_pe_set_custom(const unsigned nvals,
+extern hvr_set_t *hvr_create_empty_set(hvr_ctx_t ctx);
+extern hvr_set_t *hvr_create_empty_set_custom(const unsigned nvals,
         hvr_ctx_t ctx);
-extern void hvr_pe_set_insert(int pe, hvr_pe_set_t *set);
-extern void hvr_pe_set_clear(int pe, hvr_pe_set_t *set);
-extern int hvr_pe_set_contains(int pe, hvr_pe_set_t *set);
-extern unsigned hvr_pe_set_count(hvr_pe_set_t *set);
-extern void hvr_pe_set_wipe(hvr_pe_set_t *set);
-extern void hvr_pe_set_merge(hvr_pe_set_t *set, hvr_pe_set_t *other);
-extern void hvr_pe_set_destroy(hvr_pe_set_t *set);
-extern void hvr_pe_set_to_string(hvr_pe_set_t *set, char *buf, unsigned buflen);
+extern void hvr_set_insert(int pe, hvr_set_t *set);
+extern void hvr_set_clear(int pe, hvr_set_t *set);
+extern int hvr_set_contains(int pe, hvr_set_t *set);
+extern unsigned hvr_set_count(hvr_set_t *set);
+extern void hvr_set_wipe(hvr_set_t *set);
+extern void hvr_set_merge(hvr_set_t *set, hvr_set_t *other);
+extern void hvr_set_destroy(hvr_set_t *set);
+extern void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen);
 
 /*
  * Callback type definitions to be defined by the user for the HOOVER runtime to
@@ -181,7 +181,7 @@ extern void hvr_pe_set_to_string(hvr_pe_set_t *set, char *buf, unsigned buflen);
  */
 typedef void (*hvr_update_metadata_func)(hvr_sparse_vec_t *metadata,
         hvr_sparse_vec_t *neighbors, const size_t n_neighbors,
-        hvr_pe_set_t *couple_with, hvr_ctx_t ctx);
+        hvr_set_t *couple_with, hvr_ctx_t ctx);
 /*
  * Signature for measuring the distance between two points of metadata. Used for
  * updating the graph's structure.
@@ -208,7 +208,7 @@ typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
  * vertices on another PE.
  */
 typedef int (*hvr_might_interact_func)(const uint16_t partition,
-        hvr_pe_set_t *partitions, hvr_ctx_t ctx);
+        hvr_set_t *partitions, hvr_ctx_t ctx);
 
 typedef uint16_t (*hvr_actor_to_partition)(hvr_sparse_vec_t *actor,
         hvr_ctx_t ctx);
@@ -234,13 +234,9 @@ typedef struct _hvr_internal_ctx_t {
     hvr_time_t *all_pe_timesteps_buffer;
     long *all_pe_timesteps_locks;
     hvr_time_t *last_timestep_using_partition;
-    /*
-     * We re-appropriate the pe_set structure here and just use it as a bit
-     * vector. TODO rename to bitvector.
-     */
-    hvr_pe_set_t *partition_time_window;
-    hvr_pe_set_t *other_pe_partition_time_window;
-    hvr_pe_set_t *tmp_partition_time_window;
+    hvr_set_t *partition_time_window;
+    hvr_set_t *other_pe_partition_time_window;
+    hvr_set_t *tmp_partition_time_window;
 
     long *actor_to_partition_locks;
     long *partition_time_window_lock;
@@ -268,9 +264,9 @@ typedef struct _hvr_internal_ctx_t {
     int *strict_counter_dest;
     int *strict_counter_src;
 
-    hvr_pe_set_t *my_neighbors;
+    hvr_set_t *my_neighbors;
 
-    hvr_pe_set_t *coupled_pes;
+    hvr_set_t *coupled_pes;
     hvr_sparse_vec_t *coupled_pes_values;
     hvr_sparse_vec_t *coupled_pes_values_buffer;
     volatile long *coupled_lock;

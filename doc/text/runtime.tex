@@ -1,0 +1,172 @@
+\section{Runtime}
+
+With our understanding of the user-facing APIs for HOOVER, we can now discuss
+how HOOVER operates on the backend. We will split this into two discussions: 1)
+a description of the vertex/sparse vector data structure used, and 2) a
+description of the steps taken by the HOOVER runtime on each timestep of
+an iterative simulation.
+
+\subsection{Versioned Sparse Vectors}
+
+While HOOVER sparse vectors expose simple get and set APIs to the user, they
+are subtely complex.
+
+The root of this complexity is the decoupled nature of HOOVER's execution. For
+scalability reasons, HOOVER was designed to avoid all two-sided, blocking, or
+collective operations between any two de-coupled PEs. As such, any PE may
+fetch vertex data from any other PE at any time during the simulation without
+any involvement from the PE being accessed. As such, the sparse vector data
+structure must be designed to be always consistent, such that remote accessors
+can get information from it even if the owning PE is currently modifying it.
+
+Additionally, because HOOVER is iterative it has some measure of progress, time,
+and ordering between timesteps. Indeed, de-coupled PEs may have
+reached very different timesteps in the simulation before their first
+interaction. However, it would be undesirable for the slower PE to be able to
+read data from the future on the faster PE - we would like any information
+accessed to be mostly consistent for a given timestep (though perhaps not from
+that precise timestep). As a result, it is necessary to have some history or
+versioning built in to HOOVER's sparse vector data structure such that
+de-coupled PEs on different timesteps can still fetch consistent data from each
+other.
+
+Hence, internally the sparse vector data structure stores its state going back
+many timesteps. Additionally, when updating a sparse vector with new values,
+those values are tagged with the current timestep. A simplified version of the
+actual sparse vector declaration is shown below:
+
+\begin{verbatim}
+typedef struct _hvr_sparse_vec_t {
+    // Globally unique ID for this node
+    vertex_id_t id;
+
+    // PE that owns this vertex
+    int pe;
+
+    // Values for each feature
+    double values[HVR_BUCKETS][HVR_BUCKET_SIZE];
+
+    // Feature IDs, all entries in each bucket guaranteed unique
+    unsigned features[HVR_BUCKETS][HVR_BUCKET_SIZE];
+
+    // Number of features present in each bucket
+    unsigned bucket_size[HVR_BUCKETS];
+
+    // Timestamp for each bucket
+    hvr_time_t timestamps[HVR_BUCKETS];
+} hvr_sparse_vec_t;
+\end{verbatim}
+
+Here, the key fields are \texttt{timestamps}, \texttt{bucket\_size},
+\texttt{values}, and \texttt{features} each of which is a circular buffer. The
+sparse vector above has the ability to store history for this sparse vector's
+state going back \texttt{HVR\_BUCKETS} timesteps, with up to
+\texttt{HVR\_BUCKET\_SIZE} features in the sparse vector.
+
+Each time the first attribute is set on a new timestep, a bucket is allocated to
+it by finding the oldest bucket. The most recent state of the sparse vector from
+the most recent timestep is copied to the new bucket, including its
+\texttt{features}, \texttt{values}, and \texttt{bucket\_size}. Then, additional
+changes for the current timestep are made on top of those copied values.
+
+Anytime a feature needs to be read from a sparse vector, a timestep to read the
+value for is also passed in (either explicitly if from the HOOVER runtime or
+implicitly using the calling PE's context). The bucket that is closest to that
+timestep but not past it is then used to return the requested feature.
+
+While this design is flexible and solves the problem of de-coupled data accesses
+in a massively distributed system, it naturally comes with drawbacks. It is
+memory inefficient, consuming many times the number of bytes than
+what would be needed to simply store the current state of the sparse vector. Of
+course, this also has implications for bytes transferred over the network. This
+design also limits how out-of-sync two PEs can become as a result of using a
+fixed-size circular buffer. If one PE becomes more than \texttt{HVR\_BUCKETS}
+behind the other PE, it will no longer be able to fetch valid values from the
+other's vertices.
+
+\subsection{Core Runtime Execution Flow}
+
+The core of HOOVER's coordination logic is included under the \texttt{hvr\_body}
+API, which the user calls following \texttt{hvr\_init}. \texttt{hvr\_body} is
+responsible for coordinating the execution of the simulation from start to end.
+
+The core of \texttt{hvr\_body} is a loop over timesteps. On each iteration of
+this time loop, the following high level actions are taken:
+
+\begin{enumerate}
+    \item \textbf{Update Local Actors}: All local vertices have their attributes updated using the
+        \texttt{update\_metadata} user callback.
+    \item \textbf{Update Local Partitions}: Information on the problem space partitions that contain local actors
+        is updated on the local PE and made accessible by remote PEs. This step
+        uses the \texttt{actor\_to\_partition} user callback.
+    \item \textbf{Find Nearby PEs}: Based on the partition information of other PEs, this PE constructs a
+        list of all PEs which have actors that local actors may interact with
+        using the \texttt{might\_interact} user callback.
+    \item \textbf{Update Graph Edges}: Communicating only with the PEs that may have nearby actors, update
+        all inter-vertex edges.
+    \item \textbf{Check Abort}: Check if any updates to local actors lead to this PE aborting using
+        the \texttt{check\_abort} user callback, and compute the local actor's
+        contribution to any coupled metric.
+    \item \textbf{Compute Coupled Metric}: If coupled with other PEs, jointly compute a coupled metric with them
+        through an all-reduction.
+    \item Continue to the next iteration if no abort was indicated and we have
+        not reached the maximum number of timesteps.
+\end{enumerate}
+
+Below we offer more details on how some of the steps above are implemented.
+
+\subsubsection{Local Actor Attribute Updates}
+
+Updating each local actor's state via the \texttt{update\_metadata} callback
+requires collecting the state of all other actors that it has edges with.
+
+Internally, HOOVER stores the edge information for each actor as an AVL tree
+where each node contains the globally unique vertex ID of edge-connected
+vertices (local or remote). An AVL tree is used to limit the amount of memory
+consumed while offering better than O(log(N)) insertions and lookups.
+
+When collecting the state of all actors with edges on a local actor, we simply
+linearize the AVL tree storing the neighboring actors and iterate over this edge
+list. The \texttt{shmem\_getmem} and \texttt{shmem\_fence} OpenSHMEM APIs are
+used together to ensure we fetch a consistent view of the remote actor even if
+bytes are delivered out-of-order. Then, the collected actors are passed with the
+actor into the \texttt{update\_metadata} user callback.
+
+\subsubsection{Edge Updates}
+\label{sec:edge_updates}
+
+Because edge updating is an expensive operation and each check to see if an edge
+should be added may include both a remote vector fetch as well as a Euclidean
+distance measure, edge updating is a multi-step process during which we try to
+eliminate as many remote vertices from consideration as possible without
+fetching the vertex itself. Key to this is the concept of partitions.
+
+Partitions were introduced earlier, but will be described in more detail here. A
+partition is simply some sub-chunk of the current simulation's problem space,
+where the problem space is defined as all possible values that may be taken on
+by the positional attributes of any vertex in the simulation. One of the simplest
+forms of partition would be a regular two-dimensional partitioning/gridding of a
+flat, two-dimensional problem space. However, the concept of a partition in HOOVER
+is more flexible than that as the user is never asked to explicitly specify the
+shape or bounds of any partition. They simply must define:
+
+\begin{enumerate}
+    \item A maximum number of partitions (passed to \texttt{hvr\_init}).
+    \item A callback for returning the partition for a given actor (note that
+        this may change over time as the attributes on an actor change).
+    \item A callback that tests for the possibility of partition-to-partition interaction.
+\end{enumerate}
+
+Partitions are key to reducing the number of pairwise distance checks needed
+during edge updating.
+
+During an update to the edges of local actors, we iterate over all other PEs. For
+each PE we fetch the current actor-to-partition map of that PE. The
+actor-to-partition map is simply an array storing the partition of each actor
+on a PE, which is updated on each timestep. Then, for each actor on the remote
+PE that is in a partition which one of our locally active partitions may interact
+with (based on the \texttt{might\_interact} callback) we take a Euclidean
+distance with each of our local actors to determine which should have edges
+added. Hence, partitions can dramatically reduce the number of these checks
+necessary. In general, it is advisable to create many more partitions than there
+are PEs. At a minimum, the number of partitions should equal the number of PEs.

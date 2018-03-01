@@ -19,9 +19,9 @@
 // #define TRACK_VECTOR_GET_CACHE
 
 // #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
-#define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
+// #define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
 // #else
-// #define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
+#define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
 // #endif
 
 #define EDGE_GET_BUFFERING 4096
@@ -561,8 +561,8 @@ static void sum_hits_and_misses(hvr_sparse_vec_cache_t *vec_caches,
     }
 }
 
-static hvr_pe_set_t *hvr_create_empty_pe_set_helper(hvr_internal_ctx_t *ctx,
-        const int nelements, hvr_pe_set_t *set,
+static hvr_set_t *hvr_create_empty_set_helper(hvr_internal_ctx_t *ctx,
+        const int nelements, hvr_set_t *set,
         bit_vec_element_type *bit_vector) {
     set->bit_vector = bit_vector;
     set->nelements = nelements;
@@ -573,45 +573,45 @@ static hvr_pe_set_t *hvr_create_empty_pe_set_helper(hvr_internal_ctx_t *ctx,
     return set;
 }
 
-hvr_pe_set_t *hvr_create_empty_pe_set_symmetric_custom(const unsigned nvals,
+hvr_set_t *hvr_create_empty_set_symmetric_custom(const unsigned nvals,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     const int nelements = (nvals + (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE) - 1) / (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE);
-    hvr_pe_set_t *set = (hvr_pe_set_t *)shmem_malloc(sizeof(*set));
+    hvr_set_t *set = (hvr_set_t *)shmem_malloc(sizeof(*set));
     assert(set);
     bit_vec_element_type *bit_vector = (bit_vec_element_type *)shmem_malloc(
             nelements * sizeof(bit_vec_element_type));
     assert(bit_vector);
-    return hvr_create_empty_pe_set_helper(ctx, nelements, set, bit_vector);
+    return hvr_create_empty_set_helper(ctx, nelements, set, bit_vector);
 }
 
-hvr_pe_set_t *hvr_create_empty_pe_set_symmetric(hvr_ctx_t in_ctx) {
+hvr_set_t *hvr_create_empty_set_symmetric(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    return hvr_create_empty_pe_set_symmetric_custom(ctx->npes, ctx);
+    return hvr_create_empty_set_symmetric_custom(ctx->npes, ctx);
 }
 
-hvr_pe_set_t *hvr_create_empty_pe_set_custom(const unsigned nvals,
+hvr_set_t *hvr_create_empty_set_custom(const unsigned nvals,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     const int nelements = (nvals + (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE) - 1) / (sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE);
-    hvr_pe_set_t *set = (hvr_pe_set_t *)malloc(sizeof(*set));
+    hvr_set_t *set = (hvr_set_t *)malloc(sizeof(*set));
     assert(set);
     bit_vec_element_type *bit_vector = (bit_vec_element_type *)malloc(
             nelements * sizeof(bit_vec_element_type));
     assert(bit_vector);
-    return hvr_create_empty_pe_set_helper(ctx, nelements, set, bit_vector);
+    return hvr_create_empty_set_helper(ctx, nelements, set, bit_vector);
 }
 
-hvr_pe_set_t *hvr_create_empty_pe_set(hvr_ctx_t in_ctx) {
+hvr_set_t *hvr_create_empty_set(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    return hvr_create_empty_pe_set_custom(ctx->npes, ctx);
+    return hvr_create_empty_set_custom(ctx->npes, ctx);
 }
 
-static int hvr_pe_set_insert_internal(int pe,
+static int hvr_set_insert_internal(int pe,
         bit_vec_element_type *bit_vector) {
     const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
     const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
@@ -622,8 +622,8 @@ static int hvr_pe_set_insert_internal(int pe,
     return old_val != new_val;
 }
 
-void hvr_pe_set_insert(int pe, hvr_pe_set_t *set) {
-    const int changed = hvr_pe_set_insert_internal(pe, set->bit_vector);
+void hvr_set_insert(int pe, hvr_set_t *set) {
+    const int changed = hvr_set_insert_internal(pe, set->bit_vector);
     if (changed) {
         if (set->n_contained < PE_SET_CACHE_SIZE) {
             (set->cache)[set->n_contained] = pe;
@@ -632,34 +632,12 @@ void hvr_pe_set_insert(int pe, hvr_pe_set_t *set) {
     }
 }
 
-/*
- * No consume of this at the moment and it complicates caching set values, so
- * remove for now.
- */
-#if 0
-static int hvr_pe_set_clear_internal(int pe,
-        bit_vec_element_type *bit_vector) {
-    const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
-    const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
-    const bit_vec_element_type old_val = bit_vector[element];
-    const bit_vec_element_type new_val =
-        (old_val & ~((bit_vec_element_type)1 << bit));
-    bit_vector[element] = new_val;
-    return new_val != old_val;
-}
-
-void hvr_pe_set_clear(int pe, hvr_pe_set_t *set) {
-    const int changed = hvr_pe_set_clear_internal(pe, set->bit_vector);
-    if (changed) set->n_contained--;
-}
-#endif
-
-void hvr_pe_set_wipe(hvr_pe_set_t *set) {
+void hvr_set_wipe(hvr_set_t *set) {
     memset(set->bit_vector, 0x00, set->nelements * sizeof(*(set->bit_vector)));
     set->n_contained = 0;
 }
 
-int hvr_pe_set_contains_internal(int pe, bit_vec_element_type *bit_vector) {
+int hvr_set_contains_internal(int pe, bit_vec_element_type *bit_vector) {
     const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
     const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
@@ -670,26 +648,26 @@ int hvr_pe_set_contains_internal(int pe, bit_vec_element_type *bit_vector) {
     }
 }
 
-int hvr_pe_set_contains(int pe, hvr_pe_set_t *set) {
-    return hvr_pe_set_contains_internal(pe, set->bit_vector);
+int hvr_set_contains(int pe, hvr_set_t *set) {
+    return hvr_set_contains_internal(pe, set->bit_vector);
 }
 
-unsigned hvr_pe_set_count(hvr_pe_set_t *set) {
+unsigned hvr_set_count(hvr_set_t *set) {
     return set->n_contained;
 }
 
-void hvr_pe_set_destroy(hvr_pe_set_t *set) {
+void hvr_set_destroy(hvr_set_t *set) {
     free(set->bit_vector);
     free(set);
 }
 
-void hvr_pe_set_to_string(hvr_pe_set_t *set, char *buf, unsigned buflen) {
+void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen) {
     int offset = snprintf(buf, buflen, "{");
 
     const size_t nvals = set->nelements * sizeof(bit_vec_element_type) *
         BITS_PER_BYTE;
     for (unsigned i = 0; i < nvals; i++) {
-        if (hvr_pe_set_contains(i, set)) {
+        if (hvr_set_contains(i, set)) {
             offset += snprintf(buf + offset, buflen - offset - 1, " %u", i);
             assert(offset < buflen);
         }
@@ -698,7 +676,7 @@ void hvr_pe_set_to_string(hvr_pe_set_t *set, char *buf, unsigned buflen) {
     snprintf(buf + offset, buflen - offset - 1, " }");
 }
 
-void hvr_pe_set_merge(hvr_pe_set_t *set, hvr_pe_set_t *other) {
+void hvr_set_merge(hvr_set_t *set, hvr_set_t *other) {
     assert(set->nelements == other->nelements);
 
     for (int i = 0; i < set->nelements; i++) {
@@ -706,7 +684,7 @@ void hvr_pe_set_merge(hvr_pe_set_t *set, hvr_pe_set_t *other) {
     }
 }
 
-void hvr_pe_set_merge_atomic(hvr_pe_set_t *set, hvr_pe_set_t *other) {
+void hvr_set_merge_atomic(hvr_set_t *set, hvr_set_t *other) {
     assert(set->nelements == other->nelements);
     // Assert that we can use the long long atomics
     assert(sizeof(unsigned long long) == sizeof(bit_vec_element_type));
@@ -717,7 +695,7 @@ void hvr_pe_set_merge_atomic(hvr_pe_set_t *set, hvr_pe_set_t *other) {
     }
 }
 
-static unsigned *hvr_pe_set_non_zeros(hvr_pe_set_t *set,
+static unsigned *hvr_set_non_zeros(hvr_set_t *set,
         unsigned *n_non_zeros, int *user_must_free) {
     *n_non_zeros = set->n_contained;
     if (set->n_contained <= PE_SET_CACHE_SIZE) {
@@ -847,7 +825,7 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
 static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
         unsigned long long *out_lock_time, unsigned long long *out_getmem_time,
         unsigned long long *out_unlock_time, unsigned long long *out_body_time) {
-    hvr_pe_set_wipe(ctx->my_neighbors);
+    hvr_set_wipe(ctx->my_neighbors);
 
     unsigned long long lock_time = 0;
     unsigned long long getmem_time = 0;
@@ -868,7 +846,7 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
         // TODO Don't fetch this data, re-initialize it locally
         shmem_getmem_nbi(ctx->other_pe_partition_time_window,
                 ctx->partition_time_window,
-                offsetof(hvr_pe_set_t, bit_vector), target_pe);
+                offsetof(hvr_set_t, bit_vector), target_pe);
         shmem_quiet();
 
         const unsigned long long start_unlock = hvr_current_time_us();
@@ -881,14 +859,14 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
          */
         unsigned n_other_partitions;
         int user_must_free;
-        unsigned *other_partitions = hvr_pe_set_non_zeros(
+        unsigned *other_partitions = hvr_set_non_zeros(
                 ctx->other_pe_partition_time_window, &n_other_partitions,
                 &user_must_free);
         for (unsigned part_index = 0; part_index < n_other_partitions;
                 part_index++) {
             const unsigned part = other_partitions[part_index];
             if (ctx->might_interact(part, ctx->partition_time_window, ctx)) {
-                hvr_pe_set_insert(target_pe, ctx->my_neighbors);
+                hvr_set_insert(target_pe, ctx->my_neighbors);
                 break;
             }
         }
@@ -911,7 +889,7 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
 
 #ifdef VERBOSE
     printf("PE %d is talking to %d other PEs\n", ctx->pe,
-            hvr_pe_set_count(ctx->my_neighbors));
+            hvr_set_count(ctx->my_neighbors));
 #endif
 }
 
@@ -951,6 +929,11 @@ static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
     /*
      * For each local vertex, check if we want to add an edge from
      * other to this.
+     *
+     * TODO We shouldn't have to check against all local vertices, as we know
+     * the remote actor's partition and the local actor's partition, and can
+     * tell if they might interact. We may be able to use this information to
+     * cut down on the number of distance measures we take here.
      */
     for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
         /*
@@ -998,6 +981,13 @@ static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
     dst->cached_timestamp = -1;
     dst->cached_timestamp_index = 0;
 
+    /*
+     * TODO we need this quiet here at the moment so that communication
+     * completes before cache insertion occurs because we copy out of dst
+     * and into the cache inside hvr_sparse_vec_cache_insert. Is there a way
+     * to work around this? e.g. by requesting a buffer to copy to from the
+     * cache? Would enable more asynchrony, possible performance gains.
+     */
     shmem_quiet();
 }
 
@@ -1041,7 +1031,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
          * interaction based on partitions of the problem domain), skip it when
          * looking for new edges.
          */
-        if (!hvr_pe_set_contains(target_pe, ctx->my_neighbors)) {
+        if (!hvr_set_contains(target_pe, ctx->my_neighbors)) {
             continue;
         }
 
@@ -1153,14 +1143,14 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
 static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
     wlock_partition_time_window(ctx->pe, ctx);
 
-    hvr_pe_set_wipe(ctx->tmp_partition_time_window);
+    hvr_set_wipe(ctx->tmp_partition_time_window);
 
     for (unsigned p = 0; p < ctx->n_partitions; p++) {
         const hvr_time_t last_use = ctx->last_timestep_using_partition[p];
         if (last_use >= 0) {
             assert(last_use <= ctx->timestep);
             if (ctx->timestep - last_use < HVR_BUCKETS) {
-                hvr_pe_set_insert(p, ctx->tmp_partition_time_window);
+                hvr_set_insert(p, ctx->tmp_partition_time_window);
             }
         }
     }
@@ -1305,7 +1295,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     for (unsigned i = 0; i < n_partitions; i++) {
         (new_ctx->last_timestep_using_partition)[i] = -1;
     }
-    new_ctx->partition_time_window = hvr_create_empty_pe_set_symmetric_custom(
+    new_ctx->partition_time_window = hvr_create_empty_set_symmetric_custom(
             n_partitions, new_ctx);
     new_ctx->tmp_partition_time_window = hvr_create_empty_pe_set_custom(
             n_partitions, new_ctx);
@@ -1380,10 +1370,10 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         assert(new_ctx->dump_file);
     }
 
-    new_ctx->my_neighbors = hvr_create_empty_pe_set(new_ctx);
+    new_ctx->my_neighbors = hvr_create_empty_set(new_ctx);
 
-    new_ctx->coupled_pes = hvr_create_empty_pe_set_symmetric(new_ctx);
-    hvr_pe_set_insert(new_ctx->pe, new_ctx->coupled_pes);
+    new_ctx->coupled_pes = hvr_create_empty_set_symmetric(new_ctx);
+    hvr_set_insert(new_ctx->pe, new_ctx->coupled_pes);
     new_ctx->coupled_pes_values = hvr_sparse_vec_create_n(new_ctx->npes);
     new_ctx->coupled_pes_values_buffer = hvr_sparse_vec_create_n(new_ctx->npes);
 
@@ -1398,7 +1388,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
  * update_metadata function to update information on this actor.
  */
 static void update_local_actor_metadata(const vertex_id_t actor,
-        hvr_pe_set_t *to_couple_with, unsigned long long *fetch_neighbors_time,
+        hvr_set_t *to_couple_with, unsigned long long *fetch_neighbors_time,
        unsigned long long *update_metadata_time, hvr_internal_ctx_t *ctx,
        hvr_sparse_vec_cache_t *vec_caches) {
     static size_t neighbors_capacity = 0;
@@ -1493,7 +1483,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     shmem_barrier_all();
 
-    ctx->other_pe_partition_time_window = hvr_create_empty_pe_set_custom(
+    ctx->other_pe_partition_time_window = hvr_create_empty_set_custom(
             ctx->n_partitions, ctx);
 
     finalize_actors_for_timestep(ctx, 0);
@@ -1517,7 +1507,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
     unsigned long long unused;
     update_edges(ctx, vec_caches, &unused, &unused);
 
-    hvr_pe_set_t *to_couple_with = hvr_create_empty_pe_set(ctx);
+    hvr_set_t *to_couple_with = hvr_create_empty_set(ctx);
 
     if (getenv("HVR_HANG_ABORT")) {
         pthread_t aborting_pthread;
@@ -1539,7 +1529,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         unsigned long long fetch_neighbors_time = 0;
         unsigned long long update_metadata_time = 0;
 
-        hvr_pe_set_wipe(to_couple_with);
+        hvr_set_wipe(to_couple_with);
 
         // Update each actor's metadata
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
@@ -1600,11 +1590,11 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 &coupled_metric, ctx, ctx->timestep);
 
         // Update my local information on PEs I am coupled with.
-        hvr_pe_set_merge_atomic(ctx->coupled_pes, to_couple_with);
+        hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
 
         // Atomically update other PEs that I am coupled with.
         for (int p = 0; p < ctx->npes; p++) {
-            if (p != ctx->pe && hvr_pe_set_contains(p, ctx->coupled_pes)) {
+            if (p != ctx->pe && hvr_set_contains(p, ctx->coupled_pes)) {
                 for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
                     SHMEM_ULONGLONG_ATOMIC_OR(
                             ctx->coupled_pes->bit_vector + i,
@@ -1634,7 +1624,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         for (int p = 0; p < ctx->npes; p++) {
             if (p == ctx->pe) continue;
 
-            if (hvr_pe_set_contains(p, ctx->coupled_pes)) {
+            if (hvr_set_contains(p, ctx->coupled_pes)) {
                 /*
                  * Wait until we've found an update to p's coupled value that is
                  * for this timestep.
@@ -1745,10 +1735,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
 #ifdef VERBOSE
         char neighbors_str[1024];
-        hvr_pe_set_to_string(ctx->my_neighbors, neighbors_str, 1024);
+        hvr_set_to_string(ctx->my_neighbors, neighbors_str, 1024);
 
         char partition_time_window_str[1024];
-        hvr_pe_set_to_string(ctx->partition_time_window,
+        hvr_set_to_string(ctx->partition_time_window,
                 partition_time_window_str, 1024);
 #endif
 
@@ -1780,13 +1770,13 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0,
                 (double)(finished_coupling - finished_coupled_values) / 1000.0, n_coupled_spins,
                 (double)(finished_throttling - finished_coupling) / 1000.0,
-                nspins, hvr_pe_set_count(ctx->my_neighbors), ctx->npes,
+                nspins, hvr_set_count(ctx->my_neighbors), ctx->npes,
 #ifdef VERBOSE
                 neighbors_str, partition_time_window_str,
 #else
                 "", "",
 #endif
-                hvr_pe_set_count(ctx->partition_time_window), ctx->n_partitions,
+                hvr_set_count(ctx->partition_time_window), ctx->n_partitions,
                 abort, ctx->timestep >= ctx->max_timestep,
                 nhits, nmisses, nmisses_due_to_age, ctx->n_vector_cache_hits,
                 ctx->n_vector_cache_misses);
@@ -1830,7 +1820,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     shmem_quiet(); // Make sure the timestep updates complete
 
-    hvr_pe_set_destroy(to_couple_with);
+    hvr_set_destroy(to_couple_with);
 
     if (ctx->strict_mode) {
         while (1) {
