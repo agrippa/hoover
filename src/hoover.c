@@ -733,13 +733,18 @@ static unsigned *hvr_pe_set_non_zeros(hvr_pe_set_t *set,
         for (unsigned i = 0; i < set->nelements; i++) {
             const bit_vec_element_type ele = set->bit_vector[i];
             for (unsigned bit = 0; bit < sizeof(ele) * BITS_PER_BYTE; bit++) {
-                if (ele & ((bit_vec_element_type)1 << bit)) {
+                if ((ele & ((bit_vec_element_type)1 << bit)) != 0) {
                     non_zeros[count_non_zeros++] =
                         i * sizeof(ele) * BITS_PER_BYTE + bit;
                 }
             }
         }
-        assert(count_non_zeros == set->n_contained);
+
+        if (count_non_zeros != set->n_contained) {
+            fprintf(stderr, "Unexpected nnz: count_non_zeros = %u, "
+                    "n_contained = %u\n", count_non_zeros, set->n_contained);
+            abort();
+        }
 
         return non_zeros;
     }
@@ -860,6 +865,7 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
                 ctx->partition_time_window->bit_vector,
                 ctx->other_pe_partition_time_window->nelements *
                     sizeof(bit_vec_element_type), target_pe);
+        // TODO Don't fetch this data, re-initialize it locally
         shmem_getmem_nbi(ctx->other_pe_partition_time_window,
                 ctx->partition_time_window,
                 offsetof(hvr_pe_set_t, bit_vector), target_pe);
@@ -1147,17 +1153,25 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
 static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
     wlock_partition_time_window(ctx->pe, ctx);
 
-    hvr_pe_set_wipe(ctx->partition_time_window);
+    hvr_pe_set_wipe(ctx->tmp_partition_time_window);
 
     for (unsigned p = 0; p < ctx->n_partitions; p++) {
         const hvr_time_t last_use = ctx->last_timestep_using_partition[p];
         if (last_use >= 0) {
             assert(last_use <= ctx->timestep);
             if (ctx->timestep - last_use < HVR_BUCKETS) {
-                hvr_pe_set_insert(p, ctx->partition_time_window);
+                hvr_pe_set_insert(p, ctx->tmp_partition_time_window);
             }
         }
     }
+
+    shmem_putmem(ctx->partition_time_window->bit_vector,
+            ctx->tmp_partition_time_window->bit_vector,
+            ctx->tmp_partition_time_window->nelements *
+            sizeof(bit_vec_element_type), ctx->pe);
+    shmem_putmem(ctx->partition_time_window,
+            ctx->tmp_partition_time_window, offsetof(hvr_pe_set_t, bit_vector),
+            ctx->pe);
 
     wunlock_partition_time_window(ctx->pe, ctx);
 }
@@ -1292,6 +1306,8 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         (new_ctx->last_timestep_using_partition)[i] = -1;
     }
     new_ctx->partition_time_window = hvr_create_empty_pe_set_symmetric_custom(
+            n_partitions, new_ctx);
+    new_ctx->tmp_partition_time_window = hvr_create_empty_pe_set_custom(
             n_partitions, new_ctx);
 
     new_ctx->actor_to_partition_locks = (long *)shmem_malloc(new_ctx->npes *
@@ -1632,13 +1648,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 while (other_has_timestamp != HAS_TIMESTAMP) {
                     hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
 
-                    // Pull in the coupled PEs current values
-                    // for (int i = 0; i < ctx->npes; i++) {
-                    //     get_remote_vec_nbi_uncached(
-                    //             ctx->coupled_pes_values_buffer + i,
-                    //             ctx->coupled_pes_values + i,
-                    //             p);
-                    // }
                     shmem_getmem(ctx->coupled_pes_values_buffer,
                             ctx->coupled_pes_values,
                             ctx->npes * sizeof(hvr_sparse_vec_t), p);

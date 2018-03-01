@@ -25,7 +25,8 @@
 
 #define BITS_PER_BYTE 8
 
-#define HVR_BUCKETS 1024
+// #define HVR_BUCKETS 1024
+#define HVR_BUCKETS 2
 #define HVR_BUCKET_SIZE 7
 
 typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
@@ -239,6 +240,7 @@ typedef struct _hvr_internal_ctx_t {
      */
     hvr_pe_set_t *partition_time_window;
     hvr_pe_set_t *other_pe_partition_time_window;
+    hvr_pe_set_t *tmp_partition_time_window;
 
     long *actor_to_partition_locks;
     long *partition_time_window_lock;
