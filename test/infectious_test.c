@@ -108,7 +108,7 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
  * attached to each vertex based on the updated neighbors on each time step.
  */
 void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
-        const size_t n_neighbors, hvr_pe_set_t *couple_with, hvr_ctx_t ctx) {
+        const size_t n_neighbors, hvr_set_t *couple_with, hvr_ctx_t ctx) {
     /*
      * If vertex is not already infected, update it to be infected if any of its
      * neighbors are.
@@ -118,7 +118,7 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
             if (hvr_sparse_vec_get(INFECTED, &neighbors[i], ctx) > 0.0) {
                 const int infected_by = hvr_sparse_vec_get_owning_pe(
                         &neighbors[i]);
-                hvr_pe_set_insert(infected_by, couple_with);
+                hvr_set_insert(infected_by, couple_with);
                 hvr_sparse_vec_set(INFECTED, 1.0, vertex, ctx);
                 break;
             }
@@ -246,7 +246,7 @@ int update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
  * If partition is neighboring any partition in partitions, they might
  * interact.
  */
-int might_interact(const uint16_t partition, hvr_pe_set_t *partitions,
+int might_interact(const uint16_t partition, hvr_set_t *partitions,
         hvr_ctx_t ctx) {
 
     // The global dimensions of the full simulation space
@@ -300,7 +300,7 @@ int might_interact(const uint16_t partition, hvr_pe_set_t *partitions,
     for (int r = min_partition_row; r <= max_partition_row; r++) {
         for (int c = min_partition_col; c <= max_partition_col; c++) {
             const int part = r * PARTITION_DIM + c;
-            if (hvr_pe_set_contains(part, partitions)) {
+            if (hvr_set_contains(part, partitions)) {
                 return 1;
             }
         }

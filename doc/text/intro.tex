@@ -1,0 +1,22 @@
+\section{What is HOOVER?}
+
+HOOVER is a distributed framework for solving streaming/dynamic graph problems
+where the structure of a graph changes over time based on the state of its
+vertices. HOOVER emphasizes flexibility without sacrificing scalability,
+allowing users to plug in nearly-arbitrary callbacks for application-specific
+logic while:
+
+\begin{enumerate}
+\item Using OpenSHMEM as a scalable backend for inter-PE communication.
+\item Using communication-avoiding techniques to reduce inter-PE communication.
+\item Being PGAS-by-design from the beginning, leveraging one-sided
+communication and de-coupled execution to reduce blocking and increase
+asynchrony.
+\end{enumerate}
+
+The following sections serve as both a design document as well as a user guide,
+describing the high level software architecture of HOOVER as well as how one
+uses it.
+
+Any questions on HOOVER can be posted on the HOOVER Github
+(\url{https://github.com/agrippa/hoover}) or sent to max.grossman@rice.edu.

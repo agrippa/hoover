@@ -1,0 +1,88 @@
+\documentclass[runningheads,letterpaper]{llncs}
+
+%%% PACKAGES %%%
+%\usepackage[breaklinks]{hyperref}
+%\usepackage{relsize}
+%\usepackage{wrapfig}
+%\usepackage{alltt}
+%\usepackage{mathptmx}
+%\usepackage[scaled]{helvet} % see www.ctan.org/get/macros/latex/required/psnfss/psnfss2e.pdf
+%\DeclareMathAlphabet{\mathsf}{OT1}{phv}{m}{n}
+%\usepackage{textpos}
+%\usepackage{url}  % particularly useful for URLs in bib entries
+\usepackage[breaklinks,draft=false]{hyperref}   % http://tex.stackexchange.com/questions/1522/pdfendlink-ended-up-in-different-nesting-level-than-pdfstartlink
+
+% figures and graphics
+%\usepackage{fancyref}
+\usepackage{graphicx}
+\usepackage{epstopdf}
+\usepackage{subfigure}
+\usepackage{tabularx}
+%\usepackage{float,rotating}
+
+% spacing
+%\usepackage{relsize}
+%\usepackage{setspace}
+%\usepackage{xspace}
+\usepackage{xcolor}
+%\usepackage{booktabs}
+
+\usepackage{listings}
+%\usepackage{flushend}
+
+\renewcommand{\floatpagefraction}{.8}%
+
+% Define the style for OpenSHMEM programs
+\renewcommand{\ttdefault}{pcr}
+\lstdefinestyle{oshmem}{language=C,
+                       keywordstyle=\bfseries, %\color{blue},
+                       mathescape=true,
+                       basicstyle=\ttfamily\scriptsize,
+                       keepspaces=true,
+                       morekeywords={auto},
+                       otherkeywords={shmem_ctx_t,size_t}}
+
+% Make OpenSHMEM the default style
+\lstset{style=oshmem}
+
+\input{macros.tex}
+
+\begin{document}
+% \sloppy
+
+\title{HOOVER}
+
+\author{Max Grossman\inst{1} \and
+    Howard Pritchard\inst{2} \and
+    Tony Curtis\inst{3} \and
+    Vivek Sarkar\inst{4}
+}
+
+\authorrunning{Grossman et al.}
+
+\institute{
+    Rice University (\email{max.grossman@rice.edu}) \and Los Alamos National Laboratory
+    \and
+    Stony Brook University \and Georgia Institute of Technology
+}
+
+\maketitle
+
+\renewcommand{\baselinestretch}{0.85}
+\input{text/intro}
+\input{text/design}
+\input{text/api}
+\input{text/runtime}
+\input{text/perf}
+\input{text/viz}
+\input{text/related}
+\input{text/future}
+\input{text/ack}
+
+~\\
+%\scriptsize
+\bibliographystyle{splncs03}
+%\bibliography{habanero}
+\bibliography{paper}
+
+\end{document}

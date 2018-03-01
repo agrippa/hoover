@@ -1,0 +1,39 @@
+\section{Future Work}
+
+HOOVER is an actively developed project, with several major features on its
+roadmap.
+
+First, continued performance analysis and improvement is key as the project
+matures. Primarily, this is done through built-in profiling hooks in HOOVER
+that offer detailed information on time spent in different application regions.
+Additionally, recent work with HOOVER has begun using Jupyter notebooks to
+analyze and visualize performance trends in HOOVER executions, which has already
+proven valuable. For example, plotting histograms of overall iteration execution
+time against histograms of execution time spent in specific code regions
+uncovers visual similarities between the overall distribution and the per-region
+distribution of execution time. These similarities (e.g. long tails, sharp
+Gaussian curves, etc) offer insight into how different code regions positively
+or negatively impact overall execution time (both its mean and variance).
+
+Second, explorations of both multi-threaded and multi-GPU execution are on
+HOOVER's roadmap. Hybrid distributed and multi-threaded execution will enable
+more state to fit in each PE, reducing the amount of communication needed
+between PEs.
+
+Finally, we are also interested in exploring a history-less execution mode.
+Much of the complexity and overhead of HOOVER results from the need to keep
+the history of changes for each actor going back several timesteps, to ensure
+that remote PEs can fetch consistent data for their present without seeing into
+the ``future''. However, some applications may simply be interested in the
+latest state from each PE, regardless of when it was computed. This
+simplifies HOOVER's execution and offers new opportunities for optimizations.
+
+In conclusion, HOOVER is a unique, distributed framework for processing of
+large-scale and dynamic applications that can be expressed as graph
+problems. Unlike other frameworks, it focuses on scale out performance and
+datasets that do not fit in CPU or GPU memory. HOOVER's construction on the
+OpenSHMEM runtime enables entirely de-coupled, asynchronous execution through
+RDMA without the need for interrupting the target PE. This runtime model has
+positive long term implications for the scalability of HOOVER, particularly
+as hardware platforms grow more parallel and memory access latencies become more
+irregular.
