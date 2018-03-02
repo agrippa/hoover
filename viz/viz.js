@@ -71,6 +71,11 @@ function changeColoring(e) {
 }
 
 function resetTime() {
+    min_x = parseInt(document.getElementById('minx').value);
+    max_x = parseInt(document.getElementById('maxx').value);
+    min_y = parseInt(document.getElementById('miny').value);
+    max_y = parseInt(document.getElementById('maxy').value);
+    console.log('Resetting to (' + min_x + ', ' + min_y + ') (' + max_x + ', ' + max_y + ')');
     curr_simulation_step = starting_simulation_step;
 }
 
@@ -149,6 +154,11 @@ function readSingleFile(e) {
                                 max_x + ', ' + max_y + ')');
                     console.log('PEs = ' + JSON.stringify(pe_colors));
                     console.log('States = ' + JSON.stringify(state_colors));
+
+                    document.getElementById('minx').value = min_x;
+                    document.getElementById('maxx').value = max_x;
+                    document.getElementById('miny').value = min_y;
+                    document.getElementById('maxy').value = max_y;
 
                     var curr_timestep = curr_simulation_step + 1;
                     while (curr_timestep in simulation_data) {
