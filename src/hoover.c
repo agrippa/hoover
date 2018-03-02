@@ -1166,19 +1166,23 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
     wunlock_partition_time_window(ctx->pe, ctx);
 }
 
+/*
+ * This method grabs the current timestep table from a neighboring PE and uses
+ * information in it to update our local table.
+ *
+ * At one point, we also pushed updates to the remote PE as well but found that
+ * this putmem operation became a bottleneck, with a pronounced long tail for
+ * the occasional iteration that triggered this logic. It was removed.
+ */
 static void update_all_pe_timesteps_helper(const int target_pe,
         hvr_internal_ctx_t *ctx) {
     shmem_set_lock(ctx->all_pe_timesteps_locks + target_pe);
-
     shmem_getmem(ctx->all_pe_timesteps_buffer, ctx->all_pe_timesteps,
             ctx->npes * sizeof(hvr_time_t), target_pe);
-    // int any_remote_updates = 0;
+    shmem_clear_lock(ctx->all_pe_timesteps_locks + target_pe);
+
     for (int i = 0; i < ctx->npes; i++) {
-        if (ctx->all_pe_timesteps[i] > ctx->all_pe_timesteps_buffer[i]) {
-            // Update remote with newer timestep
-            // ctx->all_pe_timesteps_buffer[i] = ctx->all_pe_timesteps[i];
-            // any_remote_updates = 1;
-        } else {
+        if (ctx->all_pe_timesteps[i] < ctx->all_pe_timesteps_buffer[i]) {
             /*
              * Update local with newer timestep, with either same or greater
              * timestep.
@@ -1187,12 +1191,6 @@ static void update_all_pe_timesteps_helper(const int target_pe,
         }
     }
 
-    // if (any_remote_updates) {
-    //     shmem_putmem(ctx->all_pe_timesteps, ctx->all_pe_timesteps_buffer,
-    //             ctx->npes * sizeof(hvr_time_t), target_pe);
-    // }
-
-    shmem_clear_lock(ctx->all_pe_timesteps_locks + target_pe);
 }
 
 static void update_all_pe_timesteps(hvr_internal_ctx_t *ctx,
