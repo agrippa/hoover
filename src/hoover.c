@@ -1172,12 +1172,12 @@ static void update_all_pe_timesteps_helper(const int target_pe,
 
     shmem_getmem(ctx->all_pe_timesteps_buffer, ctx->all_pe_timesteps,
             ctx->npes * sizeof(hvr_time_t), target_pe);
-    int any_remote_updates = 0;
+    // int any_remote_updates = 0;
     for (int i = 0; i < ctx->npes; i++) {
         if (ctx->all_pe_timesteps[i] > ctx->all_pe_timesteps_buffer[i]) {
             // Update remote with newer timestep
-            ctx->all_pe_timesteps_buffer[i] = ctx->all_pe_timesteps[i];
-            any_remote_updates = 1;
+            // ctx->all_pe_timesteps_buffer[i] = ctx->all_pe_timesteps[i];
+            // any_remote_updates = 1;
         } else {
             /*
              * Update local with newer timestep, with either same or greater
@@ -1187,10 +1187,10 @@ static void update_all_pe_timesteps_helper(const int target_pe,
         }
     }
 
-    if (any_remote_updates) {
-        shmem_putmem(ctx->all_pe_timesteps, ctx->all_pe_timesteps_buffer,
-                ctx->npes * sizeof(hvr_time_t), target_pe);
-    }
+    // if (any_remote_updates) {
+    //     shmem_putmem(ctx->all_pe_timesteps, ctx->all_pe_timesteps_buffer,
+    //             ctx->npes * sizeof(hvr_time_t), target_pe);
+    // }
 
     shmem_clear_lock(ctx->all_pe_timesteps_locks + target_pe);
 }
