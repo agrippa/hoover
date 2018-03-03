@@ -10,7 +10,7 @@ in a graph).
 
 HOOVER is a distributed graph processing framework, enabling it to support and
 scale to larger graph problems than other shared memory or GPU-based frameworks.
-In the backend, HOOVER uses any OpenSHMEM 1.4 compliant (or later) runtime for
+In the backend, HOOVER uses any OpenSHMEM 1.4 compliant (or later) runtimes for
 SPMD process creation and inter-process communication. HOOVER has been tested on
 the following OpenSHMEM implementations:
 
