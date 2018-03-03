@@ -200,8 +200,26 @@ Tables~\ref{tab:weak_scaling1} and~\ref{tab:weak_scaling2} show the results of t
 \label{tab:weak_scaling2}
 \end{table}
 
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | l || X | X | X | X | X | X | }
+\hline
+\textbf{\# Iters}           & \multicolumn{2}{|X|}{\textbf{10}} & \multicolumn{2}{|X|}{\textbf{100}} & \multicolumn{2}{|X|}{\textbf{200}} \\\hline
+\textbf{Infection Radius}   & 4.0          & 10.0         & 4.0           & 10.0          & 4.0           & 10.0 \\\hline
+1 node                      &  9,064 & 12,542 &  96,229 & 134,777 & 203,198 & 267,624 \\\hline
+4 nodes                     & 15,510 & 16,826 & 122,886 & 158,256 & 259,487 & 337,783 \\\hline
+16 nodes                    & 17,130 & 20,889 & 190,952 & 214,298 & 381,488 & 434,551 \\\hline
+\end{tabularx}
+\caption{Weak scaling of the HOOVER framework v0.3 on OSSS OpenSHMEM running a
+    simple infectious disease model with varying \# of iters and infection
+    radius.}
+\label{tab:weak_scaling3}
+\end{table}
+
+
 Like the strong scaling results, the weak scaling results in
-Tables~\ref{tab:weak_scaling1} and~\ref{tab:weak_scaling2} show imperfect scaling from 1 to 4 to 16 nodes as
+Tables~\ref{tab:weak_scaling1}, \ref{tab:weak_scaling2},
+and~\ref{tab:weak_scaling3} show imperfect scaling from 1 to 4 to 16 nodes as
 more PEs require more compute time.
 
 \subsection{Parameter Design Space Exploration}
