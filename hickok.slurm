@@ -1,12 +1,13 @@
 #!/bin/bash -l
 
 #SBATCH -p connectx5
-#SBATCH -N 16
+#SBATCH -N 4
 #SBATCH -t 00:30:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 #SBATCH --contiguous
 #SBATCH --mail-type=ALL
+#SBATCH --exclude=r01n07
 
 # set -e
 
@@ -51,7 +52,7 @@ echo
 echo
 echo
 
-export SCALING=strong
+export SCALING=weak
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 2 nodes
     if [[ $SCALING == strong ]]; then
@@ -81,8 +82,8 @@ elif [[ $SLURM_NNODES -eq 4 ]]; then
 elif [[ $SLURM_NNODES -eq 16 ]]; then
     # For 16 nodes
     if [[ $SCALING == strong ]]; then
-        # export CELL_DIM=100.0 # for illustrating coupled execution
-        export CELL_DIM=1000.0 # for illustrating uncoupled execution
+        export CELL_DIM=100.0 # for illustrating coupled execution
+        # export CELL_DIM=1000.0 # for illustrating uncoupled execution
         export ACTORS_PER_CELL=200
         export PE_ROWS=16
         export PE_COLS=16
@@ -112,10 +113,10 @@ else
     exit 1
 fi
 
-# for MAX_NUM_TIMESTEPS in 10 100 200; do
-for MAX_NUM_TIMESTEPS in 100; do
-    # for INFECTION_RADIUS in 4.0 10.0; do
-    for INFECTION_RADIUS in 10.0; do
+for MAX_NUM_TIMESTEPS in 10 100 200; do
+# for MAX_NUM_TIMESTEPS in 100; do
+    for INFECTION_RADIUS in 4.0 10.0; do
+    # for INFECTION_RADIUS in 10.0; do
 
         $OPENSHMEM_INSTALL/bin/oshrun $PROCESS_CONFIG \
                 $HOME/hoover/bin/infectious_test \
