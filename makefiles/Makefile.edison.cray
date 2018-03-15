@@ -1,9 +1,10 @@
-CFLAGS=-Wall -Werror -g -O2 -Iinc -std=c99
+# CFLAGS=-Wall -Werror -g -O2 -Iinc -std=c99
+CFLAGS=-g -O2 -Iinc -std=c99
 SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -L$(OPENSHMEM_INSTALL)/lib64 -lsma
 
 all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test bin/pe_neighbors_set_test bin/infectious_test
 
-bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c
+bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c
 	gcc $(CFLAGS) $^ -o $@ -shared -fPIC $(SHMEM_FLAGS)
 
 bin/init_test: test/init_test.c

@@ -1,8 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 8
-#SBATCH -t 00:15:00
+#SBATCH -N 32
+###SBATCH -C haswell
+#SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 #SBATCH --contiguous
@@ -26,7 +27,7 @@ export LD_LIBRARY_PATH=$OFI_HOME/lib:$LD_LIBRARY_PATH
 export LD_PRELOAD=/opt/intel/compilers_and_libraries_2017.1.132/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
-export SHMEM_SYMMETRIC_SIZE=$((1024 * 1024 * 1024))
+export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
@@ -46,24 +47,28 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
 if [[ $SLURM_NNODES -eq 2 ]]; then
     # For 2 nodes
-    export CELL_DIM=200.0
-    export ACTORS_PER_CELL=3200
+    export CELL_DIM=4000.0
+    export ACTORS_PER_CELL=19200
     export PE_ROWS=6
     export PE_COLS=8
 elif [[ $SLURM_NNODES -eq 8 ]]; then
     # For 8 nodes
-    # export CELL_DIM=100.0
-    # export ACTORS_PER_CELL=800
-    export CELL_DIM=200.0
-    export ACTORS_PER_CELL=3200
+    export CELL_DIM=2000.0
+    export ACTORS_PER_CELL=4800
     export PE_ROWS=12
     export PE_COLS=16
 elif [[ $SLURM_NNODES -eq 32 ]]; then
     # For 32 nodes
-    export CELL_DIM=50.0
-    export ACTORS_PER_CELL=200
+    export CELL_DIM=1000.0
+    export ACTORS_PER_CELL=1200
     export PE_ROWS=24
     export PE_COLS=32
+elif [[ $SLURM_NNODES -eq 128 ]]; then
+    # For 128 nodes
+    export CELL_DIM=500.0
+    export ACTORS_PER_CELL=300
+    export PE_ROWS=48
+    export PE_COLS=64
 else
     echo "Unsupported number of nodes! $SLURM_NNODES"
     exit 1
@@ -72,18 +77,13 @@ fi
 export N_PORTALS=0
 export N_INFECTED=1
 # export MAX_NUM_TIMESTEPS=1000
-# export MAX_NUM_TIMESTEPS=300
-export MAX_NUM_TIMESTEPS=2
-export INFECTION_RADIUS=4.0
+export MAX_NUM_TIMESTEPS=30
+export INFECTION_RADIUS=10.0
 export MAX_DELTA_VELOCITY=0.01
-
-# srun --ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) \
-#     --ntasks-per-socket=1 --cpus-per-task=1 ./bin/infectious_test \
-#     $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
-#     $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
 
 cd $SCRATCH
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 $HOME/hoover/bin/infectious_test \
-    $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
-    $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
+    $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
+    $MAX_DELTA_VELOCITY

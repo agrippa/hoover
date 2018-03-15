@@ -19,9 +19,9 @@
 // #define TRACK_VECTOR_GET_CACHE
 
 // #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
-#define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
+// #define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
 // #else
-// #define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
+#define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
 // #endif
 
 #define EDGE_GET_BUFFERING 4096
@@ -1293,10 +1293,11 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     for (unsigned i = 0; i < n_partitions; i++) {
         (new_ctx->last_timestep_using_partition)[i] = -1;
     }
-    new_ctx->partition_time_window = hvr_create_empty_set_symmetric_custom(
-            n_partitions, new_ctx);
-    new_ctx->tmp_partition_time_window = hvr_create_empty_set_custom(
-            n_partitions, new_ctx);
+
+     new_ctx->partition_time_window = hvr_create_empty_set_symmetric_custom(
+             n_partitions, new_ctx);
+     new_ctx->tmp_partition_time_window = hvr_create_empty_set_custom(
+             n_partitions, new_ctx);
 
     new_ctx->actor_to_partition_locks = (long *)shmem_malloc(new_ctx->npes *
             sizeof(long));
