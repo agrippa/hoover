@@ -1017,7 +1017,9 @@ static int get_remote_vec_nbi(hvr_sparse_vec_t *dst, const unsigned offset,
  */
 static void update_edges(hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *vec_caches,
-        unsigned long long *getmem_time, unsigned long long *update_edge_time) {
+        unsigned long long *getmem_time, unsigned long long *update_edge_time,
+        unsigned long long *out_n_edge_checks) {
+    unsigned long long n_edge_checks = 0;
     uint16_t *other_actor_to_partition_map = (uint16_t *)malloc(
             ctx->max_n_local_vertices * sizeof(uint16_t));
     assert(other_actor_to_partition_map);
@@ -1086,6 +1088,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                                 vecs_local_offset[f],
                                 other_pes_timestep, ctx);
                         *update_edge_time += (hvr_current_time_us() - start_time);
+                        n_edge_checks++;
                     }
                     filled = 0;
                 }
@@ -1100,11 +1103,13 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                 check_for_edge_to_add(&vecs[f], target_pe, vecs_local_offset[f],
                         other_pes_timestep, ctx);
                 *update_edge_time += (hvr_current_time_us() - start_time);
+                n_edge_checks++;
             }
         }
     }
 
     free(other_actor_to_partition_map);
+    *out_n_edge_checks = n_edge_checks;
 }
 
 /*
@@ -1504,7 +1509,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
     unsigned long long unused;
-    update_edges(ctx, vec_caches, &unused, &unused);
+    update_edges(ctx, vec_caches, &unused, &unused, &unused);
 
     hvr_set_t *to_couple_with = hvr_create_empty_set(ctx);
 
@@ -1576,7 +1581,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
         hvr_clear_edge_set(ctx->edges);
         unsigned long long getmem_time = 0;
         unsigned long long update_edge_time = 0;
-        update_edges(ctx, vec_caches, &getmem_time, &update_edge_time);
+        unsigned long long n_edge_checks = 0;
+        update_edges(ctx, vec_caches, &getmem_time, &update_edge_time,
+                &n_edge_checks);
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
@@ -1746,7 +1753,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 &nmisses_due_to_age);
 
         printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f) - summary %f ms "
-                "(%f %f %f | %f %f %f %f) - edges %f ms (%f %f) - neighbor "
+                "(%f %f %f | %f %f %f %f) - edges %f ms (%f %f %llu) - neighbor "
                 "updates %f ms - coupled values %f ms - coupling %f ms (%u) - throttling %f ms - %u spins - %u / %u PE "
                 "neighbors %s - partition window = %s, %d / %d active - "
                 "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
@@ -1764,7 +1771,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)update_neighbors_unlock_time / 1000.0,
                 (double)update_neighbors_body_time / 1000.0,
                 (double)(finished_edge_adds - finished_summary_update) / 1000.0,
-                (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0,
+                (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0, n_edge_checks,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
                 (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0,
                 (double)(finished_coupling - finished_coupled_values) / 1000.0, n_coupled_spins,
