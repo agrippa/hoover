@@ -1082,8 +1082,8 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                         interacting_partitions, &n_interacting_partitions,
                         MAX_INTERACTING_PARTITIONS, ctx)) {
                 hvr_sparse_vec_t remote_vec;
-                get_remote_vec_nbi(&remote_vec, j, target_pe, ctx, vec_caches);
                 const unsigned long long end_getmem_time = hvr_current_time_us();
+                get_remote_vec_nbi(&remote_vec, j, target_pe, ctx, vec_caches);
                 *getmem_time += (end_getmem_time - start_time);
 
                 const unsigned long long start_time = hvr_current_time_us();
