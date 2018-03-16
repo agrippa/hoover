@@ -1078,11 +1078,11 @@ static void update_edges(hvr_internal_ctx_t *ctx,
              * If actor j on the remote PE might interact with anything in our
              * local PE.
              */
+                const unsigned long long end_getmem_time = hvr_current_time_us();
             if (ctx->might_interact(actor_partition, ctx->partition_time_window,
                         interacting_partitions, &n_interacting_partitions,
                         MAX_INTERACTING_PARTITIONS, ctx)) {
                 hvr_sparse_vec_t remote_vec;
-                const unsigned long long end_getmem_time = hvr_current_time_us();
                 get_remote_vec_nbi(&remote_vec, j, target_pe, ctx, vec_caches);
                 *getmem_time += (end_getmem_time - start_time);
 
