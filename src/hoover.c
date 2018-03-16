@@ -16,6 +16,8 @@
 #include "hoover.h"
 #include "shmem_rw_lock.h"
 
+#define MAX_INTERACTING_PARTITIONS 10
+
 // #define TRACK_VECTOR_GET_CACHE
 
 // #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
@@ -825,6 +827,8 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
 static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
         unsigned long long *out_lock_time, unsigned long long *out_getmem_time,
         unsigned long long *out_unlock_time, unsigned long long *out_body_time) {
+    uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
+    unsigned n_interacting_partitions;
     hvr_set_wipe(ctx->my_neighbors);
 
     unsigned long long lock_time = 0;
@@ -865,7 +869,9 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
         for (unsigned part_index = 0; part_index < n_other_partitions;
                 part_index++) {
             const unsigned part = other_partitions[part_index];
-            if (ctx->might_interact(part, ctx->partition_time_window, ctx)) {
+            if (ctx->might_interact(part, ctx->partition_time_window,
+                        interacting_partitions, &n_interacting_partitions,
+                        MAX_INTERACTING_PARTITIONS, ctx)) {
                 hvr_set_insert(target_pe, ctx->my_neighbors);
                 break;
             }
@@ -923,39 +929,40 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
  * Check if an edge should be added from any locally stored actors to the jth
  * actor on PE target_pe (whose data is stored in vec).
  */
-static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
-        const int target_pe, const int j, const hvr_time_t other_pes_timestep,
-        hvr_internal_ctx_t *ctx) {
-    /*
-     * For each local vertex, check if we want to add an edge from
-     * other to this.
-     *
-     * TODO We shouldn't have to check against all local vertices, as we know
-     * the remote actor's partition and the local actor's partition, and can
-     * tell if they might interact. We may be able to use this information to
-     * cut down on the number of distance measures we take here.
-     */
-    for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
-        /*
-         * Never want to add an edge from a node to itself (at
-         * least, we don't have a use case for this yet).
-         */
-        if (target_pe == ctx->pe && i == j) continue;
-
-        hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
-
-        const double distance = sparse_vec_distance_measure(curr,
-                vec, ctx->timestep - 1, other_pes_timestep,
-                ctx->min_spatial_feature, ctx->max_spatial_feature,
-                &ctx->n_vector_cache_hits, &ctx->n_vector_cache_misses);
-
-        if (distance < ctx->connectivity_threshold *
-                ctx->connectivity_threshold) {
-            // Add edge
-            hvr_add_edge(curr->id, vec->id, ctx->edges);
-        }
-    }
-}
+// static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
+//         const int target_pe, const int j, const hvr_time_t other_pes_timestep,
+//         hvr_internal_ctx_t *ctx) {
+//     /*
+//      * For each local vertex, check if we want to add an edge from
+//      * other to this.
+//      *
+//      * TODO We shouldn't have to check against all local vertices, as we know
+//      * the remote actor's partition and the local actor's partition, and can
+//      * tell if they might interact. We may be able to use this information to
+//      * cut down on the number of distance measures we take here.
+//      */
+//     for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
+//         /*
+//          * Never want to add an edge from a node to itself (at
+//          * least, we don't have a use case for this yet).
+//          */
+//         if (target_pe == ctx->pe && i == j) continue;
+// 
+//         hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
+//         // const uint16_t partition = ctx->actor_to_partition(curr, ctx);
+// 
+//         const double distance = sparse_vec_distance_measure(curr,
+//                 vec, ctx->timestep - 1, other_pes_timestep,
+//                 ctx->min_spatial_feature, ctx->max_spatial_feature,
+//                 &ctx->n_vector_cache_hits, &ctx->n_vector_cache_misses);
+// 
+//         if (distance < ctx->connectivity_threshold *
+//                 ctx->connectivity_threshold) {
+//             // Add edge
+//             hvr_add_edge(curr->id, vec->id, ctx->edges);
+//         }
+//     }
+// }
 
 static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
         hvr_sparse_vec_t *src, const int src_pe) {
@@ -980,6 +987,10 @@ static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
 
     dst->cached_timestamp = -1;
     dst->cached_timestamp_index = 0;
+    /*
+     * No need to set next_in_partition since we'll never use it for a remote
+     * actor.
+     */
 
     /*
      * TODO we need this quiet here at the moment so that communication
@@ -1019,6 +1030,9 @@ static void update_edges(hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *vec_caches,
         unsigned long long *getmem_time, unsigned long long *update_edge_time,
         unsigned long long *out_n_edge_checks) {
+    uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
+    unsigned n_interacting_partitions;
+
     unsigned long long n_edge_checks = 0;
     uint16_t *other_actor_to_partition_map = (uint16_t *)malloc(
             ctx->max_n_local_vertices * sizeof(uint16_t));
@@ -1055,11 +1069,6 @@ static void update_edges(hvr_internal_ctx_t *ctx,
             other_pes_timestep = ctx->timestep - 1;
         }
 
-#define EDGE_CHECK_CHUNKING 8
-        int filled = 0;
-        vertex_id_t vecs_local_offset[EDGE_CHECK_CHUNKING];
-        hvr_sparse_vec_t vecs[EDGE_CHECK_CHUNKING];
-
         // For each vertex on the remote PE
         for (vertex_id_t j = 0; j < ctx->vertices_per_pe[target_pe]; j++) {
             const unsigned long long start_time = hvr_current_time_us();
@@ -1070,38 +1079,42 @@ static void update_edges(hvr_internal_ctx_t *ctx,
              * local PE.
              */
             if (ctx->might_interact(actor_partition, ctx->partition_time_window,
-                        ctx)) {
-
-                get_remote_vec_nbi(vecs + filled, j, target_pe, ctx, vec_caches);
-                vecs_local_offset[filled] = j;
-                filled++;
-
+                        interacting_partitions, &n_interacting_partitions,
+                        MAX_INTERACTING_PARTITIONS, ctx)) {
+                hvr_sparse_vec_t remote_vec;
+                get_remote_vec_nbi(&remote_vec, j, target_pe, ctx, vec_caches);
                 const unsigned long long end_getmem_time = hvr_current_time_us();
                 *getmem_time += (end_getmem_time - start_time);
 
-                if (filled == EDGE_CHECK_CHUNKING) {
-                    shmem_quiet();
-
-                    for (int f = 0; f < filled; f++) {
-                        const unsigned long long start_time = hvr_current_time_us();
-                        check_for_edge_to_add(&vecs[f], target_pe,
-                                vecs_local_offset[f],
-                                other_pes_timestep, ctx);
-                        *update_edge_time += (hvr_current_time_us() - start_time);
-                        n_edge_checks++;
-                    }
-                    filled = 0;
-                }
-            }
-        }
-
-        if (filled > 0) {
-            shmem_quiet();
-
-            for (int f = 0; f < filled; f++) {
                 const unsigned long long start_time = hvr_current_time_us();
-                check_for_edge_to_add(&vecs[f], target_pe, vecs_local_offset[f],
-                        other_pes_timestep, ctx);
+                for (unsigned p = 0; p < n_interacting_partitions; p++) {
+                    hvr_sparse_vec_t *partition_list =
+                        ctx->partition_lists[interacting_partitions[p]];
+                    while (partition_list) {
+                        /*
+                         * Never want to add an edge from a node to itself (at
+                         * least, we don't have a use case for this yet).
+                         */
+                        if (partition_list->id != remote_vec.id) {
+                            const double distance = sparse_vec_distance_measure(
+                                    partition_list, &remote_vec, 
+                                    ctx->timestep - 1, other_pes_timestep,
+                                    ctx->min_spatial_feature,
+                                    ctx->max_spatial_feature,
+                                    &ctx->n_vector_cache_hits,
+                                    &ctx->n_vector_cache_misses);
+                            if (distance < ctx->connectivity_threshold *
+                                    ctx->connectivity_threshold) {
+                                // Add edge
+                                hvr_add_edge(partition_list->id, remote_vec.id,
+                                        ctx->edges);
+                            }
+                        }
+                        partition_list = partition_list->next_in_partition;
+                    }
+                }
+                // check_for_edge_to_add(&remote_vec, target_pe, j,
+                //         other_pes_timestep, ctx);
                 *update_edge_time += (hvr_current_time_us() - start_time);
                 n_edge_checks++;
             }
@@ -1119,11 +1132,15 @@ static void update_edges(hvr_internal_ctx_t *ctx,
  * per-timestep, in a circular buffer.
  */
 static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
+    hvr_sparse_vec_t **partition_lists = ctx->partition_lists;
+    memset(partition_lists, 0x00,
+            sizeof(hvr_sparse_vec_t *) * ctx->n_partitions);
+
     lock_actor_to_partition(ctx->pe, ctx);
 
     for (unsigned a = 0; a < ctx->n_local_vertices; a++) {
-        const uint16_t partition = ctx->actor_to_partition(
-                ctx->vertices + a, ctx);
+        hvr_sparse_vec_t *curr = ctx->vertices + a;
+        const uint16_t partition = ctx->actor_to_partition(curr, ctx);
         assert(partition < ctx->n_partitions);
 
         // Update a mapping from local actor to the partition it belongs to
@@ -1134,6 +1151,14 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
          * avoid multiple traversal over all actors we stick it here.
          */
         (ctx->last_timestep_using_partition)[partition] = ctx->timestep;
+
+        if (partition_lists[partition]) {
+            curr->next_in_partition = partition_lists[partition];
+            partition_lists[partition] = curr;
+        } else {
+            curr->next_in_partition = NULL;
+            partition_lists[partition] = curr;
+        }
     }
 
     unlock_actor_to_partition(ctx->pe, ctx);
@@ -1382,6 +1407,10 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     new_ctx->coupled_pes_values_buffer = hvr_sparse_vec_create_n(new_ctx->npes);
 
     new_ctx->coupled_lock = hvr_rwlock_create_n(1);
+
+    new_ctx->partition_lists = (hvr_sparse_vec_t **)malloc(
+            sizeof(hvr_sparse_vec_t *) * new_ctx->n_partitions);
+    assert(new_ctx->partition_lists);
 
     shmem_barrier_all();
 }

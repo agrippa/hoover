@@ -247,6 +247,9 @@ int update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
  * interact.
  */
 int might_interact(const uint16_t partition, hvr_set_t *partitions,
+        uint16_t *interacting_partitions,
+        unsigned *n_interacting_partitions,
+        unsigned interacting_partitions_capacity,
         hvr_ctx_t ctx) {
 
     // The global dimensions of the full simulation space
@@ -297,15 +300,19 @@ int might_interact(const uint16_t partition, hvr_set_t *partitions,
     assert(min_partition_row <= max_partition_row);
     assert(min_partition_col <= max_partition_col);
 
+    unsigned count_interacting_partitions = 0;
     for (int r = min_partition_row; r <= max_partition_row; r++) {
         for (int c = min_partition_col; c <= max_partition_col; c++) {
             const int part = r * PARTITION_DIM + c;
             if (hvr_set_contains(part, partitions)) {
-                return 1;
+                assert(count_interacting_partitions + 1 <=
+                        interacting_partitions_capacity);
+                interacting_partitions[count_interacting_partitions++] = part;
             }
         }
     }
-    return 0;
+    *n_interacting_partitions = count_interacting_partitions;
+    return count_interacting_partitions > 0;
 }
 
 static unsigned long long last_time = 0;

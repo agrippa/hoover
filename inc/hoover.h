@@ -64,6 +64,7 @@ typedef struct _hvr_sparse_vec_t {
 
     hvr_time_t cached_timestamp;
     unsigned cached_timestamp_index;
+    struct _hvr_sparse_vec_t *next_in_partition;
 } hvr_sparse_vec_t;
 
 /*
@@ -207,7 +208,9 @@ typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
  * vertices on another PE.
  */
 typedef int (*hvr_might_interact_func)(const uint16_t partition,
-        hvr_set_t *partitions, hvr_ctx_t ctx);
+        hvr_set_t *partitions, uint16_t *interacting_partitions,
+        unsigned *n_interacting_partitions,
+        unsigned interacting_partitions_capacity, hvr_ctx_t ctx);
 
 typedef uint16_t (*hvr_actor_to_partition)(hvr_sparse_vec_t *actor,
         hvr_ctx_t ctx);
@@ -273,6 +276,8 @@ typedef struct _hvr_internal_ctx_t {
     unsigned n_vector_cache_hits, n_vector_cache_misses;
 
     char my_hostname[1024];
+
+    hvr_sparse_vec_t **partition_lists;
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init
