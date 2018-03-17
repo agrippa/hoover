@@ -107,8 +107,16 @@ int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec);
 #define HVR_CACHE_BUCKETS 512
 
 typedef struct _hvr_sparse_vec_cache_node_t {
+    // Offset identifying this vector on its home PE
     unsigned offset;
+    // Contents of the vec itself
     hvr_sparse_vec_t vec;
+    /*
+     * Flag indicating if this node is currently being filled asynchronously,
+     * and we don't know if the contents are ready.
+     */
+    int pending_comm;
+    // Pointer to the next cache node in the same bucket
     struct _hvr_sparse_vec_cache_node_t *next;
 } hvr_sparse_vec_cache_node_t;
 
@@ -125,7 +133,7 @@ void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache);
 
 void hvr_sparse_vec_cache_clear(hvr_sparse_vec_cache_t *cache);
 
-hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(unsigned offset,
+hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(unsigned offset,
         hvr_sparse_vec_cache_t *cache, hvr_time_t target_timestep);
 
 void hvr_sparse_vec_cache_insert(unsigned offset, hvr_sparse_vec_t *vec,

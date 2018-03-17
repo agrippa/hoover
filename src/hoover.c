@@ -16,6 +16,7 @@
 #include "hoover.h"
 #include "shmem_rw_lock.h"
 
+#define CACHED_TIMESTEPS_TOLERANCE 5
 #define MAX_INTERACTING_PARTITIONS 10
 
 // #define TRACK_VECTOR_GET_CACHE
@@ -467,7 +468,7 @@ void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache) {
     }
 }
 
-hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(unsigned offset,
+hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(unsigned offset,
         hvr_sparse_vec_cache_t *cache, hvr_time_t target_timestep) {
     const unsigned bucket = offset % HVR_CACHE_BUCKETS;
     hvr_sparse_vec_cache_node_t *head = cache->buckets[bucket];
@@ -488,7 +489,8 @@ hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(unsigned offset,
         int success = get_newest_timestamp(&(iter->vec), &newest_timestamp);
 
         if (success && (newest_timestamp >= target_timestep ||
-                    target_timestep - newest_timestamp <= 5)) {
+                    target_timestep - newest_timestamp <=
+                    CACHED_TIMESTEPS_TOLERANCE)) {
             // Can use, update the cache to make this most recently used
             if (prev) {
                 prev->next = iter->next;
@@ -496,7 +498,7 @@ hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(unsigned offset,
                 cache->buckets[bucket] = iter;
             }
             cache->nhits++;
-            return &(iter->vec);
+            return iter;
         } else {
             // Otherwise, evict
             if (prev) {
@@ -515,8 +517,19 @@ hvr_sparse_vec_t *hvr_sparse_vec_cache_lookup(unsigned offset,
     }
 }
 
-void hvr_sparse_vec_cache_insert(unsigned offset, hvr_sparse_vec_t *vec,
-        hvr_sparse_vec_cache_t *cache) {
+void hvr_sparse_vec_cache_quiet(hvr_sparse_vec_cache_t *cache) {
+    shmem_quiet();
+    for (unsigned b = 0; b < HVR_CACHE_BUCKETS; b++) {
+        hvr_sparse_vec_cache_node_t *iter = cache->buckets[b];
+        while (iter) {
+            iter->pending_comm = 0;
+            iter = iter->next;
+        }
+    }
+}
+
+hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_reserve(
+        unsigned offset, hvr_sparse_vec_cache_t *cache) {
     // Assume that vec is not already in the cache, but don't enforce this
     const unsigned bucket = offset % HVR_CACHE_BUCKETS;
     if (cache->bucket_size[bucket] == cache->hvr_cache_max_bucket_size) {
@@ -529,10 +542,12 @@ void hvr_sparse_vec_cache_insert(unsigned offset, hvr_sparse_vec_t *vec,
         }
         // Re-use iter and place it at head
         prev->next = NULL;
-        memcpy(&(iter->vec), vec, sizeof(*vec));
+        assert(iter->pending_comm == 0);
         iter->offset = offset;
+        iter->pending_comm = 1;
         iter->next = cache->buckets[bucket];
         cache->buckets[bucket] = iter;
+        return iter;
     } else {
         // Allocate and insert
         hvr_sparse_vec_cache_node_t *new_node;
@@ -543,12 +558,22 @@ void hvr_sparse_vec_cache_insert(unsigned offset, hvr_sparse_vec_t *vec,
             new_node = (hvr_sparse_vec_cache_node_t *)malloc(sizeof(*new_node));
             assert(new_node);
         }
-        memcpy(&(new_node->vec), vec, sizeof(*vec));
+        assert(new_node->pending_comm == 0);
         new_node->offset = offset;
+        new_node->pending_comm = 1;
         new_node->next = cache->buckets[bucket];
         cache->buckets[bucket] = new_node;
         cache->bucket_size[bucket] += 1;
+        return new_node;
     }
+}
+
+void hvr_sparse_vec_cache_insert(unsigned offset, hvr_sparse_vec_t *vec,
+        hvr_sparse_vec_cache_t *cache) {
+    hvr_sparse_vec_cache_node_t *node = hvr_sparse_vec_cache_reserve(offset,
+            cache);
+    node->pending_comm = 0;
+    memcpy(&(node->vec), vec, sizeof(*vec));
 }
 
 static void sum_hits_and_misses(hvr_sparse_vec_cache_t *vec_caches,
@@ -925,45 +950,6 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
     return acc;
 }
 
-/*
- * Check if an edge should be added from any locally stored actors to the jth
- * actor on PE target_pe (whose data is stored in vec).
- */
-// static void check_for_edge_to_add(hvr_sparse_vec_t *vec,
-//         const int target_pe, const int j, const hvr_time_t other_pes_timestep,
-//         hvr_internal_ctx_t *ctx) {
-//     /*
-//      * For each local vertex, check if we want to add an edge from
-//      * other to this.
-//      *
-//      * TODO We shouldn't have to check against all local vertices, as we know
-//      * the remote actor's partition and the local actor's partition, and can
-//      * tell if they might interact. We may be able to use this information to
-//      * cut down on the number of distance measures we take here.
-//      */
-//     for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
-//         /*
-//          * Never want to add an edge from a node to itself (at
-//          * least, we don't have a use case for this yet).
-//          */
-//         if (target_pe == ctx->pe && i == j) continue;
-// 
-//         hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
-//         // const uint16_t partition = ctx->actor_to_partition(curr, ctx);
-// 
-//         const double distance = sparse_vec_distance_measure(curr,
-//                 vec, ctx->timestep - 1, other_pes_timestep,
-//                 ctx->min_spatial_feature, ctx->max_spatial_feature,
-//                 &ctx->n_vector_cache_hits, &ctx->n_vector_cache_misses);
-// 
-//         if (distance < ctx->connectivity_threshold *
-//                 ctx->connectivity_threshold) {
-//             // Add edge
-//             hvr_add_edge(curr->id, vec->id, ctx->edges);
-//         }
-//     }
-// }
-
 static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
         hvr_sparse_vec_t *src, const int src_pe) {
     shmem_getmem_nbi((void *)&(dst->next_bucket),
@@ -992,33 +978,32 @@ static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
      * actor.
      */
 
-    /*
-     * TODO we need this quiet here at the moment so that communication
-     * completes before cache insertion occurs because we copy out of dst
-     * and into the cache inside hvr_sparse_vec_cache_insert. Is there a way
-     * to work around this? e.g. by requesting a buffer to copy to from the
-     * cache? Would enable more asynchrony, possible performance gains.
-     */
-    shmem_quiet();
+//     /*
+//      * TODO we need this quiet here at the moment so that communication
+//      * completes before cache insertion occurs because we copy out of dst
+//      * and into the cache inside hvr_sparse_vec_cache_insert. Is there a way
+//      * to work around this? e.g. by requesting a buffer to copy to from the
+//      * cache? Would enable more asynchrony, possible performance gains.
+//      */
+//     shmem_quiet();
 }
 
-static int get_remote_vec_nbi(hvr_sparse_vec_t *dst, const unsigned offset,
+static hvr_sparse_vec_cache_node_t *get_remote_vec_nbi(const unsigned offset,
         const int src_pe, hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *vec_caches) {
     hvr_sparse_vec_cache_t *cache = vec_caches + src_pe;
-    hvr_sparse_vec_t *cached = hvr_sparse_vec_cache_lookup(offset, cache,
-            ctx->timestep - 1);
+    hvr_sparse_vec_cache_node_t *cached = hvr_sparse_vec_cache_lookup(offset,
+            cache, ctx->timestep - 1);
 
     if (cached) {
-        memcpy(dst, cached, sizeof(*dst));
-        return 0;
+        // May still be pending
+        return cached;
     } else {
         hvr_sparse_vec_t *src = &(ctx->vertices[offset]);
-
-        get_remote_vec_nbi_uncached(dst, src, src_pe);
-
-        hvr_sparse_vec_cache_insert(offset, dst, cache);
-        return 1;
+        hvr_sparse_vec_cache_node_t *node = hvr_sparse_vec_cache_reserve(offset,
+                cache);
+        get_remote_vec_nbi_uncached(&(node->vec), src, src_pe);
+        return node;
     }
 }
 
@@ -1078,12 +1063,17 @@ static void update_edges(hvr_internal_ctx_t *ctx,
              * If actor j on the remote PE might interact with anything in our
              * local PE.
              */
-                const unsigned long long end_getmem_time = hvr_current_time_us();
             if (ctx->might_interact(actor_partition, ctx->partition_time_window,
                         interacting_partitions, &n_interacting_partitions,
                         MAX_INTERACTING_PARTITIONS, ctx)) {
-                hvr_sparse_vec_t remote_vec;
-                get_remote_vec_nbi(&remote_vec, j, target_pe, ctx, vec_caches);
+                // hvr_sparse_vec_t remote_vec;
+                hvr_sparse_vec_cache_node_t *cache_node = get_remote_vec_nbi(j,
+                        target_pe, ctx, vec_caches);
+                hvr_sparse_vec_t *remote_vec = &(cache_node->vec);
+                hvr_sparse_vec_cache_quiet(vec_caches + target_pe);
+
+                // get_remote_vec_nbi(&remote_vec, j, target_pe, ctx, vec_caches);
+                const unsigned long long end_getmem_time = hvr_current_time_us();
                 *getmem_time += (end_getmem_time - start_time);
 
                 const unsigned long long start_time = hvr_current_time_us();
@@ -1095,9 +1085,9 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                          * Never want to add an edge from a node to itself (at
                          * least, we don't have a use case for this yet).
                          */
-                        if (partition_list->id != remote_vec.id) {
+                        if (partition_list->id != remote_vec->id) {
                             const double distance = sparse_vec_distance_measure(
-                                    partition_list, &remote_vec, 
+                                    partition_list, remote_vec, 
                                     ctx->timestep - 1, other_pes_timestep,
                                     ctx->min_spatial_feature,
                                     ctx->max_spatial_feature,
@@ -1106,15 +1096,13 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                             if (distance < ctx->connectivity_threshold *
                                     ctx->connectivity_threshold) {
                                 // Add edge
-                                hvr_add_edge(partition_list->id, remote_vec.id,
+                                hvr_add_edge(partition_list->id, remote_vec->id,
                                         ctx->edges);
                             }
                         }
                         partition_list = partition_list->next_in_partition;
                     }
                 }
-                // check_for_edge_to_add(&remote_vec, target_pe, j,
-                //         other_pes_timestep, ctx);
                 *update_edge_time += (hvr_current_time_us() - start_time);
                 n_edge_checks++;
             }
@@ -1458,8 +1446,11 @@ static void update_local_actor_metadata(const vertex_id_t actor,
             size_t local_offset;
             ctx->vertex_owner(neighbor, &other_pe, &local_offset);
 
-            get_remote_vec_nbi(ctx->buffer + n, local_offset, other_pe, ctx,
-                    vec_caches);
+            hvr_sparse_vec_cache_node_t *cache_node = get_remote_vec_nbi(
+                    local_offset, other_pe, ctx, vec_caches);
+            hvr_sparse_vec_cache_quiet(vec_caches + other_pe);
+            memcpy(ctx->buffer + n, &(cache_node->vec),
+                    sizeof(cache_node->vec));
         }
 
         shmem_quiet();
