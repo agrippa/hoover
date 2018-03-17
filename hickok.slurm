@@ -58,7 +58,7 @@ if [[ $SLURM_NNODES -eq 1 ]]; then
     if [[ $SCALING == strong ]]; then
         # export CELL_DIM=400.0
         export CELL_DIM=4000.0
-        export ACTORS_PER_CELL=3200
+        export ACTORS_PER_CELL=12800
         export PE_ROWS=4
         export PE_COLS=4
     else
@@ -72,7 +72,7 @@ elif [[ $SLURM_NNODES -eq 4 ]]; then
     if [[ $SCALING == strong ]]; then
         # export CELL_DIM=200.0
         export CELL_DIM=2000.0
-        export ACTORS_PER_CELL=800
+        export ACTORS_PER_CELL=3200
         export PE_ROWS=8
         export PE_COLS=8
     else
@@ -86,7 +86,7 @@ elif [[ $SLURM_NNODES -eq 16 ]]; then
     if [[ $SCALING == strong ]]; then
         # export CELL_DIM=100.0 # for illustrating coupled execution
         export CELL_DIM=1000.0 # for illustrating uncoupled execution
-        export ACTORS_PER_CELL=200
+        export ACTORS_PER_CELL=800
         export PE_ROWS=16
         export PE_COLS=16
     else
@@ -116,7 +116,7 @@ else
 fi
 
 # for MAX_NUM_TIMESTEPS in 10 100 200; do
-for MAX_NUM_TIMESTEPS in 1000; do
+for MAX_NUM_TIMESTEPS in 100; do
     # for INFECTION_RADIUS in 4.0 10.0; do
     for INFECTION_RADIUS in 10.0; do
 
