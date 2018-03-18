@@ -1,4 +1,4 @@
-CFLAGS=-Wall -Werror -g -O2 -Iinc -std=c99
+CFLAGS=-Wall -Werror -g -O0 -Iinc -std=c99
 
 all: bin/libhoover.a bin/edge_set_test bin/sparse_vec_test bin/init_test bin/pe_neighbors_set_test bin/infectious_test bin/shmem_rw_lock_test
 

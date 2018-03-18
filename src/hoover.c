@@ -17,7 +17,7 @@
 #include "shmem_rw_lock.h"
 
 #define CACHED_TIMESTEPS_TOLERANCE 5
-#define MAX_INTERACTING_PARTITIONS 10
+#define MAX_INTERACTING_PARTITIONS 100
 
 #define FINE_GRAIN_TIMING
 
@@ -29,7 +29,7 @@
 // #define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
 // #endif
 
-#define EDGE_GET_BUFFERING 4096
+#define EDGE_GET_BUFFERING 1024
 
 static int have_default_sparse_vec_val = 0;
 static double default_sparse_vec_val = 0.0;
@@ -560,6 +560,7 @@ hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_reserve(
         } else {
             new_node = (hvr_sparse_vec_cache_node_t *)malloc(sizeof(*new_node));
             assert(new_node);
+            memset(new_node, 0x00, sizeof(*new_node));
         }
         assert(new_node->pending_comm == 0);
         new_node->offset = offset;
@@ -1341,6 +1342,10 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     new_ctx->neighbor_buffer = (hvr_sparse_vec_cache_node_t **)malloc(
             EDGE_GET_BUFFERING * sizeof(hvr_sparse_vec_cache_node_t *));
     assert(new_ctx->neighbor_buffer);
+    new_ctx->buffered_neighbors = (hvr_sparse_vec_t *)malloc(EDGE_GET_BUFFERING * sizeof(hvr_sparse_vec_t));
+    assert(new_ctx->buffered_neighbors);
+    new_ctx->buffered_neighbors_pes = (int *)malloc(EDGE_GET_BUFFERING * sizeof(int));
+    assert(new_ctx->buffered_neighbors_pes);
 
     new_ctx->symm_timestep = (volatile hvr_time_t *)shmem_malloc(
             sizeof(*(new_ctx->symm_timestep)));
@@ -1472,9 +1477,6 @@ static void update_local_actor_metadata(const vertex_id_t actor,
         hvr_set_t *to_couple_with, unsigned long long *fetch_neighbors_time,
        unsigned long long *update_metadata_time, hvr_internal_ctx_t *ctx,
        hvr_sparse_vec_cache_t *vec_caches, unsigned long long *quiet_counter) {
-    hvr_sparse_vec_t buffered_neighbors[EDGE_GET_BUFFERING];
-    int other_pes[EDGE_GET_BUFFERING];
-
     static size_t neighbors_capacity = 0;
     static vertex_id_t *neighbors = NULL;
     if (neighbors == NULL) {
@@ -1512,18 +1514,18 @@ static void update_local_actor_metadata(const vertex_id_t actor,
             hvr_sparse_vec_cache_node_t *cache_node = get_remote_vec_nbi(
                     local_offset, other_pe, ctx, vec_caches);
             (ctx->neighbor_buffer)[n] = cache_node;
-            other_pes[n] = other_pe;
+            (ctx->buffered_neighbors_pes)[n] = other_pe;
         }
 
         for (unsigned n = 0; n < n_neighbors; n++) {
-            hvr_sparse_vec_cache_quiet(vec_caches + other_pes[n], quiet_counter);
-            memcpy(&buffered_neighbors[n], &((ctx->neighbor_buffer)[n]->vec),
+            hvr_sparse_vec_cache_quiet(vec_caches + (ctx->buffered_neighbors_pes)[n], quiet_counter);
+            memcpy(ctx->buffered_neighbors + n, &((ctx->neighbor_buffer)[n]->vec),
                     sizeof(hvr_sparse_vec_t));
         }
         const unsigned long long finish_neighbor_fetch= hvr_current_time_us();
         *fetch_neighbors_time += (finish_neighbor_fetch - start_single_update);
 
-        ctx->update_metadata(&(ctx->vertices[actor]), buffered_neighbors,
+        ctx->update_metadata(&(ctx->vertices[actor]), ctx->buffered_neighbors,
                 n_neighbors, to_couple_with, ctx);
         update_metadata_time += (hvr_current_time_us() - finish_neighbor_fetch);
     } else {

@@ -262,6 +262,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_time_t max_timestep;
 
     hvr_sparse_vec_cache_node_t **neighbor_buffer;
+    hvr_sparse_vec_t *buffered_neighbors;
+    int *buffered_neighbors_pes;
 
     long long *p_wrk;
     int *p_wrk_int;

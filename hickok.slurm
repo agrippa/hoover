@@ -121,7 +121,7 @@ for MAX_NUM_TIMESTEPS in 100; do
     for INFECTION_RADIUS in 10.0; do
 
         $OPENSHMEM_INSTALL/bin/oshrun $PROCESS_CONFIG \
-                $HOME/hoover/bin/infectious_test \
+                valgrind $HOME/hoover/bin/infectious_test \
                 $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
                 $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
     done
