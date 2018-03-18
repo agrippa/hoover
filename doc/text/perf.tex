@@ -75,6 +75,7 @@ include in their caption which version of HOOVER the results are collected from.
 0.1                     & \texttt{385911bb27f74fd74a8f038f95a2447cda372ec4}  & Feb 10 2018 \\\hline
 0.2                     & \texttt{38591d9adf732c144ced382175348031f8518bad}  & Feb 27 2018 \\\hline
 0.3                     & \texttt{4f9350fcc2d624ae14cffde6aae08b63a7d3ad16}  & Mar 02 2018 \\\hline
+0.4                     & \texttt{0129e2a81c2a14959e8966965b25c3fc7cf5c752}  & Mar 17 2018 \\\hline
 \end{tabular}
 \caption{Strong scaling of the HOOVER framework on OSSS OpenSHMEM running a
     simple infectious disease model with varying \# of iters and infection
@@ -144,11 +145,28 @@ Tables~\ref{tab:strong_scaling1} and~\ref{tab:strong_scaling2} show the results 
 \label{tab:strong_scaling3}
 \end{table}
 
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | l || X | X | X | X | X | X | }
+\hline
+\textbf{\# Iters}           & \multicolumn{2}{|X|}{\textbf{10}} & \multicolumn{2}{|X|}{\textbf{100}} & \multicolumn{2}{|X|}{\textbf{200}} \\\hline
+\textbf{Infection Radius}   & 4.0          & 10.0         & 4.0           & 10.0          & 4.0           & 10.0 \\\hline
+4 nodes                     &  1,811       & 2,939        & 14,606       & 24,815       & 30,957       & 45,612 \\\hline
+16 nodes                    &   576        &  574         &  4,618       &  5,141       &  9,530       &  9,981 \\\hline
+Speedup                     & 3.14$\times$ & 5.12$\times$ & 3.16$\times$ & 4.83$\times$ & 3.25$\times$ & 4.57$\times$ \\\hline
+\end{tabularx}
+\caption{Strong scaling of the HOOVER framework v0.4 on OSSS OpenSHMEM running a
+    simple infectious disease model with varying \# of iters and infection
+    radius.}
+\label{tab:strong_scaling4}
+\end{table}
+
+
 Tables~\ref{tab:strong_scaling1}, \ref{tab:strong_scaling2},
-and~\ref{tab:strong_scaling3} exhibit a few interesting trends:
+\ref{tab:strong_scaling3}, and~\ref{tab:strong_scaling4} exhibit a few interesting trends:
 
 \begin{enumerate}
-    \item HOOVER does not currently exhibit linear strong scaling from 4 to 16
+    \item HOOVER does not always exhibit linear strong scaling from 4 to 16
         nodes (16 to 256 PEs), but in most cases does see significant speedup.
     \item In many cases, HOOVER sees super-linear scaling from 1 node to 4
         nodes, likely due to drastic changes in communication patterns as we
