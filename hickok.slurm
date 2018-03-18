@@ -7,7 +7,7 @@
 #SBATCH --exclusive
 #SBATCH --contiguous
 #SBATCH --mail-type=ALL
-#SBATCH --exclude=r01n07,r01n14
+#SBATCH --exclude=r01n07,r02n24
 
 # set -e
 
