@@ -261,7 +261,7 @@ typedef struct _hvr_internal_ctx_t {
     unsigned min_spatial_feature, max_spatial_feature;
     hvr_time_t max_timestep;
 
-    hvr_sparse_vec_t *buffer;
+    hvr_sparse_vec_cache_node_t **neighbor_buffer;
 
     long long *p_wrk;
     int *p_wrk_int;

@@ -517,7 +517,8 @@ hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(unsigned offset,
     }
 }
 
-void hvr_sparse_vec_cache_quiet(hvr_sparse_vec_cache_t *cache) {
+void hvr_sparse_vec_cache_quiet(hvr_sparse_vec_cache_t *cache,
+        unsigned long long *counter) {
     shmem_quiet();
     for (unsigned b = 0; b < HVR_CACHE_BUCKETS; b++) {
         hvr_sparse_vec_cache_node_t *iter = cache->buckets[b];
@@ -526,6 +527,7 @@ void hvr_sparse_vec_cache_quiet(hvr_sparse_vec_cache_t *cache) {
             iter = iter->next;
         }
     }
+    *counter = *counter + 1;
 }
 
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_reserve(
@@ -1045,7 +1047,8 @@ static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
 static void update_edges(hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *vec_caches,
         unsigned long long *getmem_time, unsigned long long *update_edge_time,
-        unsigned long long *out_n_edge_checks) {
+        unsigned long long *out_n_edge_checks,
+        unsigned long long *quiet_counter) {
     uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
     unsigned n_interacting_partitions;
 
@@ -1116,7 +1119,8 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 
                 if (nbuffered == BUFFERING) {
                     // Process buffered
-                    hvr_sparse_vec_cache_quiet(vec_caches + target_pe);
+                    hvr_sparse_vec_cache_quiet(vec_caches + target_pe,
+                            quiet_counter);
                     *getmem_time += (hvr_current_time_us() - start_time);
 
                     const unsigned long long start_time = hvr_current_time_us();
@@ -1139,7 +1143,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
         if (nbuffered > 0) {
             // Process buffered
             unsigned long long start_time = hvr_current_time_us();
-            hvr_sparse_vec_cache_quiet(vec_caches + target_pe);
+            hvr_sparse_vec_cache_quiet(vec_caches + target_pe, quiet_counter);
             *getmem_time += (hvr_current_time_us() - start_time);
 
             start_time = hvr_current_time_us();
@@ -1322,9 +1326,9 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         (new_ctx->p_sync)[i] = SHMEM_SYNC_VALUE;
     }
 
-    new_ctx->buffer = (hvr_sparse_vec_t *)shmem_malloc(
-            EDGE_GET_BUFFERING * sizeof(*(new_ctx->buffer)));
-    assert(new_ctx->buffer);
+    new_ctx->neighbor_buffer = (hvr_sparse_vec_cache_node_t **)malloc(
+            EDGE_GET_BUFFERING * sizeof(hvr_sparse_vec_cache_node_t *));
+    assert(new_ctx->neighbor_buffer);
 
     new_ctx->symm_timestep = (volatile hvr_time_t *)shmem_malloc(
             sizeof(*(new_ctx->symm_timestep)));
@@ -1455,7 +1459,10 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
 static void update_local_actor_metadata(const vertex_id_t actor,
         hvr_set_t *to_couple_with, unsigned long long *fetch_neighbors_time,
        unsigned long long *update_metadata_time, hvr_internal_ctx_t *ctx,
-       hvr_sparse_vec_cache_t *vec_caches) {
+       hvr_sparse_vec_cache_t *vec_caches, unsigned long long *quiet_counter) {
+    hvr_sparse_vec_t buffered_neighbors[EDGE_GET_BUFFERING];
+    int other_pes[EDGE_GET_BUFFERING];
+
     static size_t neighbors_capacity = 0;
     static vertex_id_t *neighbors = NULL;
     if (neighbors == NULL) {
@@ -1492,18 +1499,20 @@ static void update_local_actor_metadata(const vertex_id_t actor,
 
             hvr_sparse_vec_cache_node_t *cache_node = get_remote_vec_nbi(
                     local_offset, other_pe, ctx, vec_caches);
-            hvr_sparse_vec_cache_quiet(vec_caches + other_pe);
-            memcpy(ctx->buffer + n, &(cache_node->vec),
-                    sizeof(cache_node->vec));
+            (ctx->neighbor_buffer)[n] = cache_node;
+            other_pes[n] = other_pe;
         }
 
-        shmem_quiet();
-
+        for (unsigned n = 0; n < n_neighbors; n++) {
+            hvr_sparse_vec_cache_quiet(vec_caches + other_pes[n], quiet_counter);
+            memcpy(&buffered_neighbors[n], &((ctx->neighbor_buffer)[n]->vec),
+                    sizeof(hvr_sparse_vec_t));
+        }
         const unsigned long long finish_neighbor_fetch= hvr_current_time_us();
         *fetch_neighbors_time += (finish_neighbor_fetch - start_single_update);
 
-        ctx->update_metadata(&(ctx->vertices[actor]), ctx->buffer, n_neighbors,
-                to_couple_with, ctx);
+        ctx->update_metadata(&(ctx->vertices[actor]), buffered_neighbors,
+                n_neighbors, to_couple_with, ctx);
         update_metadata_time += (hvr_current_time_us() - finish_neighbor_fetch);
     } else {
         const unsigned long long start_single_update = hvr_current_time_us();
@@ -1573,7 +1582,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
     unsigned long long unused;
-    update_edges(ctx, vec_caches, &unused, &unused, &unused);
+    update_edges(ctx, vec_caches, &unused, &unused, &unused, &unused);
 
     hvr_set_t *to_couple_with = hvr_create_empty_set(ctx);
 
@@ -1594,6 +1603,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
     while (!abort && ctx->timestep < ctx->max_timestep) {
         const unsigned long long start_iter = hvr_current_time_us();
 
+        unsigned long long quiet_counter = 0;
         unsigned long long fetch_neighbors_time = 0;
         unsigned long long update_metadata_time = 0;
 
@@ -1603,7 +1613,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
             update_local_actor_metadata(i, to_couple_with,
                     &fetch_neighbors_time, &update_metadata_time, ctx,
-                    vec_caches);
+                    vec_caches, &quiet_counter);
         }
 
         const unsigned long long finished_updates = hvr_current_time_us();
@@ -1647,7 +1657,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         unsigned long long update_edge_time = 0;
         unsigned long long n_edge_checks = 0;
         update_edges(ctx, vec_caches, &getmem_time, &update_edge_time,
-                &n_edge_checks);
+                &n_edge_checks, &quiet_counter);
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
@@ -1821,7 +1831,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 "updates %f ms - coupled values %f ms - coupling %f ms (%u) - throttling %f ms - %u spins - %u / %u PE "
                 "neighbors %s - partition window = %s, %d / %d active - "
                 "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
-                "age misses=%u, feature cache hits=%u misses=%u\n", ctx->pe, ctx->timestep,
+                "age misses=%u, feature cache hits=%u misses=%u quiets=%llu\n", ctx->pe, ctx->timestep,
                 (double)(finished_throttling - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)fetch_neighbors_time / 1000.0,
@@ -1849,7 +1859,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 hvr_set_count(ctx->partition_time_window), ctx->n_partitions,
                 abort, ctx->timestep >= ctx->max_timestep,
                 nhits, nmisses, nmisses_due_to_age, ctx->n_vector_cache_hits,
-                ctx->n_vector_cache_misses);
+                ctx->n_vector_cache_misses, quiet_counter);
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;
