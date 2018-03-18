@@ -1088,7 +1088,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
             other_pes_timestep = ctx->timestep - 1;
         }
 
-#define BUFFERING 2048
+#define BUFFERING 1024
         struct {
             hvr_sparse_vec_cache_node_t *node;
             uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
