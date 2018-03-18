@@ -22,9 +22,9 @@
 // #define TRACK_VECTOR_GET_CACHE
 
 // #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
-// #define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
+#define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
 // #else
-#define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
+// #define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
 // #endif
 
 #define EDGE_GET_BUFFERING 4096
@@ -1007,6 +1007,37 @@ static hvr_sparse_vec_cache_node_t *get_remote_vec_nbi(const unsigned offset,
     }
 }
 
+static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
+        uint16_t *interacting_partitions, unsigned n_interacting_partitions,
+        hvr_time_t other_pes_timestep, hvr_internal_ctx_t *ctx) {
+    for (unsigned p = 0; p < n_interacting_partitions; p++) {
+        hvr_sparse_vec_t *partition_list =
+            ctx->partition_lists[interacting_partitions[p]];
+        while (partition_list) {
+            /*
+             * Never want to add an edge from a node to itself (at
+             * least, we don't have a use case for this yet).
+             */
+            if (partition_list->id != remote_vec->id) {
+                const double distance = sparse_vec_distance_measure(
+                        partition_list, remote_vec, 
+                        ctx->timestep - 1, other_pes_timestep,
+                        ctx->min_spatial_feature,
+                        ctx->max_spatial_feature,
+                        &ctx->n_vector_cache_hits,
+                        &ctx->n_vector_cache_misses);
+                if (distance < ctx->connectivity_threshold *
+                        ctx->connectivity_threshold) {
+                    // Add edge
+                    hvr_add_edge(partition_list->id, remote_vec->id,
+                            ctx->edges);
+                }
+            }
+            partition_list = partition_list->next_in_partition;
+        }
+    }
+}
+
 /*
  * For each local actor, update the edges it has to other PEs in the simulation
  * based on its current position.
@@ -1054,6 +1085,14 @@ static void update_edges(hvr_internal_ctx_t *ctx,
             other_pes_timestep = ctx->timestep - 1;
         }
 
+#define BUFFERING 10
+        struct {
+            hvr_sparse_vec_cache_node_t *node;
+            unsigned n_interacting_partitions;
+            uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
+        } buffered[BUFFERING];
+        unsigned nbuffered = 0;
+
         // For each vertex on the remote PE
         for (vertex_id_t j = 0; j < ctx->vertices_per_pe[target_pe]; j++) {
             const unsigned long long start_time = hvr_current_time_us();
@@ -1066,46 +1105,51 @@ static void update_edges(hvr_internal_ctx_t *ctx,
             if (ctx->might_interact(actor_partition, ctx->partition_time_window,
                         interacting_partitions, &n_interacting_partitions,
                         MAX_INTERACTING_PARTITIONS, ctx)) {
-                // hvr_sparse_vec_t remote_vec;
-                hvr_sparse_vec_cache_node_t *cache_node = get_remote_vec_nbi(j,
-                        target_pe, ctx, vec_caches);
-                hvr_sparse_vec_t *remote_vec = &(cache_node->vec);
-                hvr_sparse_vec_cache_quiet(vec_caches + target_pe);
+                buffered[nbuffered].node = get_remote_vec_nbi(j, target_pe, ctx,
+                        vec_caches);
+                memcpy(buffered[nbuffered].interacting_partitions,
+                        interacting_partitions,
+                        MAX_INTERACTING_PARTITIONS * sizeof(uint16_t));
+                buffered[nbuffered].n_interacting_partitions =
+                    n_interacting_partitions;
+                nbuffered++;
 
-                // get_remote_vec_nbi(&remote_vec, j, target_pe, ctx, vec_caches);
-                const unsigned long long end_getmem_time = hvr_current_time_us();
-                *getmem_time += (end_getmem_time - start_time);
+                if (nbuffered == BUFFERING) {
+                    // Process buffered
+                    hvr_sparse_vec_cache_quiet(vec_caches + target_pe);
+                    *getmem_time += (hvr_current_time_us() - start_time);
 
-                const unsigned long long start_time = hvr_current_time_us();
-                for (unsigned p = 0; p < n_interacting_partitions; p++) {
-                    hvr_sparse_vec_t *partition_list =
-                        ctx->partition_lists[interacting_partitions[p]];
-                    while (partition_list) {
-                        /*
-                         * Never want to add an edge from a node to itself (at
-                         * least, we don't have a use case for this yet).
-                         */
-                        if (partition_list->id != remote_vec->id) {
-                            const double distance = sparse_vec_distance_measure(
-                                    partition_list, remote_vec, 
-                                    ctx->timestep - 1, other_pes_timestep,
-                                    ctx->min_spatial_feature,
-                                    ctx->max_spatial_feature,
-                                    &ctx->n_vector_cache_hits,
-                                    &ctx->n_vector_cache_misses);
-                            if (distance < ctx->connectivity_threshold *
-                                    ctx->connectivity_threshold) {
-                                // Add edge
-                                hvr_add_edge(partition_list->id, remote_vec->id,
-                                        ctx->edges);
-                            }
-                        }
-                        partition_list = partition_list->next_in_partition;
+                    const unsigned long long start_time = hvr_current_time_us();
+                    for (unsigned i = 0; i < nbuffered; i++) {
+                        check_edges_to_add(&(buffered[i].node->vec),
+                                buffered[i].interacting_partitions,
+                                buffered[i].n_interacting_partitions,
+                                other_pes_timestep, ctx);
                     }
+                    *update_edge_time += (hvr_current_time_us() - start_time);
+                    nbuffered = 0;
+                } else {
+                    *getmem_time += (hvr_current_time_us() - start_time);
                 }
-                *update_edge_time += (hvr_current_time_us() - start_time);
+
                 n_edge_checks++;
             }
+        }
+
+        if (nbuffered > 0) {
+            // Process buffered
+            unsigned long long start_time = hvr_current_time_us();
+            hvr_sparse_vec_cache_quiet(vec_caches + target_pe);
+            *getmem_time += (hvr_current_time_us() - start_time);
+
+            start_time = hvr_current_time_us();
+            for (unsigned i = 0; i < nbuffered; i++) {
+                check_edges_to_add(&(buffered[i].node->vec),
+                        buffered[i].interacting_partitions,
+                        buffered[i].n_interacting_partitions,
+                        other_pes_timestep, ctx);
+            }
+            *update_edge_time += (hvr_current_time_us() - start_time);
         }
     }
 
