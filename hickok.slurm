@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p connectx5
-#SBATCH -N 16
+#SBATCH -N 1
 #SBATCH -t 00:30:00
 #SBATCH -J hoover
 #SBATCH --exclusive

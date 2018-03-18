@@ -19,6 +19,8 @@
 #define CACHED_TIMESTEPS_TOLERANCE 5
 #define MAX_INTERACTING_PARTITIONS 10
 
+#define FINE_GRAIN_TIMING
+
 // #define TRACK_VECTOR_GET_CACHE
 
 // #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
@@ -62,7 +64,6 @@ static void wunlock_partition_time_window(const int pe,
         hvr_internal_ctx_t *ctx) {
     hvr_rwlock_wunlock(ctx->partition_time_window_lock, pe);
 }
-
 
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
     hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc(
@@ -874,7 +875,6 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
                 ctx->partition_time_window->bit_vector,
                 ctx->other_pe_partition_time_window->nelements *
                     sizeof(bit_vec_element_type), target_pe);
-        // TODO Don't fetch this data, re-initialize it locally
         shmem_getmem_nbi(ctx->other_pe_partition_time_window,
                 ctx->partition_time_window,
                 offsetof(hvr_set_t, bit_vector), target_pe);
@@ -965,13 +965,13 @@ static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
 
     shmem_fence();
 
-    shmem_getmem_nbi(&(dst->timestamps[0]), &(src->timestamps[0]),
-            HVR_BUCKETS * sizeof(src->timestamps[0]), src_pe);
+    // shmem_getmem_nbi(&(dst->timestamps[0]), &(src->timestamps[0]),
+    //         HVR_BUCKETS * sizeof(src->timestamps[0]), src_pe);
 
-    shmem_fence();
+    // shmem_fence();
 
     shmem_getmem_nbi(dst, src,
-            offsetof(hvr_sparse_vec_t, timestamps), src_pe);
+            offsetof(hvr_sparse_vec_t, finalized), src_pe);
 
     dst->cached_timestamp = -1;
     dst->cached_timestamp_index = 0;
@@ -1098,13 +1098,12 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 
         // For each vertex on the remote PE
         for (vertex_id_t j = 0; j < ctx->vertices_per_pe[target_pe]; j++) {
+#ifdef FINE_GRAIN_TIMING
             const unsigned long long start_time = hvr_current_time_us();
+#endif
             const uint64_t actor_partition = other_actor_to_partition_map[j];
 
-            /*
-             * If actor j on the remote PE might interact with anything in our
-             * local PE.
-             */
+            // If remote actor j might interact with anything in our local PE.
             if (ctx->might_interact(actor_partition, ctx->partition_time_window,
                         interacting_partitions, &n_interacting_partitions,
                         MAX_INTERACTING_PARTITIONS, ctx)) {
@@ -1121,19 +1120,24 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                     // Process buffered
                     hvr_sparse_vec_cache_quiet(vec_caches + target_pe,
                             quiet_counter);
+#ifdef FINE_GRAIN_TIMING
                     *getmem_time += (hvr_current_time_us() - start_time);
-
                     const unsigned long long start_time = hvr_current_time_us();
+#endif
                     for (unsigned i = 0; i < nbuffered; i++) {
                         check_edges_to_add(&(buffered[i].node->vec),
                                 buffered[i].interacting_partitions,
                                 buffered[i].n_interacting_partitions,
                                 other_pes_timestep, ctx);
                     }
+#ifdef FINE_GRAIN_TIMING
                     *update_edge_time += (hvr_current_time_us() - start_time);
+#endif
                     nbuffered = 0;
                 } else {
+#ifdef FINE_GRAIN_TIMING
                     *getmem_time += (hvr_current_time_us() - start_time);
+#endif
                 }
 
                 n_edge_checks++;
@@ -1142,18 +1146,26 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 
         if (nbuffered > 0) {
             // Process buffered
+#ifdef FINE_GRAIN_TIMING
             unsigned long long start_time = hvr_current_time_us();
+#endif
             hvr_sparse_vec_cache_quiet(vec_caches + target_pe, quiet_counter);
+#ifdef FINE_GRAIN_TIMING
             *getmem_time += (hvr_current_time_us() - start_time);
+#endif
 
+#ifdef FINE_GRAIN_TIMING
             start_time = hvr_current_time_us();
+#endif
             for (unsigned i = 0; i < nbuffered; i++) {
                 check_edges_to_add(&(buffered[i].node->vec),
                         buffered[i].interacting_partitions,
                         buffered[i].n_interacting_partitions,
                         other_pes_timestep, ctx);
             }
+#ifdef FINE_GRAIN_TIMING
             *update_edge_time += (hvr_current_time_us() - start_time);
+#endif
         }
     }
 
