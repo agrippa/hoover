@@ -95,11 +95,18 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     const double global_x_dim = (double)pe_cols * cell_dim;
     const double global_y_dim = (double)pe_rows * cell_dim;
 
+    assert(x < global_x_dim);
+    assert(y < global_y_dim);
+
     const double partition_x_dim = global_x_dim / (double)PARTITION_DIM;
     const double partition_y_dim = global_y_dim / (double)PARTITION_DIM;
 
     const int x_partition = (int)(x / partition_x_dim);
     const int y_partition = (int)(y / partition_y_dim);
+
+    assert(x_partition < PARTITION_DIM);
+    assert(y_partition < PARTITION_DIM);
+
     return y_partition * PARTITION_DIM + x_partition;
 }
 
@@ -296,6 +303,11 @@ int might_interact(const uint16_t partition, hvr_set_t *partitions,
 
     if (max_col >= (double)global_cols_dim) max_partition_col = PARTITION_DIM - 1;
     else max_partition_col = (int)(max_col / cols_dim);
+
+    if (min_partition_row > max_partition_row) {
+        fprintf(stderr, "partition=%u partition_row=%d partition_col=%d min_row=%f max_row=%f min_col=%f max_col=%f min_partition_row=%d max_partition_row=%d min_partition_col=%d max_partition_col=%d rows_dim=%f cols_dim=%f\n",
+                partition, partition_row, partition_col, min_row, max_row, min_col, max_col, min_partition_row, max_partition_row, min_partition_col, max_partition_col, rows_dim, cols_dim);
+    }
 
     assert(min_partition_row <= max_partition_row);
     assert(min_partition_col <= max_partition_col);

@@ -24,9 +24,9 @@
 // #define TRACK_VECTOR_GET_CACHE
 
 // #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
-// #define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
+#define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
 // #else
-#define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
+// #define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
 // #endif
 
 #define EDGE_GET_BUFFERING 4096
