@@ -234,11 +234,40 @@ Tables~\ref{tab:weak_scaling1} and~\ref{tab:weak_scaling2} show the results of t
 \label{tab:weak_scaling3}
 \end{table}
 
-
 Like the strong scaling results, the weak scaling results in
 Tables~\ref{tab:weak_scaling1}, \ref{tab:weak_scaling2},
 and~\ref{tab:weak_scaling3} show imperfect scaling from 1 to 4 to 16 nodes as
 more PEs require more compute time.
+
+\subsection{Larger Scale Tests}
+
+The strong and weak scaling tests described in Sections~\ref{sec:strong_scaling}
+and~\ref{sec:weak_scaling} were only run on up to 16 nodes on the small hickok
+cluster at LANL.
+
+To better evaluate the scalability of HOOVER, larger strong scaling experiments
+were run on the Edison supercomputer at NERSC. Edison has 2x12-core CPUs in each
+node with 64 GB of memory. All nodes are connected by the Cray Aries
+high performance interconnect.
+
+For these experiments, we continue to use the infectious disease modeling
+mini-app with a domain size of 16,000 $\times$ 24,000, and 460,800 actors in
+total. This problem size is kept fixed across all runs. Experiments are run with
+1 PE per core on 4, 16, 64, and 256 nodes (i.e. 96, 384, 1536, and 6144 PEs).
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X || X | X |}
+\hline
+    \textbf{\# PEs}             & \textbf{Execution Time (ms)} & \textbf{Speedup Relative to Previous} \\\hline
+    96                          & 307,611 &               \\\hline
+    384                         & 22,259  & 13.82$\times$ \\\hline
+    1536                        & 6,568   & 3.39$\times$  \\\hline
+    6144                        & pending in Edison queues    & \\\hline
+\end{tabularx}
+\caption{Large scale tests of the HOOVER framework on the Edison supercomputer.}
+\label{tab:weak_scaling3}
+\end{table}
 
 \subsection{Parameter Design Space Exploration}
 
