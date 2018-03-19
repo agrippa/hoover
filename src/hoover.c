@@ -593,8 +593,7 @@ static void sum_hits_and_misses(hvr_sparse_vec_cache_t *vec_caches,
 }
 
 static hvr_set_t *hvr_create_empty_set_helper(hvr_internal_ctx_t *ctx,
-        const int nelements, hvr_set_t *set,
-        bit_vec_element_type *bit_vector) {
+        const int nelements, hvr_set_t *set, bit_vec_element_type *bit_vector) {
     set->bit_vector = bit_vector;
     set->nelements = nelements;
     set->n_contained = 0;
@@ -607,9 +606,9 @@ static hvr_set_t *hvr_create_empty_set_helper(hvr_internal_ctx_t *ctx,
 hvr_set_t *hvr_create_empty_set_symmetric_custom(const unsigned nvals,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    const int nelements = (nvals + (sizeof(bit_vec_element_type) *
-                BITS_PER_BYTE) - 1) / (sizeof(bit_vec_element_type) *
-                BITS_PER_BYTE);
+    const size_t bits_per_ele = sizeof(bit_vec_element_type) *
+                BITS_PER_BYTE;
+    const int nelements = (nvals + bits_per_ele - 1) / bits_per_ele;
     hvr_set_t *set = (hvr_set_t *)shmem_malloc(sizeof(*set));
     assert(set);
     bit_vec_element_type *bit_vector = (bit_vec_element_type *)shmem_malloc(
@@ -626,9 +625,9 @@ hvr_set_t *hvr_create_empty_set_symmetric(hvr_ctx_t in_ctx) {
 hvr_set_t *hvr_create_empty_set_custom(const unsigned nvals,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    const int nelements = (nvals + (sizeof(bit_vec_element_type) *
-                BITS_PER_BYTE) - 1) / (sizeof(bit_vec_element_type) *
-                BITS_PER_BYTE);
+    const size_t bits_per_ele = sizeof(bit_vec_element_type) *
+                BITS_PER_BYTE;
+    const int nelements = (nvals + bits_per_ele - 1) / bits_per_ele;
     hvr_set_t *set = (hvr_set_t *)malloc(sizeof(*set));
     assert(set);
     bit_vec_element_type *bit_vector = (bit_vec_element_type *)malloc(
@@ -1342,9 +1341,11 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     new_ctx->neighbor_buffer = (hvr_sparse_vec_cache_node_t **)malloc(
             EDGE_GET_BUFFERING * sizeof(hvr_sparse_vec_cache_node_t *));
     assert(new_ctx->neighbor_buffer);
-    new_ctx->buffered_neighbors = (hvr_sparse_vec_t *)malloc(EDGE_GET_BUFFERING * sizeof(hvr_sparse_vec_t));
+    new_ctx->buffered_neighbors = (hvr_sparse_vec_t *)malloc(
+            EDGE_GET_BUFFERING * sizeof(hvr_sparse_vec_t));
     assert(new_ctx->buffered_neighbors);
-    new_ctx->buffered_neighbors_pes = (int *)malloc(EDGE_GET_BUFFERING * sizeof(int));
+    new_ctx->buffered_neighbors_pes = (int *)malloc(
+            EDGE_GET_BUFFERING * sizeof(int));
     assert(new_ctx->buffered_neighbors_pes);
 
     new_ctx->symm_timestep = (volatile hvr_time_t *)shmem_malloc(
@@ -1393,7 +1394,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     new_ctx->n_partitions = n_partitions;
     new_ctx->n_local_vertices = n_local_vertices;
     new_ctx->vertices_per_pe = (long long *)shmem_malloc(
-            new_ctx->npes * sizeof(long long ));
+            new_ctx->npes * sizeof(long long));
     assert(new_ctx->vertices_per_pe);
     for (unsigned p = 0; p < new_ctx->npes; p++) {
         shmem_longlong_p(&(new_ctx->vertices_per_pe[new_ctx->pe]),

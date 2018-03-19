@@ -107,7 +107,9 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     assert(x_partition < PARTITION_DIM);
     assert(y_partition < PARTITION_DIM);
 
-    return y_partition * PARTITION_DIM + x_partition;
+    const uint16_t part = y_partition * PARTITION_DIM + x_partition;
+    assert(part < PARTITION_DIM * PARTITION_DIM);
+    return part;
 }
 
 /*
@@ -416,8 +418,7 @@ int main(int argc, char **argv) {
      * plane, train routes). If an actor hits one of these portals, they are
      * "teleported" to the other end of the portal.
      */
-    portals = (portal_t *)shmem_malloc(
-            n_global_portals * sizeof(*portals));
+    portals = (portal_t *)shmem_malloc(n_global_portals * sizeof(*portals));
     assert(portals);
     if (pe == 0) {
         fprintf(stderr, "Creating %d portals\n", n_global_portals);
@@ -443,8 +444,10 @@ int main(int argc, char **argv) {
         }
     }
     assert((n_global_portals * sizeof(*portals)) % 4 == 0);
-    shmem_broadcast32(portals, portals,
-            (n_global_portals * sizeof(*portals)) / 4, 0, 0, 0, npes, p_sync);
+    if (n_global_portals > 0) {
+        shmem_broadcast32(portals, portals,
+                (n_global_portals * sizeof(*portals)) / 4, 0, 0, 0, npes, p_sync);
+    }
     shmem_barrier_all();
 
     // Seed the initial infected actors.
