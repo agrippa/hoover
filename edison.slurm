@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 64
+#SBATCH -N 256
 ###SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:01:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 #SBATCH --contiguous
@@ -99,7 +99,7 @@ elif [[ $SLURM_NNODES -eq 128 ]]; then
 elif [[ $SLURM_NNODES -eq 256 ]]; then
     # For 256 nodes
     export CELL_DIM=250.0
-    export ACTORS_PER_CELL=100
+    export ACTORS_PER_CELL=200
     export PE_ROWS=64
     export PE_COLS=96
 else
@@ -109,8 +109,8 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-# export MAX_NUM_TIMESTEPS=1000
-export MAX_NUM_TIMESTEPS=30
+# export MAX_NUM_TIMESTEPS=30
+export MAX_NUM_TIMESTEPS=5
 export INFECTION_RADIUS=10.0
 export MAX_DELTA_VELOCITY=0.01
 

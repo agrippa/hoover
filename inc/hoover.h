@@ -248,7 +248,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_set_t *other_pe_partition_time_window;
     hvr_set_t *tmp_partition_time_window;
 
-    long *actor_to_partition_locks;
+    long *actor_to_partition_lock;
     long *partition_time_window_lock;
     uint16_t *actor_to_partition_map;
 

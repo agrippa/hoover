@@ -37,31 +37,45 @@ static double default_sparse_vec_val = 0.0;
 static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
         const hvr_time_t curr_timestamp, unsigned *nhits, unsigned *nmisses);
 
-static void lock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
+static void rlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
     assert(pe < ctx->npes);
-    shmem_set_lock(ctx->actor_to_partition_locks + pe);
+    hvr_rwlock_rlock(ctx->actor_to_partition_lock, pe);
 }
 
-static void unlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
+static void runlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
     assert(pe < ctx->npes);
-    shmem_clear_lock(ctx->actor_to_partition_locks + pe);
+    hvr_rwlock_runlock(ctx->actor_to_partition_lock, pe);
+}
+
+static void wlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
+    assert(pe < ctx->npes);
+    hvr_rwlock_wlock(ctx->actor_to_partition_lock, pe);
+}
+
+static void wunlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
+    assert(pe < ctx->npes);
+    hvr_rwlock_wunlock(ctx->actor_to_partition_lock, pe);
 }
 
 static void rlock_partition_time_window(const int pe, hvr_internal_ctx_t *ctx) {
+    assert(pe < ctx->npes);
     hvr_rwlock_rlock(ctx->partition_time_window_lock, pe);
 }
 
 static void runlock_partition_time_window(const int pe,
         hvr_internal_ctx_t *ctx) {
+    assert(pe < ctx->npes);
     hvr_rwlock_runlock(ctx->partition_time_window_lock, pe);
 }
 
 static void wlock_partition_time_window(const int pe, hvr_internal_ctx_t *ctx) {
+    assert(pe < ctx->npes);
     hvr_rwlock_wlock(ctx->partition_time_window_lock, pe);
 }
 
 static void wunlock_partition_time_window(const int pe,
         hvr_internal_ctx_t *ctx) {
+    assert(pe < ctx->npes);
     hvr_rwlock_wunlock(ctx->partition_time_window_lock, pe);
 }
 
@@ -1071,10 +1085,10 @@ static void update_edges(hvr_internal_ctx_t *ctx,
         }
 
         // Grab the target PEs mapping from actors to partitions
-        lock_actor_to_partition(target_pe, ctx);
+        rlock_actor_to_partition(target_pe, ctx);
         shmem_getmem(other_actor_to_partition_map, ctx->actor_to_partition_map,
                 ctx->max_n_local_vertices * sizeof(uint16_t), target_pe);
-        unlock_actor_to_partition(target_pe, ctx);
+        runlock_actor_to_partition(target_pe, ctx);
 
         // Check what timestep the remote PE is on currently.
         hvr_time_t other_pes_timestep;
@@ -1184,7 +1198,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
     memset(partition_lists, 0x00,
             sizeof(hvr_sparse_vec_t *) * ctx->n_partitions);
 
-    lock_actor_to_partition(ctx->pe, ctx);
+    wlock_actor_to_partition(ctx->pe, ctx);
 
     for (unsigned a = 0; a < ctx->n_local_vertices; a++) {
         hvr_sparse_vec_t *curr = ctx->vertices + a;
@@ -1209,7 +1223,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
         }
     }
 
-    unlock_actor_to_partition(ctx->pe, ctx);
+    wunlock_actor_to_partition(ctx->pe, ctx);
 }
 
 /*
@@ -1378,16 +1392,12 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         (new_ctx->last_timestep_using_partition)[i] = -1;
     }
 
-     new_ctx->partition_time_window = hvr_create_empty_set_symmetric_custom(
-             n_partitions, new_ctx);
-     new_ctx->tmp_partition_time_window = hvr_create_empty_set_custom(
-             n_partitions, new_ctx);
+    new_ctx->partition_time_window = hvr_create_empty_set_symmetric_custom(
+            n_partitions, new_ctx);
+    new_ctx->tmp_partition_time_window = hvr_create_empty_set_custom(
+            n_partitions, new_ctx);
 
-    new_ctx->actor_to_partition_locks = (long *)shmem_malloc(new_ctx->npes *
-            sizeof(long));
-    assert(new_ctx->actor_to_partition_locks);
-    memset(new_ctx->actor_to_partition_locks, 0x00, new_ctx->npes *
-            sizeof(long));
+    new_ctx->actor_to_partition_lock = hvr_rwlock_create_n(1);
 
     new_ctx->partition_time_window_lock = hvr_rwlock_create_n(1);
 
