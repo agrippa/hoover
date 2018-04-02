@@ -14,6 +14,7 @@
 #include <shmemx.h>
 
 #include "hoover.h"
+#include "hoover_internal.h"
 #include "shmem_rw_lock.h"
 
 #define CACHED_TIMESTEPS_TOLERANCE 5
@@ -636,7 +637,7 @@ hvr_set_t *hvr_create_empty_set_symmetric(hvr_ctx_t in_ctx) {
     return hvr_create_empty_set_symmetric_custom(ctx->npes, ctx);
 }
 
-hvr_set_t *hvr_create_empty_set_custom(const unsigned nvals,
+hvr_set_t *hvr_create_empty_set(const unsigned nvals,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     const size_t bits_per_ele = sizeof(bit_vec_element_type) *
@@ -648,11 +649,6 @@ hvr_set_t *hvr_create_empty_set_custom(const unsigned nvals,
             nelements * sizeof(bit_vec_element_type));
     assert(bit_vector);
     return hvr_create_empty_set_helper(ctx, nelements, set, bit_vector);
-}
-
-hvr_set_t *hvr_create_empty_set(hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    return hvr_create_empty_set_custom(ctx->npes, ctx);
 }
 
 static int hvr_set_insert_internal(int pe,
@@ -720,15 +716,7 @@ void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen) {
     snprintf(buf + offset, buflen - offset - 1, " }");
 }
 
-void hvr_set_merge(hvr_set_t *set, hvr_set_t *other) {
-    assert(set->nelements == other->nelements);
-
-    for (int i = 0; i < set->nelements; i++) {
-        (set->bit_vector)[i] |= (other->bit_vector)[i];
-    }
-}
-
-void hvr_set_merge_atomic(hvr_set_t *set, hvr_set_t *other) {
+static void hvr_set_merge_atomic(hvr_set_t *set, hvr_set_t *other) {
     assert(set->nelements == other->nelements);
     // Assert that we can use the long long atomics
     assert(sizeof(unsigned long long) == sizeof(bit_vec_element_type));
@@ -1394,7 +1382,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
 
     new_ctx->partition_time_window = hvr_create_empty_set_symmetric_custom(
             n_partitions, new_ctx);
-    new_ctx->tmp_partition_time_window = hvr_create_empty_set_custom(
+    new_ctx->tmp_partition_time_window = hvr_create_empty_set(
             n_partitions, new_ctx);
 
     new_ctx->actor_to_partition_lock = hvr_rwlock_create_n(1);
@@ -1463,7 +1451,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         assert(new_ctx->dump_file);
     }
 
-    new_ctx->my_neighbors = hvr_create_empty_set(new_ctx);
+    new_ctx->my_neighbors = hvr_create_empty_set(new_ctx->npes, new_ctx);
 
     new_ctx->coupled_pes = hvr_create_empty_set_symmetric(new_ctx);
     hvr_set_insert(new_ctx->pe, new_ctx->coupled_pes);
@@ -1585,7 +1573,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
     shmem_barrier_all();
 
-    ctx->other_pe_partition_time_window = hvr_create_empty_set_custom(
+    ctx->other_pe_partition_time_window = hvr_create_empty_set(
             ctx->n_partitions, ctx);
 
     finalize_actors_for_timestep(ctx, 0);
@@ -1609,7 +1597,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
     unsigned long long unused;
     update_edges(ctx, vec_caches, &unused, &unused, &unused, &unused);
 
-    hvr_set_t *to_couple_with = hvr_create_empty_set(ctx);
+    hvr_set_t *to_couple_with = hvr_create_empty_set(ctx->npes, ctx);
 
     if (getenv("HVR_HANG_ABORT")) {
         pthread_t aborting_pthread;
