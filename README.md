@@ -20,3 +20,7 @@ the following OpenSHMEM implementations:
 
 For more information on building and using HOOVER, please see the top-level
 doc/ folder in this repo.
+
+HOOVER research and development is funded in part by the United States
+Department of Defense, and is supported by resources at Los Alamos National
+Laboratory.
