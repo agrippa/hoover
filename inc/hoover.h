@@ -26,6 +26,7 @@
  */
 
 #define BITS_PER_BYTE 8
+#define BITS_PER_WORD (BITS_PER_BYTE * sizeof(unsigned))
 
 // Number of elements to cache in a hvr_set_t
 #define PE_SET_CACHE_SIZE 100
@@ -68,7 +69,7 @@ typedef struct _hvr_set_t {
 /*
  * Add a given value to this set.
  */
-extern void hvr_set_insert(int pe, hvr_set_t *set);
+extern int hvr_set_insert(int pe, hvr_set_t *set);
 
 /*
  * Check if a given value exists in this set.
@@ -252,6 +253,19 @@ typedef struct _hvr_internal_ctx_t {
     hvr_sparse_vec_t *coupled_pes_values;
     hvr_sparse_vec_t *coupled_pes_values_buffer;
     volatile long *coupled_lock;
+
+    /*
+     * An array of bit vectors, each of npes bits.
+     *
+     * Each bit vector is associated with a single partition, and signals the
+     * PEs that have that partition active.
+     *
+     * These per-partition bit vectors are spread across all PEs.
+     */
+    unsigned *pes_per_partition;
+    unsigned partitions_per_pe_vec_length_in_words;
+    unsigned partitions_per_pe;
+    unsigned *local_pes_per_partition_buffer;
 
     // Track hits/missed by the cached_timestamp field of each vertex
     unsigned n_vector_cache_hits, n_vector_cache_misses;
