@@ -96,7 +96,9 @@ timesteps/iterations to run the simulation for, and the infection radius.
 Infection radius controls how quickly the infection spreads from one actor to
 another, and so an increased infection radius leads to more infected actors
 across more PEs (and hence, more rapid PE coupling).
-Tables~\ref{tab:strong_scaling1} and~\ref{tab:strong_scaling2} show the results of these experiments.
+Tables~\ref{tab:strong_scaling1}, \ref{tab:strong_scaling2},
+\ref{tab:strong_scaling3}, \ref{tab:strong_scaling4},
+and~\ref{tab:strong_scaling5} show the results of these experiments.
 
 \begin{table}
 \centering
@@ -162,9 +164,27 @@ Speedup                     & 3.14$\times$ & 5.12$\times$ & 3.16$\times$ & 4.83$
 \label{tab:strong_scaling4}
 \end{table}
 
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | l || X | X | X | X | X | X | }
+\hline
+\textbf{\# Iters}           & \multicolumn{2}{|X|}{\textbf{10}} & \multicolumn{2}{|X|}{\textbf{100}} & \multicolumn{2}{|X|}{\textbf{200}} \\\hline
+\textbf{Infection Radius}   & 4.0          & 10.0          & 4.0           & 10.0          & 4.0           & 10.0 \\\hline
+1 node                      & 10,221       & 26,015        & 108,755       & 264,143       & 211,516       & 548,049 \\\hline
+4 nodes                     & 1,356        & 2,196         & 10,161        & 19,682        & 20,720        & 39,490  \\\hline
+16 nodes                    & 400          & 330           & 2204          & 2,575         & 4,446         & 5,195 \\\hline
+Speedup (1 vs. 4 nodes)     & 7.54$\times$ & 11.85$\times$ & 10.70$\times$ & 13.42$\times$ & 10.21$\times$ & 13.88$\times$ \\\hline
+Speedup (4 vs. 16 nodes)    & 3.39$\times$ & 6.65$\times$  & 4.61$\times$  & 7.64$\times$  & 4.67$\times$  & 7.60$\times$ \\\hline
+\end{tabularx}
+\caption{Strong scaling of the HOOVER framework v0.5 on OSSS OpenSHMEM running a
+    simple infectious disease model with varying \# of iters and infection
+    radius.}
+\label{tab:strong_scaling5}
+\end{table}
+
 
 Tables~\ref{tab:strong_scaling1}, \ref{tab:strong_scaling2},
-\ref{tab:strong_scaling3}, and~\ref{tab:strong_scaling4} exhibit a few interesting trends:
+\ref{tab:strong_scaling3}, \ref{tab:strong_scaling4}, and~\ref{tab:strong_scaling5} exhibit a few interesting trends:
 
 \begin{enumerate}
     \item HOOVER does not always exhibit linear strong scaling from 4 to 16
