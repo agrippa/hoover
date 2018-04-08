@@ -7,7 +7,7 @@
 #SBATCH --exclusive
 ###SBATCH --contiguous
 #SBATCH --mail-type=ALL
-#SBATCH --exclude=r02n24,r01n07
+#SBATCH --exclude=r02n24,r01n07,r01n01
 
 # set -e
 
@@ -20,6 +20,8 @@ echo "Using OpenSHMEM @ $OPENSHMEM_INSTALL"
 echo
 
 export SMA_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024))
+
+# export HVR_STRICT=1
 
 export PSM2_SHAREDCONTEXTS=0
 export PMI_MAX_KVS_ENTRIES=$((1000 * $SLURM_NNODES))
@@ -134,10 +136,12 @@ for MAX_NUM_TIMESTEPS in 100; do
     #  for INFECTION_RADIUS in 4.0 10.0; do
     for INFECTION_RADIUS in 10.0; do
 
+        PARAM_STR="$CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
+                   $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY"
+       echo $PARAM_STR
+
         $OPENSHMEM_INSTALL/bin/oshrun $PROCESS_CONFIG \
-                $HOME/hoover/bin/infectious_test \
-                $CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
-                $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY
+                $HOME/hoover/bin/infectious_test $PARAM_STR
     done
 done
 

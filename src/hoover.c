@@ -58,28 +58,6 @@ static void wunlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
     hvr_rwlock_wunlock(ctx->actor_to_partition_lock, pe);
 }
 
-// static void rlock_partition_time_window(const int pe, hvr_internal_ctx_t *ctx) {
-//     assert(pe < ctx->npes);
-//     hvr_rwlock_rlock(ctx->partition_time_window_lock, pe);
-// }
-// 
-// static void runlock_partition_time_window(const int pe,
-//         hvr_internal_ctx_t *ctx) {
-//     assert(pe < ctx->npes);
-//     hvr_rwlock_runlock(ctx->partition_time_window_lock, pe);
-// }
-// 
-// static void wlock_partition_time_window(const int pe, hvr_internal_ctx_t *ctx) {
-//     assert(pe < ctx->npes);
-//     hvr_rwlock_wlock(ctx->partition_time_window_lock, pe);
-// }
-// 
-// static void wunlock_partition_time_window(const int pe,
-//         hvr_internal_ctx_t *ctx) {
-//     assert(pe < ctx->npes);
-//     hvr_rwlock_wunlock(ctx->partition_time_window_lock, pe);
-// }
-
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
     hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc(
             nvecs * sizeof(*new_vecs));
@@ -728,7 +706,7 @@ static void hvr_set_merge_atomic(hvr_set_t *set, hvr_set_t *other) {
     }
 }
 
-static unsigned *hvr_set_non_zeros(hvr_set_t *set,
+unsigned *hvr_set_non_zeros(hvr_set_t *set,
         unsigned *n_non_zeros, int *user_must_free) {
     *n_non_zeros = set->n_contained;
     if (set->n_contained <= PE_SET_CACHE_SIZE) {
@@ -855,10 +833,7 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
  * that partition might interact with any actor in any partition we have actors
  * in locally. If so, add that PE as a neighbor.
  */
-static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
-        unsigned long long *out_lock_time, unsigned long long *out_getmem_time,
-        unsigned long long *out_unlock_time,
-        unsigned long long *out_body_time) {
+static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx) {
     uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
     unsigned n_interacting_partitions;
     hvr_set_wipe(ctx->my_neighbors);
@@ -887,9 +862,9 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
              * add as a neighbor any PEs in it.
              */
             for (unsigned p = 0; p < ctx->npes; p++) {
-                unsigned word = p / sizeof(unsigned);
-                unsigned bit = p % sizeof(unsigned);
-                unsigned bit_mask = (1 << bit);
+                unsigned word = p / BITS_PER_WORD;
+                unsigned bit = p % BITS_PER_WORD;
+                unsigned bit_mask = (1U << bit);
 
                 unsigned word_val = (ctx->local_pes_per_partition_buffer)[word];
                 if (word_val & bit_mask) {
@@ -897,67 +872,6 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx,
                 }
             }
         }
-    }
-
-    unsigned long long lock_time = 0;
-    unsigned long long getmem_time = 0;
-    unsigned long long unlock_time = 0;
-    unsigned long long body_time = 0;
-// 
-//     for (unsigned p = 0; p < ctx->npes; p++) {
-//         const unsigned target_pe = (ctx->pe + p) % ctx->npes;
-// 
-//         const unsigned long long start_lock = hvr_current_time_us();
-//         rlock_partition_time_window(target_pe, ctx);
-//         const unsigned long long done_lock = hvr_current_time_us();
-// 
-//         shmem_getmem_nbi(ctx->other_pe_partition_time_window->bit_vector,
-//                 ctx->partition_time_window->bit_vector,
-//                 ctx->other_pe_partition_time_window->nelements *
-//                     sizeof(bit_vec_element_type), target_pe);
-//         shmem_getmem_nbi(ctx->other_pe_partition_time_window,
-//                 ctx->partition_time_window,
-//                 offsetof(hvr_set_t, bit_vector), target_pe);
-//         shmem_quiet();
-// 
-//         const unsigned long long start_unlock = hvr_current_time_us();
-//         runlock_partition_time_window(target_pe, ctx);
-//         const unsigned long long done_unlock = hvr_current_time_us();
-// 
-//         /*
-//          * For each partition marked in the other PE's time window, check if
-//          * this PE might interact with actors in that partition.
-//          */
-//         unsigned n_other_partitions;
-//         int user_must_free;
-//         unsigned *other_partitions = hvr_set_non_zeros(
-//                 ctx->other_pe_partition_time_window, &n_other_partitions,
-//                 &user_must_free);
-//         for (unsigned part_index = 0; part_index < n_other_partitions;
-//                 part_index++) {
-//             const unsigned part = other_partitions[part_index];
-//             if (ctx->might_interact(part, ctx->partition_time_window,
-//                         interacting_partitions, &n_interacting_partitions,
-//                         MAX_INTERACTING_PARTITIONS, ctx)) {
-//                 hvr_set_insert(target_pe, ctx->my_neighbors);
-//                 break;
-//             }
-//         }
-//         if (user_must_free) free(other_partitions);
-// 
-//         const unsigned long long iter_done = hvr_current_time_us();
-// 
-//         lock_time += (done_lock - start_lock);
-//         getmem_time += (start_unlock - done_lock);
-//         unlock_time += (done_unlock - start_unlock);
-//         body_time += (iter_done - done_unlock);
-//     }
-// 
-    if (out_lock_time) {
-        *out_lock_time = lock_time;
-        *out_getmem_time = getmem_time;
-        *out_unlock_time = unlock_time;
-        *out_body_time = body_time;
     }
 
 #ifdef VERBOSE
@@ -1287,7 +1201,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
                 // Changed from being inactive to active, set bit
                 shmem_uint_atomic_or(
                         ctx->pes_per_partition + (partition_offset *
-                            ctx->partitions_per_pe_vec_length_in_words),
+                            ctx->partitions_per_pe_vec_length_in_words) + pe_word,
                         pe_mask, partition_owner_pe);
 
             } else {
@@ -1295,7 +1209,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
                 pe_mask = ~pe_mask;
                 shmem_uint_atomic_and(
                         ctx->pes_per_partition + (partition_offset *
-                            ctx->partitions_per_pe_vec_length_in_words),
+                            ctx->partitions_per_pe_vec_length_in_words) + pe_word,
                         pe_mask, partition_owner_pe);
             }
         }
@@ -1308,16 +1222,6 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
         sizeof(bit_vec_element_type));
     memcpy(ctx->partition_time_window, ctx->tmp_partition_time_window,
         offsetof(hvr_set_t, bit_vector));
-
-    // wlock_partition_time_window(ctx->pe, ctx);
-    // shmem_putmem(ctx->partition_time_window->bit_vector,
-    //         ctx->tmp_partition_time_window->bit_vector,
-    //         ctx->tmp_partition_time_window->nelements *
-    //         sizeof(bit_vec_element_type), ctx->pe);
-    // shmem_putmem(ctx->partition_time_window,
-    //         ctx->tmp_partition_time_window, offsetof(hvr_set_t, bit_vector),
-    //         ctx->pe);
-    // wunlock_partition_time_window(ctx->pe, ctx);
 }
 
 /*
@@ -1542,11 +1446,12 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
             new_ctx->partitions_per_pe *
             new_ctx->partitions_per_pe_vec_length_in_words * sizeof(unsigned));
     assert(new_ctx->pes_per_partition);
-    new_ctx->local_pes_per_partition_buffer = (unsigned *)malloc(
-            new_ctx->partitions_per_pe_vec_length_in_words * sizeof(unsigned));
-    assert(new_ctx->locaal_pes_per_partition_buffer);
     memset(new_ctx->pes_per_partition, 0x00, new_ctx->partitions_per_pe *
             new_ctx->partitions_per_pe_vec_length_in_words * sizeof(unsigned));
+
+    new_ctx->local_pes_per_partition_buffer = (unsigned *)malloc(
+            new_ctx->partitions_per_pe_vec_length_in_words * sizeof(unsigned));
+    assert(new_ctx->local_pes_per_partition_buffer);
 
     new_ctx->partition_lists = (hvr_sparse_vec_t **)malloc(
             sizeof(hvr_sparse_vec_t *) * new_ctx->n_partitions);
@@ -1678,7 +1583,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
      */
     shmem_barrier_all();
 
-    update_neighbors_based_on_partitions(ctx, NULL, NULL, NULL, NULL);
+    update_neighbors_based_on_partitions(ctx);
 
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
@@ -1742,13 +1647,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long finished_time_window = hvr_current_time_us();
 
         // Update neighboring PEs based on fuzzy partition windows
-        unsigned long long update_neighbors_lock_time,
-                      update_neighbors_getmem_time,
-                      update_neighbors_unlock_time,
-                      update_neighbors_body_time;
-        update_neighbors_based_on_partitions(ctx, &update_neighbors_lock_time,
-                &update_neighbors_getmem_time, &update_neighbors_unlock_time,
-                &update_neighbors_body_time);
+        update_neighbors_based_on_partitions(ctx);
 
         const unsigned long long finished_summary_update = hvr_current_time_us();
 
@@ -1928,7 +1827,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 &nmisses_due_to_age);
 
         printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f) - summary %f ms "
-                "(%f %f %f | %f %f %f %f) - edges %f ms (%f %f %llu) - neighbor "
+                "(%f %f %f) - edges %f ms (%f %f %llu) - neighbor "
                 "updates %f ms - coupled values %f ms - coupling %f ms (%u) - throttling %f ms - %u spins - %u / %u PE "
                 "neighbors %s - partition window = %s, %d / %d active - "
                 "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
@@ -1941,10 +1840,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)(finished_actor_partitions - finished_updates) / 1000.0,
                 (double)(finished_time_window - finished_actor_partitions) / 1000.0,
                 (double)(finished_summary_update - finished_time_window) / 1000.0,
-                (double)update_neighbors_lock_time / 1000.0,
-                (double)update_neighbors_getmem_time / 1000.0,
-                (double)update_neighbors_unlock_time / 1000.0,
-                (double)update_neighbors_body_time / 1000.0,
                 (double)(finished_edge_adds - finished_summary_update) / 1000.0,
                 (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0, n_edge_checks,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,

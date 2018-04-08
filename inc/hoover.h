@@ -97,6 +97,12 @@ extern void hvr_set_destroy(hvr_set_t *set);
 extern void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen);
 
 /*
+ * Return an array containing all values in the provided set.
+ */
+extern unsigned *hvr_set_non_zeros(hvr_set_t *set,
+        unsigned *n_non_zeros, int *user_must_free);
+
+/*
  * Callback type definitions to be defined by the user for the HOOVER runtime to
  * call into.
  *
