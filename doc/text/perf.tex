@@ -72,10 +72,11 @@ include in their caption which version of HOOVER the results are collected from.
 \begin{tabular}{ | l | l | l | }
 \hline
 \textbf{Version Number} & \textbf{Git Hash}                         & \textbf{Date} \\\hline
-0.1                     & \texttt{385911bb27f74fd74a8f038f95a2447cda372ec4}  & Feb 10 2018 \\\hline
-0.2                     & \texttt{38591d9adf732c144ced382175348031f8518bad}  & Feb 27 2018 \\\hline
-0.3                     & \texttt{4f9350fcc2d624ae14cffde6aae08b63a7d3ad16}  & Mar 02 2018 \\\hline
-0.4                     & \texttt{0129e2a81c2a14959e8966965b25c3fc7cf5c752}  & Mar 17 2018 \\\hline
+0.1                     & \texttt{385911bb27f74fd74a8f038f95a2447cda372ec4} & Feb 10 2018 \\\hline
+0.2                     & \texttt{38591d9adf732c144ced382175348031f8518bad} & Feb 27 2018 \\\hline
+0.3                     & \texttt{4f9350fcc2d624ae14cffde6aae08b63a7d3ad16} & Mar 02 2018 \\\hline
+0.4                     & \texttt{0129e2a81c2a14959e8966965b25c3fc7cf5c752} & Mar 17 2018 \\\hline
+0.5                     & \texttt{09631dfeb925adaccb52f63ff4eaad4ba4fc8243} & Apr 08 2018 \\\hline
 \end{tabular}
 \caption{Strong scaling of the HOOVER framework on OSSS OpenSHMEM running a
     simple infectious disease model with varying \# of iters and infection
@@ -254,6 +255,8 @@ For these experiments, we continue to use the infectious disease modeling
 mini-app with a domain size of 16,000 $\times$ 24,000, and 460,800 actors in
 total. This problem size is kept fixed across all runs. Experiments are run with
 1 PE per core on 4, 16, 64, and 256 nodes (i.e. 96, 384, 1536, and 6144 PEs).
+Table~\ref{tab:large_scale1} shows large scale results with v0.4 of the HOOVER
+framework. Table~\ref{tab:large_scale2} shows the same for v0.5.
 
 \begin{table}
 \centering
@@ -265,8 +268,22 @@ total. This problem size is kept fixed across all runs. Experiments are run with
     1536                        & 6,568   & 3.39$\times$  \\\hline
     6144                        & 2,418   & 2.72$\times$  \\\hline
 \end{tabularx}
-\caption{Large scale tests of the HOOVER framework on the Edison supercomputer.}
-\label{tab:weak_scaling3}
+\caption{Large scale tests of the HOOVER v0.4 framework on the Edison supercomputer.}
+\label{tab:large_scale1}
+\end{table}
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X || X | X |}
+\hline
+    \textbf{\# PEs}             & \textbf{Execution Time (ms)} & \textbf{Speedup Relative to Previous} \\\hline
+    96                          & 45,326 &              \\\hline
+    384                         & 4,762  & 9.52$\times$ \\\hline
+    1536                        & 2,230  & 2.14$\times$ \\\hline
+    6144                        & 2,070  & 1.08$\times$ \\\hline
+\end{tabularx}
+\caption{Large scale tests of the HOOVER v0.5 framework on the Edison supercomputer.}
+\label{tab:large_scale2}
 \end{table}
 
 \subsection{Parameter Design Space Exploration}
