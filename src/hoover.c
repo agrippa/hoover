@@ -1221,7 +1221,6 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
  * update_actor_partitions.
  */
 static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
-    wlock_partition_time_window(ctx->pe, ctx);
 
     hvr_set_wipe(ctx->tmp_partition_time_window);
 
@@ -1235,6 +1234,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
         }
     }
 
+    wlock_partition_time_window(ctx->pe, ctx);
     shmem_putmem(ctx->partition_time_window->bit_vector,
             ctx->tmp_partition_time_window->bit_vector,
             ctx->tmp_partition_time_window->nelements *
@@ -1242,7 +1242,6 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
     shmem_putmem(ctx->partition_time_window,
             ctx->tmp_partition_time_window, offsetof(hvr_set_t, bit_vector),
             ctx->pe);
-
     wunlock_partition_time_window(ctx->pe, ctx);
 }
 
