@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "hvr_common.h"
+#include "hoover_internal.h"
 #include "hvr_avl_tree.h"
 
 /*
