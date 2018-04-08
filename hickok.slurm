@@ -1,11 +1,11 @@
 #!/bin/bash -l
 
 #SBATCH -p connectx5
-#SBATCH -N 16
+#SBATCH -N 32
 #SBATCH -t 00:30:00
 #SBATCH -J hoover
 #SBATCH --exclusive
-#SBATCH --contiguous
+###SBATCH --contiguous
 #SBATCH --mail-type=ALL
 #SBATCH --exclude=r02n24,r01n07
 
@@ -93,6 +93,20 @@ elif [[ $SLURM_NNODES -eq 16 ]]; then
         export CELL_DIM=400.0
         export ACTORS_PER_CELL=2800
         export PE_ROWS=16
+        export PE_COLS=16
+    fi
+elif [[ $SLURM_NNODES -eq 32 ]]; then
+    # For 32 nodes
+    if [[ $SCALING == strong ]]; then
+        # export CELL_DIM=100.0 # for illustrating coupled execution
+        export CELL_DIM=1000.0 # for illustrating uncoupled execution
+        export ACTORS_PER_CELL=800
+        export PE_ROWS=32
+        export PE_COLS=16
+    else
+        export CELL_DIM=400.0
+        export ACTORS_PER_CELL=2800
+        export PE_ROWS=32
         export PE_COLS=16
     fi
 else
