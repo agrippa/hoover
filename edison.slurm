@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 256
+#SBATCH -N 16
 ###SBATCH -C haswell
-#SBATCH -t 00:01:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 #SBATCH --contiguous
