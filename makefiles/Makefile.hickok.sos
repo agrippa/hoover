@@ -1,6 +1,6 @@
 CFLAGS=-Wall -Werror -g -O2 -Iinc -std=c99
 
-all: bin/libhoover.a bin/edge_set_test bin/sparse_vec_test bin/init_test bin/pe_neighbors_set_test bin/infectious_test bin/shmem_rw_lock_test
+all: bin/libhoover.a bin/edge_set_test bin/sparse_vec_test bin/init_test bin/infectious_test bin/shmem_rw_lock_test
 
 bin/libhoover.a: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c
 	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) --compile src/hoover.c -o bin/hoover.o

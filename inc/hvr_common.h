@@ -1,6 +1,7 @@
 #ifndef _HOOVER_COMMON_H
 #define _HOOVER_COMMON_H
 
+#include <stdint.h>
 #include <stdlib.h>
 
 /*
@@ -18,5 +19,10 @@
  */
 typedef size_t vertex_id_t;
 typedef vertex_id_t vertex_index_t;
+
+typedef int32_t hvr_time_t;
+
+typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
+typedef hvr_internal_ctx_t *hvr_ctx_t;
 
 #endif

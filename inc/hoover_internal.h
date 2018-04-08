@@ -1,6 +1,9 @@
 #ifndef _HOOVER_INTERNAL_H
 #define _HOOVER_INTERNAL_H
 
+#include "hvr_sparse_vec.h"
+#include "hvr_avl_tree.h"
+
 #define HVR_CACHE_BUCKETS 512
 
 /*
@@ -87,7 +90,6 @@ void hvr_sparse_vec_cache_insert(unsigned offset, hvr_sparse_vec_t *vec,
  */
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_reserve(
         unsigned offset, hvr_sparse_vec_cache_t *cache);
-
 
 /*
  * Edge set utilities.
