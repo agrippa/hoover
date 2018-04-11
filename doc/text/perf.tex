@@ -306,6 +306,26 @@ framework. Table~\ref{tab:large_scale2} shows the same for v0.5.
 \label{tab:large_scale2}
 \end{table}
 
+Even with the performance improvements in HOOVER v0.5, it is clear in
+Table~\ref{tab:large_scale2} that we are not linearly scaling out to 6,144 PEs
+(though performance improvement does continue). As an experiment, the number of
+actors was increased from 460,800 to 4,915,200 and tests rerun.
+Table~\ref{tab:large_scale3} plots the results on this larger problem size,
+revealing that at larger datasets we do see near linear scaling out to 6,144 PEs.
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X || X | X |}
+\hline
+    \textbf{\# PEs}             & \textbf{Execution Time (ms)} & \textbf{Speedup Relative to Previous} \\\hline
+    384                         & 145,161 &               \\\hline
+    1536                        & 13,425  & 10.81$\times$ \\\hline
+    6144                        & 4,237   & 3.17$\times$  \\\hline
+\end{tabularx}
+\caption{Larger scale tests of the HOOVER v0.5 framework on the Edison supercomputer.}
+\label{tab:large_scale3}
+\end{table}
+
 \subsection{Parameter Design Space Exploration}
 
 The HOOVER runtime itself has many parameters that can be varied. In the
