@@ -61,7 +61,10 @@ static void wunlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
     hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc(
             nvecs * sizeof(*new_vecs));
-    assert(new_vecs);
+    if (!new_vecs) {
+        fprintf(stderr, "Failed allocating %lu symmetric vectors\n", nvecs);
+        abort();
+    }
     for (size_t i = 0; i < nvecs; i++) {
         hvr_sparse_vec_init(&new_vecs[i]);
     }
@@ -1334,22 +1337,22 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     *(new_ctx->symm_timestep) = -1;
 
     new_ctx->all_pe_timesteps = (hvr_time_t *)shmem_malloc(
-            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps)));
+            new_ctx->npes * sizeof(hvr_time_t);
     assert(new_ctx->all_pe_timesteps);
     memset(new_ctx->all_pe_timesteps, 0x00,
-        new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps)));
+        new_ctx->npes * sizeof(hvr_time_t));
 
     new_ctx->all_pe_timesteps_buffer = (hvr_time_t *)shmem_malloc(
-            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_buffer)));
+            new_ctx->npes * sizeof(hvr_time_t));
     assert(new_ctx->all_pe_timesteps_buffer);
     memset(new_ctx->all_pe_timesteps_buffer, 0x00,
-        new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_buffer)));
+        new_ctx->npes * sizeof(hvr_time_t));
 
     new_ctx->all_pe_timesteps_locks = (long *)shmem_malloc(
-            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_locks)));
+            new_ctx->npes * sizeof(long));
     assert(new_ctx->all_pe_timesteps_locks);
     memset(new_ctx->all_pe_timesteps_locks, 0x00,
-            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_locks)));
+            new_ctx->npes * sizeof(long));
 
     new_ctx->last_timestep_using_partition = (hvr_time_t *)malloc(
             n_partitions * sizeof(hvr_time_t));
