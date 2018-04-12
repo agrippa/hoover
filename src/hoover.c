@@ -61,7 +61,10 @@ static void wunlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
     hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc(
             nvecs * sizeof(*new_vecs));
-    assert(new_vecs);
+    if (!new_vecs) {
+        fprintf(stderr, "Failed allocating %lu symmetric vectors\n", nvecs);
+        abort();
+    }
     for (size_t i = 0; i < nvecs; i++) {
         hvr_sparse_vec_init(&new_vecs[i]);
     }
@@ -1280,6 +1283,19 @@ static void oldest_pe_timestep(hvr_internal_ctx_t *ctx,
     *out_oldest_pe = oldest_pe;
 }
 
+static inline void *shmem_malloc_wrapper(size_t nbytes) {
+    static size_t total_nbytes = 0;
+    if (nbytes == 0) {
+        fprintf(stderr, "PE %d allocated %lu bytes\n", shmem_my_pe(),
+                total_nbytes);
+        return NULL;
+    } else {
+        void *ptr = shmem_malloc(nbytes);
+        total_nbytes += nbytes;
+        return ptr;
+    }
+}
+
 void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         hvr_sparse_vec_t *vertices, hvr_update_metadata_func update_metadata,
         hvr_might_interact_func might_interact,
@@ -1293,11 +1309,11 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     assert(new_ctx->initialized == 0);
     new_ctx->initialized = 1;
 
-    new_ctx->p_wrk = (long long *)shmem_malloc(
+    new_ctx->p_wrk = (long long *)shmem_malloc_wrapper(
             SHMEM_REDUCE_MIN_WRKDATA_SIZE * sizeof(long long));
-    new_ctx->p_wrk_int = (int *)shmem_malloc(
+    new_ctx->p_wrk_int = (int *)shmem_malloc_wrapper(
             SHMEM_REDUCE_MIN_WRKDATA_SIZE * sizeof(int));
-    new_ctx->p_sync = (long *)shmem_malloc(
+    new_ctx->p_sync = (long *)shmem_malloc_wrapper(
             SHMEM_REDUCE_SYNC_SIZE * sizeof(long));
     assert(new_ctx->p_wrk && new_ctx->p_sync && new_ctx->p_wrk_int);
 
@@ -1315,28 +1331,28 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
             EDGE_GET_BUFFERING * sizeof(int));
     assert(new_ctx->buffered_neighbors_pes);
 
-    new_ctx->symm_timestep = (volatile hvr_time_t *)shmem_malloc(
+    new_ctx->symm_timestep = (volatile hvr_time_t *)shmem_malloc_wrapper(
             sizeof(*(new_ctx->symm_timestep)));
     assert(new_ctx->symm_timestep);
     *(new_ctx->symm_timestep) = -1;
 
-    new_ctx->all_pe_timesteps = (hvr_time_t *)shmem_malloc(
-            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps)));
+    new_ctx->all_pe_timesteps = (hvr_time_t *)shmem_malloc_wrapper(
+            new_ctx->npes * sizeof(hvr_time_t);
     assert(new_ctx->all_pe_timesteps);
     memset(new_ctx->all_pe_timesteps, 0x00,
-        new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps)));
+        new_ctx->npes * sizeof(hvr_time_t));
 
-    new_ctx->all_pe_timesteps_buffer = (hvr_time_t *)shmem_malloc(
-            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_buffer)));
+    new_ctx->all_pe_timesteps_buffer = (hvr_time_t *)shmem_malloc_wrapper(
+            new_ctx->npes * sizeof(hvr_time_t));
     assert(new_ctx->all_pe_timesteps_buffer);
     memset(new_ctx->all_pe_timesteps_buffer, 0x00,
-        new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_buffer)));
+        new_ctx->npes * sizeof(hvr_time_t));
 
-    new_ctx->all_pe_timesteps_locks = (long *)shmem_malloc(
-            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_locks)));
+    new_ctx->all_pe_timesteps_locks = (long *)shmem_malloc_wrapper(
+            new_ctx->npes * sizeof(long));
     assert(new_ctx->all_pe_timesteps_locks);
     memset(new_ctx->all_pe_timesteps_locks, 0x00,
-            new_ctx->npes * sizeof(*(new_ctx->all_pe_timesteps_locks)));
+            new_ctx->npes * sizeof(long));
 
     new_ctx->last_timestep_using_partition = (hvr_time_t *)malloc(
             n_partitions * sizeof(hvr_time_t));
@@ -1356,7 +1372,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
 
     new_ctx->n_partitions = n_partitions;
     new_ctx->n_local_vertices = n_local_vertices;
-    new_ctx->vertices_per_pe = (long long *)shmem_malloc(
+    new_ctx->vertices_per_pe = (long long *)shmem_malloc_wrapper(
             new_ctx->npes * sizeof(long long));
     assert(new_ctx->vertices_per_pe);
     for (unsigned p = 0; p < new_ctx->npes; p++) {
@@ -1381,8 +1397,8 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
 
     new_ctx->vertices = vertices;
 
-    new_ctx->actor_to_partition_map = (uint16_t *)shmem_malloc(HVR_BUCKETS *
-            new_ctx->max_n_local_vertices * sizeof(*(new_ctx->actor_to_partition_map)));
+    new_ctx->actor_to_partition_map = (uint16_t *)shmem_malloc_wrapper(
+            HVR_BUCKETS * new_ctx->max_n_local_vertices * sizeof(uint16_t));
     assert(new_ctx->actor_to_partition_map);
 
     new_ctx->update_metadata = update_metadata;
@@ -1402,8 +1418,8 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
                     "to degraded performance.\n");
         }
         new_ctx->strict_mode = 1;
-        new_ctx->strict_counter_src = (int *)shmem_malloc(sizeof(int));
-        new_ctx->strict_counter_dest = (int *)shmem_malloc(sizeof(int));
+        new_ctx->strict_counter_src = (int *)shmem_malloc_wrapper(sizeof(int));
+        new_ctx->strict_counter_dest = (int *)shmem_malloc_wrapper(sizeof(int));
         assert(new_ctx->strict_counter_src && new_ctx->strict_counter_dest);
     }
 
@@ -1429,7 +1445,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         new_ctx->npes;
     new_ctx->partitions_per_pe_vec_length_in_words =
         (new_ctx->npes + BITS_PER_WORD - 1) / BITS_PER_WORD;
-    new_ctx->pes_per_partition = (unsigned *)shmem_malloc(
+    new_ctx->pes_per_partition = (unsigned *)shmem_malloc_wrapper(
             new_ctx->partitions_per_pe *
             new_ctx->partitions_per_pe_vec_length_in_words * sizeof(unsigned));
     assert(new_ctx->pes_per_partition);
@@ -1443,6 +1459,9 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     new_ctx->partition_lists = (hvr_sparse_vec_t **)malloc(
             sizeof(hvr_sparse_vec_t *) * new_ctx->n_partitions);
     assert(new_ctx->partition_lists);
+
+    // Print the number of bytes allocated
+    shmem_malloc_wrapper(0);
 
     shmem_barrier_all();
 }
