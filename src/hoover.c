@@ -919,29 +919,16 @@ static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
 
     shmem_fence();
 
-    // shmem_getmem_nbi(&(dst->timestamps[0]), &(src->timestamps[0]),
-    //         HVR_BUCKETS * sizeof(src->timestamps[0]), src_pe);
-
-    // shmem_fence();
-
     shmem_getmem_nbi(dst, src,
             offsetof(hvr_sparse_vec_t, finalized), src_pe);
 
     dst->cached_timestamp = -1;
     dst->cached_timestamp_index = 0;
+
     /*
      * No need to set next_in_partition since we'll never use it for a remote
      * actor.
      */
-
-//     /*
-//      * TODO we need this quiet here at the moment so that communication
-//      * completes before cache insertion occurs because we copy out of dst
-//      * and into the cache inside hvr_sparse_vec_cache_insert. Is there a way
-//      * to work around this? e.g. by requesting a buffer to copy to from the
-//      * cache? Would enable more asynchrony, possible performance gains.
-//      */
-//     shmem_quiet();
 }
 
 static hvr_sparse_vec_cache_node_t *get_remote_vec_nbi(const unsigned offset,
@@ -1460,12 +1447,57 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     shmem_barrier_all();
 }
 
+static unsigned issue_neighbor_fetches(const vertex_id_t actor,
+        hvr_internal_ctx_t *ctx, hvr_sparse_vec_cache_t *vec_caches) {
+    static size_t neighbors_capacity = 0;
+    static vertex_id_t *neighbors = NULL;
+    if (neighbors == NULL) {
+        neighbors_capacity = 256;
+        neighbors = (vertex_id_t *)malloc(neighbors_capacity *
+                sizeof(*neighbors));
+        assert(neighbors);
+    }
+
+    // The list of edges for local actor i
+    hvr_avl_tree_node_t *vertex_edge_tree = hvr_tree_find(
+            ctx->edges->tree, ctx->vertices[actor].id);
+
+    // Update the metadata for actor i
+    if (vertex_edge_tree != NULL) {
+        // This vertex has edges
+        const size_t n_neighbors = hvr_tree_linearize(&neighbors,
+                &neighbors_capacity, vertex_edge_tree->subtree);
+
+        // Simplifying assumption for now
+        if (n_neighbors > EDGE_GET_BUFFERING) {
+            fprintf(stderr, "Invalid # neighbors - %lu > %u\n", n_neighbors,
+                    EDGE_GET_BUFFERING);
+            abort();
+        }
+
+        // Fetch all neighbors of this vertex
+        const unsigned long long start_single_update = hvr_current_time_us();
+        for (unsigned n = 0; n < n_neighbors; n++) {
+            const vertex_id_t neighbor = neighbors[n];
+
+            unsigned other_pe;
+            size_t local_offset;
+            ctx->vertex_owner(neighbor, &other_pe, &local_offset);
+
+            hvr_sparse_vec_cache_node_t *cache_node = get_remote_vec_nbi(
+                    local_offset, other_pe, ctx, vec_caches);
+            (ctx->neighbor_buffer)[n] = cache_node;
+            (ctx->buffered_neighbors_pes)[n] = other_pe;
+        }
+    }
+}
+
 /*
  * Given the local ID of an actor, fetch the latest information on each of its
  * neighbors from their owning PEs, and then call the user-defined
  * update_metadata function to update information on this actor.
  */
-static void update_local_actor_metadata(const vertex_id_t actor,
+static unsigned update_local_actor_metadata(const vertex_id_t actor,
         hvr_set_t *to_couple_with, unsigned long long *fetch_neighbors_time,
        unsigned long long *update_metadata_time, hvr_internal_ctx_t *ctx,
        hvr_sparse_vec_cache_t *vec_caches, unsigned long long *quiet_counter) {
@@ -1495,6 +1527,7 @@ static void update_local_actor_metadata(const vertex_id_t actor,
             abort();
         }
 
+        // Fetch all neighbors of this vertex
         const unsigned long long start_single_update = hvr_current_time_us();
         for (unsigned n = 0; n < n_neighbors; n++) {
             const vertex_id_t neighbor = neighbors[n];
@@ -1509,23 +1542,37 @@ static void update_local_actor_metadata(const vertex_id_t actor,
             (ctx->buffered_neighbors_pes)[n] = other_pe;
         }
 
+        // Quiet any caches that were hit by the above fetches
         for (unsigned n = 0; n < n_neighbors; n++) {
-            hvr_sparse_vec_cache_quiet(vec_caches + (ctx->buffered_neighbors_pes)[n], quiet_counter);
-            memcpy(ctx->buffered_neighbors + n, &((ctx->neighbor_buffer)[n]->vec),
+            hvr_sparse_vec_cache_quiet(
+                    vec_caches + (ctx->buffered_neighbors_pes)[n],
+                    quiet_counter);
+        }
+
+        /*
+         * Copy from the cache nodes into a contiguous buffer before passing to
+         * the user
+         */
+        for (unsigned n = 0; n < n_neighbors; n++) {
+            memcpy(ctx->buffered_neighbors + n,
+                    &((ctx->neighbor_buffer)[n]->vec),
                     sizeof(hvr_sparse_vec_t));
         }
+
         const unsigned long long finish_neighbor_fetch= hvr_current_time_us();
         *fetch_neighbors_time += (finish_neighbor_fetch - start_single_update);
 
         ctx->update_metadata(&(ctx->vertices[actor]), ctx->buffered_neighbors,
                 n_neighbors, to_couple_with, ctx);
         update_metadata_time += (hvr_current_time_us() - finish_neighbor_fetch);
+        return n_neighbors;
     } else {
         const unsigned long long start_single_update = hvr_current_time_us();
         // This vertex has no edges
         ctx->update_metadata(&(ctx->vertices[actor]), NULL, 0, to_couple_with,
                 ctx);
         update_metadata_time += (hvr_current_time_us() - start_single_update);
+        return 0;
     }
 }
 
@@ -1615,12 +1662,29 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         hvr_set_wipe(to_couple_with);
 
+        unsigned long long sum_n_neighbors = 0;
+
+#define VERTEX_UPDATE_CHUNKING 2
+        for (vertex_id_t i = 0; i < ctx->n_local_vertices;
+                i += VERTEX_UPDATE_CHUNKING) {
+            vertex_id_t end = i + VERTEX_UPDATE_CHUNKING;
+            if (end > ctx->n_local_vertices) {
+                end = ctx->n_local_vertices;
+            }
+
+            for (vertex_id_t ii = i; ii < end; ii++) {
+
+            }
+        }
+
         // Update each actor's metadata
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
-            update_local_actor_metadata(i, to_couple_with,
+            sum_n_neighbors += update_local_actor_metadata(i, to_couple_with,
                     &fetch_neighbors_time, &update_metadata_time, ctx,
                     vec_caches, &quiet_counter);
         }
+        double avg_n_neighbors = (double)sum_n_neighbors /
+            (double)(ctx->n_local_vertices);
 
         const unsigned long long finished_updates = hvr_current_time_us();
 
@@ -1831,7 +1895,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 "updates %f ms - coupled values %f ms - coupling %f ms (%u) - throttling %f ms - %u spins - %u / %u PE "
                 "neighbors %s - partition window = %s, %d / %d active - "
                 "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
-                "age misses=%u, feature cache hits=%u misses=%u quiets=%llu\n", ctx->pe, ctx->timestep,
+                "age misses=%u, feature cache hits=%u misses=%u quiets=%llu, avg # edges=%f\n", ctx->pe, ctx->timestep,
                 (double)(finished_throttling - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)fetch_neighbors_time / 1000.0,
@@ -1855,7 +1919,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 hvr_set_count(ctx->partition_time_window), ctx->n_partitions,
                 abort, ctx->timestep >= ctx->max_timestep,
                 nhits, nmisses, nmisses_due_to_age, ctx->n_vector_cache_hits,
-                ctx->n_vector_cache_misses, quiet_counter);
+                ctx->n_vector_cache_misses, quiet_counter, avg_n_neighbors);
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;
