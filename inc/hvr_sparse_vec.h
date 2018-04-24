@@ -1,3 +1,5 @@
+/* For license: see LICENSE.txt file at top-level */
+
 #ifndef _HVR_SPARSE_VEC_H
 #define _HVR_SPARSE_VEC_H
 

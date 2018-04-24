@@ -1,3 +1,5 @@
+/* For license: see LICENSE.txt file at top-level */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>

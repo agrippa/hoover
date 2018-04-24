@@ -1,3 +1,5 @@
+/* For license: see LICENSE.txt file at top-level */
+
 #ifndef _SHMEM_RW_LOCK_H
 #define _SHMEM_RW_LOCK_H
 

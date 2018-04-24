@@ -1,3 +1,5 @@
+/* For license: see LICENSE.txt file at top-level */
+
 #ifndef _HOOVER_AVL_TREE_H
 #define _HOOVER_AVL_TREE_H
 

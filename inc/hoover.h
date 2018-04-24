@@ -1,3 +1,5 @@
+/* For license: see LICENSE.txt file at top-level */
+
 #ifndef _HOOVER_H
 #define _HOOVER_H
 #include <stdint.h>

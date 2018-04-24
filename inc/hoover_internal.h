@@ -1,3 +1,5 @@
+/* For license: see LICENSE.txt file at top-level */
+
 #ifndef _HOOVER_INTERNAL_H
 #define _HOOVER_INTERNAL_H
 

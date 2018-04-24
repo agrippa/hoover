@@ -1,3 +1,5 @@
+/* For license: see LICENSE.txt file at top-level */
+
 #include "shmem_rw_lock.h"
 
 static void check_state(const long val, const int expected_nreaders,

@@ -1,3 +1,5 @@
+/* For license: see LICENSE.txt file at top-level */
+
 #define _BSD_SOURCE
 #include <assert.h>
 #include <stdlib.h>
