@@ -3,7 +3,7 @@
 #SBATCH -p connectx5
 #SBATCH -N 16
 #SBATCH -t 00:30:00
-#SBATCH -J hoover
+#SBATCH -J hoover-hybrid
 #SBATCH --exclusive
 #SBATCH --contiguous
 #SBATCH --mail-type=ALL
@@ -54,62 +54,59 @@ echo
 echo
 echo
 
+if [[ "$(basename $OPENSHMEM_INSTALL)" == "SOS-install" ]]; then
+    # For SoS
+    export PROCESS_CONFIG="-n $(($SOCKETS_PER_NODE * $SLURM_NNODES))"
+elif [[ "$(basename $OPENSHMEM_INSTALL)" == "osss-ucx" ]]; then
+    # For OSSS
+    export PROCESS_CONFIG="-npernode $SOCKETS_PER_NODE"
+else 
+    echo "Unexpected OPENSHMEM_INSTALL when auto-configuring PROCESS_CONFIG? $OPENSHMEM_INSTALL"
+    exit 1
+fi
+
 export SCALING=strong
 if [[ $SLURM_NNODES -eq 1 ]]; then
-    # For 2 nodes
+    # For 1 node
     if [[ $SCALING == strong ]]; then
         # export CELL_DIM=400.0
         export CELL_DIM=4000.0
-        export ACTORS_PER_CELL=12800
-        export PE_ROWS=4
-        export PE_COLS=4
+        export ACTORS_PER_CELL=102400
+        export PE_ROWS=2
+        export PE_COLS=1
     else
         export CELL_DIM=400.0
-        export ACTORS_PER_CELL=2800
-        export PE_ROWS=4
-        export PE_COLS=4
+        export ACTORS_PER_CELL=38400
+        export PE_ROWS=2
+        export PE_COLS=1
     fi
 elif [[ $SLURM_NNODES -eq 4 ]]; then
     # For 4 nodes
     if [[ $SCALING == strong ]]; then
         # export CELL_DIM=200.0
         export CELL_DIM=2000.0
-        export ACTORS_PER_CELL=3200
-        export PE_ROWS=8
-        export PE_COLS=8
+        export ACTORS_PER_CELL=25600
+        export PE_ROWS=4
+        export PE_COLS=2
     else
         export CELL_DIM=400.0
-        export ACTORS_PER_CELL=2800
-        export PE_ROWS=8
-        export PE_COLS=8
+        export ACTORS_PER_CELL=22400
+        export PE_ROWS=4
+        export PE_COLS=2
     fi
 elif [[ $SLURM_NNODES -eq 16 ]]; then
     # For 16 nodes
     if [[ $SCALING == strong ]]; then
         # export CELL_DIM=100.0 # for illustrating coupled execution
         export CELL_DIM=1000.0 # for illustrating uncoupled execution
-        export ACTORS_PER_CELL=800
-        export PE_ROWS=16
-        export PE_COLS=16
+        export ACTORS_PER_CELL=6400
+        export PE_ROWS=8
+        export PE_COLS=4
     else
         export CELL_DIM=400.0
-        export ACTORS_PER_CELL=2800
-        export PE_ROWS=16
-        export PE_COLS=16
-    fi
-elif [[ $SLURM_NNODES -eq 32 ]]; then
-    # For 32 nodes
-    if [[ $SCALING == strong ]]; then
-        # export CELL_DIM=100.0 # for illustrating coupled execution
-        export CELL_DIM=1000.0 # for illustrating uncoupled execution
-        export ACTORS_PER_CELL=800
-        export PE_ROWS=32
-        export PE_COLS=16
-    else
-        export CELL_DIM=400.0
-        export ACTORS_PER_CELL=2800
-        export PE_ROWS=32
-        export PE_COLS=16
+        export ACTORS_PER_CELL=22400
+        export PE_ROWS=8
+        export PE_COLS=4
     fi
 else
     echo "Unsupported number of nodes! $SLURM_NNODES"
@@ -120,17 +117,6 @@ export N_PORTALS=0
 export N_INFECTED=1
 export MAX_DELTA_VELOCITY=0.01
 
-if [[ "$(basename $OPENSHMEM_INSTALL)" == "SOS-install" ]]; then
-    # For SoS
-    export PROCESS_CONFIG="-n $(($CORES_PER_NODE * $SLURM_NNODES))"
-elif [[ "$(basename $OPENSHMEM_INSTALL)" == "osss-ucx" ]]; then
-    # For OSSS
-    export PROCESS_CONFIG="-npernode $CORES_PER_NODE"
-else 
-    echo "Unexpected OPENSHMEM_INSTALL when auto-configuring PROCESS_CONFIG? $OPENSHMEM_INSTALL"
-    exit 1
-fi
-
 # for MAX_NUM_TIMESTEPS in 10 100 200; do
 for MAX_NUM_TIMESTEPS in 100; do
     #  for INFECTION_RADIUS in 4.0 10.0; do
@@ -138,7 +124,7 @@ for MAX_NUM_TIMESTEPS in 100; do
 
         PARAM_STR="$CELL_DIM $N_PORTALS $ACTORS_PER_CELL $PE_ROWS $PE_COLS $N_INFECTED \
                    $MAX_NUM_TIMESTEPS $INFECTION_RADIUS $MAX_DELTA_VELOCITY"
-       echo $PARAM_STR
+        echo $PARAM_STR
 
         $OPENSHMEM_INSTALL/bin/oshrun $PROCESS_CONFIG \
                 $HOME/hoover/bin/infectious_test $PARAM_STR

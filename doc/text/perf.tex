@@ -321,9 +321,37 @@ revealing that at larger datasets we do see near linear scaling out to 6,144 PEs
     384                         & 145,161 &               \\\hline
     1536                        & 13,425  & 10.81$\times$ \\\hline
     6144                        & 4,237   & 3.17$\times$  \\\hline
+    24,576                      & 3,557   & 1.19$\times$ \\\hline
 \end{tabularx}
 \caption{Larger scale tests of the HOOVER v0.5 framework on the Edison supercomputer.}
 \label{tab:large_scale3}
+\end{table}
+
+\subsection{Memory Scaling}
+
+At large scales, per-PE memory consumption can become problematic as data
+structures sized by the number of PEs grow significantly. Some of the
+symmetrically allocated data structures in HOOVER do grow with the number of
+PEs, so it is important to look at how memory consumption relates to the number
+of PEs used. Table~\ref{tab:memory_scaling} shows these numbers, and shows that
+per-PE memory usage is highest at small numbers of PEs and large numbers of PEs.
+Because these are strong scaling experiments, at small numbers of PEs we have
+many more actors per PE and so memory consumption is high. At larger numbers of
+PEs, data structures that grow with the number of PEs are significantly larger.
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X || X |}
+\hline
+    \textbf{\# PEs}             & \textbf{Approximate Per-PE Memory Usage (MB)} \\\hline
+    96                          & 1,291 \\\hline
+    384                         & 340 \\\hline
+    1,536                       & 156 \\\hline
+    6,144                       & 322 \\\hline
+    24,576                      & 1,215 \\\hline
+\end{tabularx}
+\caption{Memory consumption per PE as a function of the number of PEs in a job for the infectious disease model on HOOVER v0.5.}
+\label{tab:memory_scaling}
 \end{table}
 
 \subsection{Parameter Design Space Exploration}
