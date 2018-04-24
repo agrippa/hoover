@@ -3,7 +3,7 @@
 #SBATCH -p regular
 #SBATCH -N 1024
 ###SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:02:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ###SBATCH --contiguous
@@ -30,7 +30,7 @@ export LD_LIBRARY_PATH=$OFI_HOME/lib:$LD_LIBRARY_PATH
 export LD_PRELOAD=/opt/intel/compilers_and_libraries_2017.1.132/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
-export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024))
+export SHMEM_SYMMETRIC_SIZE=$((2 * 1024 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison

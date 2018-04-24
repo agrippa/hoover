@@ -38,6 +38,19 @@ static double default_sparse_vec_val = 0.0;
 static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
         const hvr_time_t curr_timestamp, unsigned *nhits, unsigned *nmisses);
 
+static inline void *shmem_malloc_wrapper(size_t nbytes) {
+    static size_t total_nbytes = 0;
+    if (nbytes == 0) {
+        fprintf(stderr, "PE %d allocated %lu bytes. Exiting...\n",
+                shmem_my_pe(), total_nbytes);
+        exit(0);
+    } else {
+        void *ptr = shmem_malloc(nbytes);
+        total_nbytes += nbytes;
+        return ptr;
+    }
+}
+
 static void rlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
     assert(pe < ctx->npes);
     hvr_rwlock_rlock(ctx->actor_to_partition_lock, pe);
@@ -59,7 +72,7 @@ static void wunlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
 }
 
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
-    hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc(
+    hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc_wrapper(
             nvecs * sizeof(*new_vecs));
     if (!new_vecs) {
         fprintf(stderr, "Failed allocating %lu symmetric vectors\n", nvecs);
@@ -1296,19 +1309,6 @@ static void oldest_pe_timestep(hvr_internal_ctx_t *ctx,
     *out_oldest_pe = oldest_pe;
 }
 
-static inline void *shmem_malloc_wrapper(size_t nbytes) {
-    static size_t total_nbytes = 0;
-    if (nbytes == 0) {
-        fprintf(stderr, "PE %d allocated %lu bytes\n", shmem_my_pe(),
-                total_nbytes);
-        return NULL;
-    } else {
-        void *ptr = shmem_malloc(nbytes);
-        total_nbytes += nbytes;
-        return ptr;
-    }
-}
-
 void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         hvr_sparse_vec_t *vertices, hvr_update_metadata_func update_metadata,
         hvr_might_interact_func might_interact,
@@ -1350,7 +1350,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     *(new_ctx->symm_timestep) = -1;
 
     new_ctx->all_pe_timesteps = (hvr_time_t *)shmem_malloc_wrapper(
-            new_ctx->npes * sizeof(hvr_time_t);
+            new_ctx->npes * sizeof(hvr_time_t));
     assert(new_ctx->all_pe_timesteps);
     memset(new_ctx->all_pe_timesteps, 0x00,
         new_ctx->npes * sizeof(hvr_time_t));
@@ -1474,7 +1474,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     assert(new_ctx->partition_lists);
 
     // Print the number of bytes allocated
-    shmem_malloc_wrapper(0);
+    // shmem_malloc_wrapper(0);
 
     shmem_barrier_all();
 }
