@@ -1475,6 +1475,7 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
  */
 static unsigned update_local_actor_metadata(const vertex_id_t actor,
         hvr_set_t *to_couple_with, unsigned long long *fetch_neighbors_time,
+        unsigned long long *quiet_neighbors_time,
        unsigned long long *update_metadata_time, hvr_internal_ctx_t *ctx,
        hvr_sparse_vec_cache_t *vec_caches, unsigned long long *quiet_counter) {
     static size_t neighbors_capacity = 0;
@@ -1518,6 +1519,8 @@ static unsigned update_local_actor_metadata(const vertex_id_t actor,
             (ctx->buffered_neighbors_pes)[n] = other_pe;
         }
 
+        const unsigned long long finish_neighbor_fetch= hvr_current_time_us();
+
         // Quiet any caches that were hit by the above fetches
         for (unsigned n = 0; n < n_neighbors; n++) {
             hvr_sparse_vec_cache_quiet(
@@ -1535,8 +1538,9 @@ static unsigned update_local_actor_metadata(const vertex_id_t actor,
                     sizeof(hvr_sparse_vec_t));
         }
 
-        const unsigned long long finish_neighbor_fetch= hvr_current_time_us();
+        const unsigned long long finish_neighbor_quiet = hvr_current_time_us();
         *fetch_neighbors_time += (finish_neighbor_fetch - start_single_update);
+        *quiet_neighbors_time += (finish_neighbor_quiet - finish_neighbor_fetch);
 
         ctx->update_metadata(&(ctx->vertices[actor]), ctx->buffered_neighbors,
                 n_neighbors, to_couple_with, ctx);
@@ -1634,32 +1638,33 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         unsigned long long quiet_counter = 0;
         unsigned long long fetch_neighbors_time = 0;
+        unsigned long long quiet_neighbors_time = 0;
         unsigned long long update_metadata_time = 0;
 
         hvr_set_wipe(to_couple_with);
 
         unsigned long long sum_n_neighbors = 0;
 
-#define VERTEX_UPDATE_CHUNKING 2
-        for (vertex_id_t i = 0; i < ctx->n_local_vertices;
-                i += VERTEX_UPDATE_CHUNKING) {
-            vertex_id_t end = i + VERTEX_UPDATE_CHUNKING;
-            if (end > ctx->n_local_vertices) {
-                end = ctx->n_local_vertices;
-            }
-
-            for (vertex_id_t ii = i; ii < end; ii++) {
-
-            }
-        }
+// #define VERTEX_UPDATE_CHUNKING 2
+//         for (vertex_id_t i = 0; i < ctx->n_local_vertices;
+//                 i += VERTEX_UPDATE_CHUNKING) {
+//             vertex_id_t end = i + VERTEX_UPDATE_CHUNKING;
+//             if (end > ctx->n_local_vertices) {
+//                 end = ctx->n_local_vertices;
+//             }
+// 
+//             for (vertex_id_t ii = i; ii < end; ii++) {
+// 
+//             }
+//         }
 
         // Update each actor's metadata
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
             sum_n_neighbors += update_local_actor_metadata(i, to_couple_with,
-                    &fetch_neighbors_time, &update_metadata_time, ctx,
+                    &fetch_neighbors_time, &quiet_neighbors_time, &update_metadata_time, ctx,
                     vec_caches, &quiet_counter);
         }
-        double avg_n_neighbors = (double)sum_n_neighbors /
+        const double avg_n_neighbors = (double)sum_n_neighbors /
             (double)(ctx->n_local_vertices);
 
         const unsigned long long finished_updates = hvr_current_time_us();
@@ -1866,7 +1871,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         sum_hits_and_misses(vec_caches, ctx->npes, &nhits, &nmisses,
                 &nmisses_due_to_age);
 
-        printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f) - summary %f ms "
+        printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f %f) - summary %f ms "
                 "(%f %f %f) - edges %f ms (%f %f %llu) - neighbor "
                 "updates %f ms - coupled values %f ms - coupling %f ms (%u) - throttling %f ms - %u spins - %u / %u PE "
                 "neighbors %s - partition window = %s, %d / %d active - "
@@ -1875,6 +1880,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)(finished_throttling - start_iter) / 1000.0,
                 (double)(finished_updates - start_iter) / 1000.0,
                 (double)fetch_neighbors_time / 1000.0,
+                (double)quiet_neighbors_time / 1000.0,
                 (double)update_metadata_time / 1000.0,
                 (double)(finished_summary_update - finished_updates) / 1000.0,
                 (double)(finished_actor_partitions - finished_updates) / 1000.0,
