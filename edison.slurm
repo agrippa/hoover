@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
-#SBATCH -p regular
-#SBATCH -N 1024
+#SBATCH -p debug
+#SBATCH -N 64
 ###SBATCH -C haswell
-#SBATCH -t 00:02:00
+#SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ###SBATCH --contiguous
@@ -54,56 +54,32 @@ if [[ $SLURM_NNODES -eq 1 ]]; then
     export ACTORS_PER_CELL=19200
     export PE_ROWS=4
     export PE_COLS=6
-elif [[ $SLURM_NNODES -eq 2 ]]; then
-    # For 2 nodes
-    export CELL_DIM=4000.0
-    export ACTORS_PER_CELL=19200
-    export PE_ROWS=6
-    export PE_COLS=8
 elif [[ $SLURM_NNODES -eq 4 ]]; then
     # For 4 nodes
     export CELL_DIM=2000.0
     export ACTORS_PER_CELL=51200
     export PE_ROWS=8
     export PE_COLS=12
-elif [[ $SLURM_NNODES -eq 8 ]]; then
-    # For 8 nodes
-    export CELL_DIM=2000.0
-    export ACTORS_PER_CELL=4800
-    export PE_ROWS=12
-    export PE_COLS=16
 elif [[ $SLURM_NNODES -eq 16 ]]; then
-    # 16 nodes
+    # 16 nodes, big run
     export CELL_DIM=1000.0
     export ACTORS_PER_CELL=12800
     export PE_ROWS=16
     export PE_COLS=24
-elif [[ $SLURM_NNODES -eq 32 ]]; then
-    # For 32 nodes
-    export CELL_DIM=1000.0
-    export ACTORS_PER_CELL=1200
-    export PE_ROWS=24
-    export PE_COLS=32
 elif [[ $SLURM_NNODES -eq 64 ]]; then
-    # For 64 nodes
+    # For 64 nodes, big run
     export CELL_DIM=500.0
     export ACTORS_PER_CELL=3200
     export PE_ROWS=32
     export PE_COLS=48
-elif [[ $SLURM_NNODES -eq 128 ]]; then
-    # For 128 nodes
-    export CELL_DIM=500.0
-    export ACTORS_PER_CELL=300
-    export PE_ROWS=48
-    export PE_COLS=64
 elif [[ $SLURM_NNODES -eq 256 ]]; then
-    # For 256 nodes
+    # For 256 nodes, big run
     export CELL_DIM=250.0
     export ACTORS_PER_CELL=800
     export PE_ROWS=64
     export PE_COLS=96
 elif [[ $SLURM_NNODES -eq 1024 ]]; then
-    # For 256 nodes
+    # For 256 nodes, big run
     export CELL_DIM=125.0
     export ACTORS_PER_CELL=200
     export PE_ROWS=128

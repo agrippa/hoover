@@ -1468,51 +1468,6 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
     shmem_barrier_all();
 }
 
-static unsigned issue_neighbor_fetches(const vertex_id_t actor,
-        hvr_internal_ctx_t *ctx, hvr_sparse_vec_cache_t *vec_caches) {
-    static size_t neighbors_capacity = 0;
-    static vertex_id_t *neighbors = NULL;
-    if (neighbors == NULL) {
-        neighbors_capacity = 256;
-        neighbors = (vertex_id_t *)malloc(neighbors_capacity *
-                sizeof(*neighbors));
-        assert(neighbors);
-    }
-
-    // The list of edges for local actor i
-    hvr_avl_tree_node_t *vertex_edge_tree = hvr_tree_find(
-            ctx->edges->tree, ctx->vertices[actor].id);
-
-    // Update the metadata for actor i
-    if (vertex_edge_tree != NULL) {
-        // This vertex has edges
-        const size_t n_neighbors = hvr_tree_linearize(&neighbors,
-                &neighbors_capacity, vertex_edge_tree->subtree);
-
-        // Simplifying assumption for now
-        if (n_neighbors > EDGE_GET_BUFFERING) {
-            fprintf(stderr, "Invalid # neighbors - %lu > %u\n", n_neighbors,
-                    EDGE_GET_BUFFERING);
-            abort();
-        }
-
-        // Fetch all neighbors of this vertex
-        const unsigned long long start_single_update = hvr_current_time_us();
-        for (unsigned n = 0; n < n_neighbors; n++) {
-            const vertex_id_t neighbor = neighbors[n];
-
-            unsigned other_pe;
-            size_t local_offset;
-            ctx->vertex_owner(neighbor, &other_pe, &local_offset);
-
-            hvr_sparse_vec_cache_node_t *cache_node = get_remote_vec_nbi(
-                    local_offset, other_pe, ctx, vec_caches);
-            (ctx->neighbor_buffer)[n] = cache_node;
-            (ctx->buffered_neighbors_pes)[n] = other_pe;
-        }
-    }
-}
-
 /*
  * Given the local ID of an actor, fetch the latest information on each of its
  * neighbors from their owning PEs, and then call the user-defined
