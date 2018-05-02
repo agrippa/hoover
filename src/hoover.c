@@ -531,10 +531,9 @@ hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(unsigned offset,
 
 void hvr_sparse_vec_cache_quiet(hvr_sparse_vec_cache_t *cache,
         unsigned long long *counter) {
-    shmem_quiet();
     for (unsigned b = 0; b < HVR_CACHE_BUCKETS; b++) {
         hvr_sparse_vec_cache_node_t *iter = cache->buckets[b];
-        while (iter) {
+        while (iter && iter->pending_comm) {
             iter->pending_comm = 0;
             iter = iter->next;
         }
@@ -1077,6 +1076,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 
                 if (nbuffered == BUFFERING) {
                     // Process buffered
+                    shmem_quiet();
                     hvr_sparse_vec_cache_quiet(vec_caches + target_pe,
                             quiet_counter);
 #ifdef FINE_GRAIN_TIMING
@@ -1108,6 +1108,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 #ifdef FINE_GRAIN_TIMING
             unsigned long long start_time = hvr_current_time_us();
 #endif
+            shmem_quiet();
             hvr_sparse_vec_cache_quiet(vec_caches + target_pe, quiet_counter);
 #ifdef FINE_GRAIN_TIMING
             *getmem_time += (hvr_current_time_us() - start_time);
@@ -1519,9 +1520,10 @@ static unsigned update_local_actor_metadata(const vertex_id_t actor,
             (ctx->buffered_neighbors_pes)[n] = other_pe;
         }
 
-        const unsigned long long finish_neighbor_fetch= hvr_current_time_us();
+        const unsigned long long finish_neighbor_fetch = hvr_current_time_us();
 
         // Quiet any caches that were hit by the above fetches
+        shmem_quiet();
         for (unsigned n = 0; n < n_neighbors; n++) {
             hvr_sparse_vec_cache_quiet(
                     vec_caches + (ctx->buffered_neighbors_pes)[n],

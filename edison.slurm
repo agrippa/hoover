@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
-#SBATCH -p debug
-#SBATCH -N 64
+#SBATCH -p regular
+#SBATCH -N 1024
 ###SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:01:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ###SBATCH --contiguous
@@ -63,25 +63,25 @@ elif [[ $SLURM_NNODES -eq 4 ]]; then
 elif [[ $SLURM_NNODES -eq 16 ]]; then
     # 16 nodes, big run
     export CELL_DIM=1000.0
-    export ACTORS_PER_CELL=12800
+    export ACTORS_PER_CELL=25600
     export PE_ROWS=16
     export PE_COLS=24
 elif [[ $SLURM_NNODES -eq 64 ]]; then
     # For 64 nodes, big run
     export CELL_DIM=500.0
-    export ACTORS_PER_CELL=3200
+    export ACTORS_PER_CELL=6400
     export PE_ROWS=32
     export PE_COLS=48
 elif [[ $SLURM_NNODES -eq 256 ]]; then
     # For 256 nodes, big run
     export CELL_DIM=250.0
-    export ACTORS_PER_CELL=800
+    export ACTORS_PER_CELL=1600
     export PE_ROWS=64
     export PE_COLS=96
 elif [[ $SLURM_NNODES -eq 1024 ]]; then
     # For 256 nodes, big run
     export CELL_DIM=125.0
-    export ACTORS_PER_CELL=200
+    export ACTORS_PER_CELL=400
     export PE_ROWS=128
     export PE_COLS=192
 else
