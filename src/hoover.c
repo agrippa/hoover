@@ -420,7 +420,18 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
 
     const unsigned n_dst_features = dst->bucket_size[dst_bucket];
     const unsigned n_src_features = src->bucket_size[src_bucket];
-    assert(n_dst_features == n_src_features);
+    if (n_dst_features != n_src_features) {
+        fprintf(stderr, "ERROR: n_dst_features=%u n_src_features=%u "
+                "dst_bucket=%d src_bucket=%d target_timestamp=%llu "
+                "dst_timestamp=%llu src_timestamp=%llu dst=[%u %u] "
+                "src=[%u %u]\n", n_dst_features, n_src_features,
+                dst_bucket, src_bucket, (unsigned long long)target_timestamp,
+                (unsigned long long)dst->timestamps[dst_bucket],
+                (unsigned long long)src->timestamps[src_bucket],
+                dst->features[dst_bucket][0], dst->features[dst_bucket][1],
+                src->features[src_bucket][0], src->features[src_bucket][1]);
+        abort();
+    }
 
     for (unsigned i = 0; i < n_dst_features; i++) {
         unsigned feature = dst->features[dst_bucket][i];
@@ -433,7 +444,25 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
                 break;
             }
         }
-        assert(src_feature_index >= 0);
+        if (src_feature_index < 0) {
+            fprintf(stderr, "ERROR: n_dst_features=%u n_src_features=%u "
+                    "dst_bucket=%d src_bucket=%d target_timestamp=%llu "
+                    "dst_timestamp=%llu src_timestamp=%llu dst=[%u %u] "
+                    "src=[%u %u] dst=[%f %f] src=[%f %f] dst-finalized=%u "
+                    "src-finalized=%u dst-pe=%d src-pe=%d\n", n_dst_features,
+                    n_src_features, dst_bucket, src_bucket,
+                    (unsigned long long)target_timestamp,
+                    (unsigned long long)dst->timestamps[dst_bucket],
+                    (unsigned long long)src->timestamps[src_bucket],
+                    dst->features[dst_bucket][0], dst->features[dst_bucket][1],
+                    src->features[src_bucket][0], src->features[src_bucket][1],
+                    dst->values[dst_bucket][0], dst->values[dst_bucket][1],
+                    src->values[src_bucket][0], src->values[src_bucket][1],
+                    dst->finalized[dst_bucket], src->finalized[src_bucket],
+                    dst->pe, src->pe);
+
+            abort();
+        }
 
         dst->values[dst_bucket][dst_feature_index] +=
             src->values[src_bucket][src_feature_index];
@@ -1787,13 +1816,19 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
                 while (other_has_timestamp != HAS_TIMESTAMP) {
                     hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
-
+                    
                     shmem_getmem(ctx->coupled_pes_values_buffer,
                             ctx->coupled_pes_values,
                             ctx->npes * sizeof(hvr_sparse_vec_t), p);
 
                     hvr_rwlock_runlock((long *)ctx->coupled_lock, p);
 
+                    for (int i = 0; i < ctx->npes; i++) {
+                        (ctx->coupled_pes_values_buffer)[i].cached_timestamp = -1;
+                        (ctx->coupled_pes_values_buffer)[i].cached_timestamp_index = 0;
+                    }
+
+                    hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
                     for (int i = 0; i < ctx->npes; i++) {
                         hvr_sparse_vec_t *other =
                             ctx->coupled_pes_values_buffer + i;
@@ -1812,6 +1847,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                             }
                         }
                     }
+                    hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
 
                     other_has_timestamp = hvr_sparse_vec_has_timestamp(
                             ctx->coupled_pes_values + p, ctx->timestep);

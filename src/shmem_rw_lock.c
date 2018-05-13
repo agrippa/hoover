@@ -81,12 +81,19 @@ void hvr_rwlock_wlock(long *lock, const int target_pe) {
             long new_val = set_writer(curr_val);
             long old_val = SHMEM_CSWAP(lock, curr_val, new_val, target_pe);
             if (old_val == curr_val) {
-                return;
+                break;
             } else {
                 // Retry
                 curr_val = old_val;
             }
         }
+    }
+
+    // Wait for all readers to exit the critical section
+    long n = nreaders(curr_val);
+    while (n > 0) {
+        shmem_getmem(&curr_val, lock, sizeof(curr_val), target_pe);
+        n = nreaders(curr_val);
     }
 }
 

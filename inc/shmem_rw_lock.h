@@ -24,6 +24,7 @@ static inline long set_writer(const long lock_val) {
 
 static inline long clear_writer(const long lock_val) {
     assert(has_writer_request(lock_val) == 1);
+    assert(nreaders(lock_val) == 0);
     return (~WRITER_BIT) & lock_val;
 }
 

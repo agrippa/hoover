@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 16
+#SBATCH -N 4
 ###SBATCH -C haswell
 #SBATCH -t 00:05:00
 #SBATCH -J hoover
@@ -100,8 +100,16 @@ export INFECTION_RADIUS=10.0
 export MAX_DELTA_VELOCITY=0.01
 
 cd $SCRATCH
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
+#     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
+#     $MAX_DELTA_VELOCITY
+
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
-    $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    $MAX_DELTA_VELOCITY
+    $HOME/hoover/bin/init_test 50
+
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/write_lock_stress
