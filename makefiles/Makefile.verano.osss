@@ -1,0 +1,30 @@
+CFLAGS=-Wall -g -O2 -Iinc -std=c99
+
+all: bin/libhoover.a bin/edge_set_test bin/sparse_vec_test bin/init_test bin/infectious_test bin/shmem_rw_lock_test
+
+bin/libhoover.a: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) --compile src/hoover.c -o bin/hoover.o
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) --compile src/shmem_rw_lock.c -o bin/shmem_rw_lock.o
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) --compile src/hvr_avl_tree.c -o bin/hvr_avl_tree.o
+	ar rcs $@ bin/hoover.o bin/hvr_avl_tree.o bin/shmem_rw_lock.o
+
+bin/init_test: test/init_test.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -Lbin bin/libhoover.a -lm -lpthread
+
+bin/infectious_test: test/infectious_test.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -Lbin bin/libhoover.a -lm -lpthread
+
+bin/edge_set_test: test/edge_set_test.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -Lbin bin/libhoover.a -lpthread
+
+bin/sparse_vec_test: test/sparse_vec_test.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -Lbin bin/libhoover.a -lpthread
+
+bin/pe_neighbors_set_test: test/pe_neighbors_set_test.c
+	$(OPENSHMEM_INSTALL)/bin/oshcc $(CFLAGS) $^ -o $@ -Lbin bin/libhoover.a -lpthread
+
+bin/shmem_rw_lock_test: test/shmem_rw_lock.c
+	gcc -O0 -g test/shmem_rw_lock.c -Iinc -o $@
+
+clean:
+	rm -f bin/*

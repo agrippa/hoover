@@ -355,15 +355,15 @@ int main(int argc, char **argv) {
             p_sync);
     shmem_barrier_all();
 
-    hvr_finalize(hvr_ctx);
-
-    shmem_finalize();
-
     if (pe == 0) {
-        printf("%d PEs, total CPU time = %f ms, max elapsed = %f ms, ~%u cells "
+        fprintf(stderr, "%d PEs, total CPU time = %f ms, max elapsed = %f ms, ~%u cells "
                 "per PE\n", npes, (double)total_time / 1000.0,
                 (double)max_elapsed / 1000.0, cells_per_pe);
     }
+
+    hvr_finalize(hvr_ctx);
+
+    shmem_finalize();
 
     return 0;
 }

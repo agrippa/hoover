@@ -26,11 +26,74 @@
 
 // #define TRACK_VECTOR_GET_CACHE
 
-// #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
+#define USE_CSWAP_BITWISE_ATOMICS
+
+#if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
+
 #define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
-// #else
-// #define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
-// #endif
+#define SHMEM_UINT_ATOMIC_OR shmem_uint_atomic_or
+#define SHMEM_UINT_ATOMIC_AND shmem_uint_atomic_and
+
+#else
+/*
+ * Pre 1.4 some OpenSHMEM implementations offered a shmemx variant of atomic
+ * bitwise functions. For others, we have to implement it on top of cswap.
+ */
+
+#ifdef USE_CSWAP_BITWISE_ATOMICS
+#warning "Heads up! Using atomic compare-and-swap to implement atomic bitwise atomics!"
+
+static void inline _shmem_ulonglong_atomic_or(unsigned long long *dst,
+        unsigned long long val, int pe) {
+    unsigned long long curr_val;
+    shmem_getmem(&curr_val, dst, sizeof(curr_val), pe);
+
+    while (1) {
+        unsigned long long new_val = (curr_val | val);
+        unsigned long long old_val = SHMEM_ULL_CSWAP(dst, curr_val, new_val, pe);
+        if (old_val == curr_val) return;
+        curr_val = old_val;
+    }
+}
+
+static void inline _shmem_uint_atomic_or(unsigned int *dst, unsigned int val,
+        int pe) {
+    unsigned int curr_val;
+    shmem_getmem(&curr_val, dst, sizeof(curr_val), pe);
+
+    while (1) {
+        unsigned int new_val = (curr_val | val);
+        unsigned int old_val = SHMEM_UINT_CSWAP(dst, curr_val, new_val, pe);
+        if (old_val == curr_val) return;
+        curr_val = old_val;
+    }
+}
+
+static void inline _shmem_uint_atomic_and(unsigned int *dst, unsigned int val,
+        int pe) {
+    unsigned int curr_val;
+    shmem_getmem(&curr_val, dst, sizeof(curr_val), pe);
+
+    while (1) {
+        unsigned int new_val = (curr_val & val);
+        unsigned int old_val = SHMEM_UINT_CSWAP(dst, curr_val, new_val, pe);
+        if (old_val == curr_val) return;
+        curr_val = old_val;
+    }
+}
+
+#define SHMEM_ULONGLONG_ATOMIC_OR _shmem_ulonglong_atomic_or
+#define SHMEM_UINT_ATOMIC_OR _shmem_uint_atomic_or
+#define SHMEM_UINT_ATOMIC_AND _shmem_uint_atomic_or
+
+#else
+
+#define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
+#define SHMEM_UINT_ATOMIC_OR shmemx_uint_atomic_or
+#define SHMEM_UINT_ATOMIC_AND shmemx_uint_atomic_and
+
+#endif
+#endif
 
 #define EDGE_GET_BUFFERING 1024
 
@@ -1253,7 +1316,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
 
             if (hvr_set_contains(p, ctx->tmp_partition_time_window)) {
                 // Changed from being inactive to active, set bit
-                shmem_uint_atomic_or(
+                SHMEM_UINT_ATOMIC_OR(
                         ctx->pes_per_partition + (partition_offset *
                             ctx->partitions_per_pe_vec_length_in_words) + pe_word,
                         pe_mask, partition_owner_pe);
@@ -1261,7 +1324,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
             } else {
                 // Changed from being active to inactive, clear bit
                 pe_mask = ~pe_mask;
-                shmem_uint_atomic_and(
+                SHMEM_UINT_ATOMIC_AND(
                         ctx->pes_per_partition + (partition_offset *
                             ctx->partitions_per_pe_vec_length_in_words) + pe_word,
                         pe_mask, partition_owner_pe);
