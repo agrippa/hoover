@@ -77,6 +77,7 @@ include in their caption which version of HOOVER the results are collected from.
 0.3                     & \texttt{4f9350fcc2d624ae14cffde6aae08b63a7d3ad16} & Mar 02 2018 \\\hline
 0.4                     & \texttt{0129e2a81c2a14959e8966965b25c3fc7cf5c752} & Mar 17 2018 \\\hline
 0.5                     & \texttt{09631dfeb925adaccb52f63ff4eaad4ba4fc8243} & Apr 08 2018 \\\hline
+0.6                     & \texttt{26deaf397ee98ca785bd381528047ef79790814c} & May 02 2018 \\\hline
 \end{tabular}
 \caption{Strong scaling of the HOOVER framework on OSSS OpenSHMEM running a
     simple infectious disease model with varying \# of iters and infection
@@ -319,12 +320,49 @@ revealing that at larger datasets we do see near linear scaling out to 6,144 PEs
 \hline
     \textbf{\# PEs}             & \textbf{Execution Time (ms)} & \textbf{Speedup Relative to Previous} \\\hline
     384                         & 145,161 &               \\\hline
-    1536                        & 13,425  & 10.81$\times$ \\\hline
-    6144                        & 4,237   & 3.17$\times$  \\\hline
+    1,536                       & 13,425  & 10.81$\times$ \\\hline
+    6,144                       & 4,237   & 3.17$\times$  \\\hline
     24,576                      & 3,557   & 1.19$\times$ \\\hline
 \end{tabularx}
 \caption{Larger scale tests of the HOOVER v0.5 framework on the Edison supercomputer.}
 \label{tab:large_scale3}
+\end{table}
+
+In v0.6 of HOOVER, updates were made to resolve performance issues at small
+numbers of PEs (note the poor performance of 384 PEs in
+Table~\ref{tab:large_scale3}). Table~\ref{tab:large_scale4} plots the updated
+results with these improvements on the same problem size as
+Table~\ref{tab:large_scale3}. Table~\ref{tab:large_scale5} doubles the problem
+size to look at scaling on an even larger dataset. Note that even for this
+larger dataset, at 24,576 PEs the problem is distributed thinly across PEs, with
+only 400 actors per PE.
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X || X | X |}
+\hline
+    \textbf{\# PEs}             & \textbf{Execution Time (ms)} & \textbf{Speedup Relative to Previous} \\\hline
+    384                         & 32,973 &               \\\hline
+    1,536                       & 7,272  & 4.53$\times$ \\\hline
+    6,144                       & 4,108  & 1.77$\times$  \\\hline
+    24,576                      & 2,979  & 1.38$\times$ \\\hline
+\end{tabularx}
+\caption{Larger scale tests on 4,915,200 actors with the HOOVER v0.6 framework on the Edison supercomputer.}
+\label{tab:large_scale4}
+\end{table}
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X || X | X |}
+\hline
+    \textbf{\# PEs}             & \textbf{Execution Time (ms)} & \textbf{Speedup Relative to Previous} \\\hline
+    384                         & 157,878 &               \\\hline
+    1,536                       & 23,118  & 6.83$\times$ \\\hline
+    6,144                       & 9,377   & 2.47$\times$  \\\hline
+    24,576                      & 5,865   & 1.60$\times$ \\\hline
+\end{tabularx}
+\caption{Larger scale tests on 9,830,400 actors with the HOOVER v0.6 framework on the Edison supercomputer.}
+\label{tab:large_scale5}
 \end{table}
 
 \subsection{Memory Scaling}

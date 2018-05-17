@@ -1478,6 +1478,7 @@ static unsigned update_local_actor_metadata(const vertex_id_t actor,
         unsigned long long *quiet_neighbors_time,
        unsigned long long *update_metadata_time, hvr_internal_ctx_t *ctx,
        hvr_sparse_vec_cache_t *vec_caches, unsigned long long *quiet_counter) {
+    // Buffer used to linearize neighbors list into
     static size_t neighbors_capacity = 0;
     static vertex_id_t *neighbors = NULL;
     if (neighbors == NULL) {
@@ -1661,7 +1662,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         // Update each actor's metadata
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
             sum_n_neighbors += update_local_actor_metadata(i, to_couple_with,
-                    &fetch_neighbors_time, &quiet_neighbors_time, &update_metadata_time, ctx,
+                    &fetch_neighbors_time, &quiet_neighbors_time,
+                    &update_metadata_time, ctx,
                     vec_caches, &quiet_counter);
         }
         const double avg_n_neighbors = (double)sum_n_neighbors /
