@@ -22,15 +22,78 @@
 #define CACHED_TIMESTEPS_TOLERANCE 5
 #define MAX_INTERACTING_PARTITIONS 100
 
-#define FINE_GRAIN_TIMING
+// #define FINE_GRAIN_TIMING
 
 // #define TRACK_VECTOR_GET_CACHE
 
-// #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
+#define USE_CSWAP_BITWISE_ATOMICS
+
+#if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
+
 #define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
-// #else
-// #define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
-// #endif
+#define SHMEM_UINT_ATOMIC_OR shmem_uint_atomic_or
+#define SHMEM_UINT_ATOMIC_AND shmem_uint_atomic_and
+
+#else
+/*
+ * Pre 1.4 some OpenSHMEM implementations offered a shmemx variant of atomic
+ * bitwise functions. For others, we have to implement it on top of cswap.
+ */
+
+#ifdef USE_CSWAP_BITWISE_ATOMICS
+#warning "Heads up! Using atomic compare-and-swap to implement atomic bitwise atomics!"
+
+static void inline _shmem_ulonglong_atomic_or(unsigned long long *dst,
+        unsigned long long val, int pe) {
+    unsigned long long curr_val;
+    shmem_getmem(&curr_val, dst, sizeof(curr_val), pe);
+
+    while (1) {
+        unsigned long long new_val = (curr_val | val);
+        unsigned long long old_val = SHMEM_ULL_CSWAP(dst, curr_val, new_val, pe);
+        if (old_val == curr_val) return;
+        curr_val = old_val;
+    }
+}
+
+static void inline _shmem_uint_atomic_or(unsigned int *dst, unsigned int val,
+        int pe) {
+    unsigned int curr_val;
+    shmem_getmem(&curr_val, dst, sizeof(curr_val), pe);
+
+    while (1) {
+        unsigned int new_val = (curr_val | val);
+        unsigned int old_val = SHMEM_UINT_CSWAP(dst, curr_val, new_val, pe);
+        if (old_val == curr_val) return;
+        curr_val = old_val;
+    }
+}
+
+static void inline _shmem_uint_atomic_and(unsigned int *dst, unsigned int val,
+        int pe) {
+    unsigned int curr_val;
+    shmem_getmem(&curr_val, dst, sizeof(curr_val), pe);
+
+    while (1) {
+        unsigned int new_val = (curr_val & val);
+        unsigned int old_val = SHMEM_UINT_CSWAP(dst, curr_val, new_val, pe);
+        if (old_val == curr_val) return;
+        curr_val = old_val;
+    }
+}
+
+#define SHMEM_ULONGLONG_ATOMIC_OR _shmem_ulonglong_atomic_or
+#define SHMEM_UINT_ATOMIC_OR _shmem_uint_atomic_or
+#define SHMEM_UINT_ATOMIC_AND _shmem_uint_atomic_or
+
+#else
+
+#define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
+#define SHMEM_UINT_ATOMIC_OR shmemx_uint_atomic_or
+#define SHMEM_UINT_ATOMIC_AND shmemx_uint_atomic_and
+
+#endif
+#endif
 
 #define EDGE_GET_BUFFERING 1024
 
@@ -420,7 +483,18 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
 
     const unsigned n_dst_features = dst->bucket_size[dst_bucket];
     const unsigned n_src_features = src->bucket_size[src_bucket];
-    assert(n_dst_features == n_src_features);
+    if (n_dst_features != n_src_features) {
+        fprintf(stderr, "ERROR: n_dst_features=%u n_src_features=%u "
+                "dst_bucket=%d src_bucket=%d target_timestamp=%llu "
+                "dst_timestamp=%llu src_timestamp=%llu dst=[%u %u] "
+                "src=[%u %u]\n", n_dst_features, n_src_features,
+                dst_bucket, src_bucket, (unsigned long long)target_timestamp,
+                (unsigned long long)dst->timestamps[dst_bucket],
+                (unsigned long long)src->timestamps[src_bucket],
+                dst->features[dst_bucket][0], dst->features[dst_bucket][1],
+                src->features[src_bucket][0], src->features[src_bucket][1]);
+        abort();
+    }
 
     for (unsigned i = 0; i < n_dst_features; i++) {
         unsigned feature = dst->features[dst_bucket][i];
@@ -433,7 +507,25 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
                 break;
             }
         }
-        assert(src_feature_index >= 0);
+        if (src_feature_index < 0) {
+            fprintf(stderr, "ERROR: n_dst_features=%u n_src_features=%u "
+                    "dst_bucket=%d src_bucket=%d target_timestamp=%llu "
+                    "dst_timestamp=%llu src_timestamp=%llu dst=[%u %u] "
+                    "src=[%u %u] dst=[%f %f] src=[%f %f] dst-finalized=%u "
+                    "src-finalized=%u dst-pe=%d src-pe=%d\n", n_dst_features,
+                    n_src_features, dst_bucket, src_bucket,
+                    (unsigned long long)target_timestamp,
+                    (unsigned long long)dst->timestamps[dst_bucket],
+                    (unsigned long long)src->timestamps[src_bucket],
+                    dst->features[dst_bucket][0], dst->features[dst_bucket][1],
+                    src->features[src_bucket][0], src->features[src_bucket][1],
+                    dst->values[dst_bucket][0], dst->values[dst_bucket][1],
+                    src->values[src_bucket][0], src->values[src_bucket][1],
+                    dst->finalized[dst_bucket], src->finalized[src_bucket],
+                    dst->pe, src->pe);
+
+            abort();
+        }
 
         dst->values[dst_bucket][dst_feature_index] +=
             src->values[src_bucket][src_feature_index];
@@ -531,10 +623,9 @@ hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(unsigned offset,
 
 void hvr_sparse_vec_cache_quiet(hvr_sparse_vec_cache_t *cache,
         unsigned long long *counter) {
-    shmem_quiet();
     for (unsigned b = 0; b < HVR_CACHE_BUCKETS; b++) {
         hvr_sparse_vec_cache_node_t *iter = cache->buckets[b];
-        while (iter) {
+        while (iter && iter->pending_comm) {
             iter->pending_comm = 0;
             iter = iter->next;
         }
@@ -970,7 +1061,10 @@ static hvr_sparse_vec_cache_node_t *get_remote_vec_nbi(const unsigned offset,
 
 static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
         uint16_t *interacting_partitions, unsigned n_interacting_partitions,
-        hvr_time_t other_pes_timestep, hvr_internal_ctx_t *ctx) {
+        hvr_time_t other_pes_timestep, hvr_internal_ctx_t *ctx,
+        unsigned long long *n_distance_measures) {
+    unsigned long long local_n_distance_measures = 0;
+
     for (unsigned p = 0; p < n_interacting_partitions; p++) {
         hvr_sparse_vec_t *partition_list =
             ctx->partition_lists[interacting_partitions[p]];
@@ -993,10 +1087,12 @@ static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
                     hvr_add_edge(partition_list->id, remote_vec->id,
                             ctx->edges);
                 }
+                local_n_distance_measures++;
             }
             partition_list = partition_list->next_in_partition;
         }
     }
+    *n_distance_measures += local_n_distance_measures;
 }
 
 /*
@@ -1007,9 +1103,14 @@ static void update_edges(hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *vec_caches,
         unsigned long long *getmem_time, unsigned long long *update_edge_time,
         unsigned long long *out_n_edge_checks,
-        unsigned long long *quiet_counter) {
+        unsigned long long *out_partition_checks,
+        unsigned long long *quiet_counter,
+        unsigned long long *out_n_distance_measures) {
     uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
     unsigned n_interacting_partitions;
+
+    unsigned long long n_distance_measures = 0;
+    unsigned long long total_partition_checks = 0;
 
     unsigned long long n_edge_checks = 0;
     uint16_t *other_actor_to_partition_map = (uint16_t *)malloc(
@@ -1077,6 +1178,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 
                 if (nbuffered == BUFFERING) {
                     // Process buffered
+                    shmem_quiet();
                     hvr_sparse_vec_cache_quiet(vec_caches + target_pe,
                             quiet_counter);
 #ifdef FINE_GRAIN_TIMING
@@ -1087,7 +1189,10 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                         check_edges_to_add(&(buffered[i].node->vec),
                                 buffered[i].interacting_partitions,
                                 buffered[i].n_interacting_partitions,
-                                other_pes_timestep, ctx);
+                                other_pes_timestep, ctx,
+                                &n_distance_measures);
+                        total_partition_checks +=
+                            buffered[i].n_interacting_partitions;
                     }
 #ifdef FINE_GRAIN_TIMING
                     *update_edge_time += (hvr_current_time_us() - start_time);
@@ -1108,6 +1213,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 #ifdef FINE_GRAIN_TIMING
             unsigned long long start_time = hvr_current_time_us();
 #endif
+            shmem_quiet();
             hvr_sparse_vec_cache_quiet(vec_caches + target_pe, quiet_counter);
 #ifdef FINE_GRAIN_TIMING
             *getmem_time += (hvr_current_time_us() - start_time);
@@ -1120,7 +1226,10 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                 check_edges_to_add(&(buffered[i].node->vec),
                         buffered[i].interacting_partitions,
                         buffered[i].n_interacting_partitions,
-                        other_pes_timestep, ctx);
+                        other_pes_timestep, ctx,
+                        &n_distance_measures);
+                total_partition_checks +=
+                    buffered[i].n_interacting_partitions;
             }
 #ifdef FINE_GRAIN_TIMING
             *update_edge_time += (hvr_current_time_us() - start_time);
@@ -1130,6 +1239,8 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 
     free(other_actor_to_partition_map);
     *out_n_edge_checks = n_edge_checks;
+    *out_partition_checks = total_partition_checks;
+    *out_n_distance_measures = n_distance_measures;
 }
 
 /*
@@ -1155,7 +1266,8 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
 
         /*
          * This doesn't necessarily need to be in the critical section, but to
-         * avoid multiple traversal over all actors we stick it here.
+         * avoid multiple traversal over all actors (i.e. a second loop over
+         * n_local_vertices outside of the critical section) we stick it here.
          */
         (ctx->last_timestep_using_partition)[partition] = ctx->timestep;
 
@@ -1204,7 +1316,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
 
             if (hvr_set_contains(p, ctx->tmp_partition_time_window)) {
                 // Changed from being inactive to active, set bit
-                shmem_uint_atomic_or(
+                SHMEM_UINT_ATOMIC_OR(
                         ctx->pes_per_partition + (partition_offset *
                             ctx->partitions_per_pe_vec_length_in_words) + pe_word,
                         pe_mask, partition_owner_pe);
@@ -1212,7 +1324,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
             } else {
                 // Changed from being active to inactive, clear bit
                 pe_mask = ~pe_mask;
-                shmem_uint_atomic_and(
+                SHMEM_UINT_ATOMIC_AND(
                         ctx->pes_per_partition + (partition_offset *
                             ctx->partitions_per_pe_vec_length_in_words) + pe_word,
                         pe_mask, partition_owner_pe);
@@ -1520,9 +1632,10 @@ static unsigned update_local_actor_metadata(const vertex_id_t actor,
             (ctx->buffered_neighbors_pes)[n] = other_pe;
         }
 
-        const unsigned long long finish_neighbor_fetch= hvr_current_time_us();
+        const unsigned long long finish_neighbor_fetch = hvr_current_time_us();
 
         // Quiet any caches that were hit by the above fetches
+        shmem_quiet();
         for (unsigned n = 0; n < n_neighbors; n++) {
             hvr_sparse_vec_cache_quiet(
                     vec_caches + (ctx->buffered_neighbors_pes)[n],
@@ -1616,7 +1729,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
     unsigned long long unused;
-    update_edges(ctx, vec_caches, &unused, &unused, &unused, &unused);
+    update_edges(ctx, vec_caches, &unused, &unused, &unused, &unused, &unused,
+            &unused);
 
     hvr_set_t *to_couple_with = hvr_create_empty_set(ctx->npes, ctx);
 
@@ -1703,8 +1817,11 @@ void hvr_body(hvr_ctx_t in_ctx) {
         unsigned long long getmem_time = 0;
         unsigned long long update_edge_time = 0;
         unsigned long long n_edge_checks = 0;
+        unsigned long long partition_checks = 0;
+        unsigned long long n_distance_measures = 0;
         update_edges(ctx, vec_caches, &getmem_time, &update_edge_time,
-                &n_edge_checks, &quiet_counter);
+                &n_edge_checks, &partition_checks, &quiet_counter,
+                &n_distance_measures);
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
@@ -1764,13 +1881,19 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
                 while (other_has_timestamp != HAS_TIMESTAMP) {
                     hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
-
+                    
                     shmem_getmem(ctx->coupled_pes_values_buffer,
                             ctx->coupled_pes_values,
                             ctx->npes * sizeof(hvr_sparse_vec_t), p);
 
                     hvr_rwlock_runlock((long *)ctx->coupled_lock, p);
 
+                    for (int i = 0; i < ctx->npes; i++) {
+                        (ctx->coupled_pes_values_buffer)[i].cached_timestamp = -1;
+                        (ctx->coupled_pes_values_buffer)[i].cached_timestamp_index = 0;
+                    }
+
+                    hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
                     for (int i = 0; i < ctx->npes; i++) {
                         hvr_sparse_vec_t *other =
                             ctx->coupled_pes_values_buffer + i;
@@ -1789,6 +1912,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                             }
                         }
                     }
+                    hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
 
                     other_has_timestamp = hvr_sparse_vec_has_timestamp(
                             ctx->coupled_pes_values + p, ctx->timestep);
@@ -1874,7 +1998,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 &nmisses_due_to_age);
 
         printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f %f) - summary %f ms "
-                "(%f %f %f) - edges %f ms (%f %f %llu) - neighbor "
+                "(%f %f %f) - edges %f ms (%f %f %llu %llu %llu) - neighbor "
                 "updates %f ms - coupled values %f ms - coupling %f ms (%u) - throttling %f ms - %u spins - %u / %u PE "
                 "neighbors %s - partition window = %s, %d / %d active - "
                 "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
@@ -1889,7 +2013,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 (double)(finished_time_window - finished_actor_partitions) / 1000.0,
                 (double)(finished_summary_update - finished_time_window) / 1000.0,
                 (double)(finished_edge_adds - finished_summary_update) / 1000.0,
-                (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0, n_edge_checks,
+                (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0, n_edge_checks, partition_checks, n_distance_measures,
                 (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
                 (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0,
                 (double)(finished_coupling - finished_coupled_values) / 1000.0, n_coupled_spins,

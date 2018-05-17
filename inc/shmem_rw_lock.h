@@ -5,6 +5,16 @@
 
 #include <assert.h>
 
+#if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
+#define SHMEM_LONG_CSWAP shmem_long_atomic_compare_cswap
+#define SHMEM_ULL_CSWAP shmem_ulonglong_atomic_compare_cswap
+#define SHMEM_UINT_CSWAP shmem_uint_atomic_compare_cswap
+#else
+#define SHMEM_LONG_CSWAP shmem_long_cswap
+#define SHMEM_ULL_CSWAP(dst, expected, new_val, pe) shmem_longlong_cswap((long long *)dst, (long long)expected, (long long)new_val, pe)
+#define SHMEM_UINT_CSWAP(dst, expected, new_val, pe) shmem_int_cswap((int *)dst, (int)expected, (int)new_val, pe)
+#endif
+
 #define BITS_PER_BYTE 8
 #define WRITER_BIT (((long)1) << (sizeof(long) * BITS_PER_BYTE - 1))
 
@@ -24,6 +34,7 @@ static inline long set_writer(const long lock_val) {
 
 static inline long clear_writer(const long lock_val) {
     assert(has_writer_request(lock_val) == 1);
+    assert(nreaders(lock_val) == 0);
     return (~WRITER_BIT) & lock_val;
 }
 

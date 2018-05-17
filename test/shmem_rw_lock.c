@@ -1,6 +1,7 @@
 /* For license: see LICENSE.txt file at top-level */
 
 #include "shmem_rw_lock.h"
+#include <stdio.h>
 
 static void check_state(const long val, const int expected_nreaders,
         const int expected_has_writer) {
@@ -48,6 +49,8 @@ int main(int argc, char **argv) {
 
     long one_reader_no_writer = remove_reader(two_readers_no_writer);
     check_state(one_reader_no_writer, 1, 0);
+
+    printf("Passed!\n");
 
     return 0;
 }
