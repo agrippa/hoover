@@ -1,4 +1,4 @@
-CFLAGS=-Wall -Werror -g -O2 -Iinc
+CFLAGS=-Wall -g -O2 -Iinc
 
 all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test bin/infectious_test
 
