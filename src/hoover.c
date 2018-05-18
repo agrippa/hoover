@@ -26,6 +26,8 @@
 
 // #define TRACK_VECTOR_GET_CACHE
 
+static int print_profiling = 1;
+
 #define USE_CSWAP_BITWISE_ATOMICS
 
 #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
@@ -1546,6 +1548,10 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         assert(new_ctx->dump_file);
     }
 
+    if (getenv("HVR_DISABLE_PROFILING_PRINTS")) {
+        print_profiling = 0;
+    }
+
     new_ctx->my_neighbors = hvr_create_empty_set(new_ctx->npes, new_ctx);
 
     new_ctx->coupled_pes = hvr_create_empty_set_symmetric(new_ctx);
@@ -1997,37 +2003,44 @@ void hvr_body(hvr_ctx_t in_ctx) {
         sum_hits_and_misses(vec_caches, ctx->npes, &nhits, &nmisses,
                 &nmisses_due_to_age);
 
-        printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f %f) - summary %f ms "
-                "(%f %f %f) - edges %f ms (%f %f %llu %llu %llu) - neighbor "
-                "updates %f ms - coupled values %f ms - coupling %f ms (%u) - throttling %f ms - %u spins - %u / %u PE "
-                "neighbors %s - partition window = %s, %d / %d active - "
-                "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
-                "age misses=%u, feature cache hits=%u misses=%u quiets=%llu, avg # edges=%f\n", ctx->pe, ctx->timestep,
-                (double)(finished_throttling - start_iter) / 1000.0,
-                (double)(finished_updates - start_iter) / 1000.0,
-                (double)fetch_neighbors_time / 1000.0,
-                (double)quiet_neighbors_time / 1000.0,
-                (double)update_metadata_time / 1000.0,
-                (double)(finished_summary_update - finished_updates) / 1000.0,
-                (double)(finished_actor_partitions - finished_updates) / 1000.0,
-                (double)(finished_time_window - finished_actor_partitions) / 1000.0,
-                (double)(finished_summary_update - finished_time_window) / 1000.0,
-                (double)(finished_edge_adds - finished_summary_update) / 1000.0,
-                (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0, n_edge_checks, partition_checks, n_distance_measures,
-                (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
-                (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0,
-                (double)(finished_coupling - finished_coupled_values) / 1000.0, n_coupled_spins,
-                (double)(finished_throttling - finished_coupling) / 1000.0,
-                nspins, hvr_set_count(ctx->my_neighbors), ctx->npes,
+        if (print_profiling) {
+            printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f "
+                    "%f) - summary %f ms (%f %f %f) - edges %f ms (%f %f %llu "
+                    "%llu %llu) - neighbor updates %f ms - coupled values %f "
+                    "ms - coupling %f ms (%u) - throttling %f ms - %u spins - "
+                    "%u / %u PE neighbors %s - partition window = %s, %d / %d "
+                    "active - aborting? %d - last step? %d - remote cache "
+                    "hits=%u misses=%u age misses=%u, feature cache hits=%u "
+                    "misses=%u quiets=%llu, avg # edges=%f\n", ctx->pe,
+                    ctx->timestep,
+                    (double)(finished_throttling - start_iter) / 1000.0,
+                    (double)(finished_updates - start_iter) / 1000.0,
+                    (double)fetch_neighbors_time / 1000.0,
+                    (double)quiet_neighbors_time / 1000.0,
+                    (double)update_metadata_time / 1000.0,
+                    (double)(finished_summary_update - finished_updates) / 1000.0,
+                    (double)(finished_actor_partitions - finished_updates) / 1000.0,
+                    (double)(finished_time_window - finished_actor_partitions) / 1000.0,
+                    (double)(finished_summary_update - finished_time_window) / 1000.0,
+                    (double)(finished_edge_adds - finished_summary_update) / 1000.0,
+                    (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0,
+                    n_edge_checks, partition_checks, n_distance_measures,
+                    (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
+                    (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0,
+                    (double)(finished_coupling - finished_coupled_values) / 1000.0, n_coupled_spins,
+                    (double)(finished_throttling - finished_coupling) / 1000.0,
+                    nspins, hvr_set_count(ctx->my_neighbors), ctx->npes,
 #ifdef VERBOSE
-                neighbors_str, partition_time_window_str,
+                    neighbors_str, partition_time_window_str,
 #else
-                "", "",
+                    "", "",
 #endif
-                hvr_set_count(ctx->partition_time_window), ctx->n_partitions,
-                abort, ctx->timestep >= ctx->max_timestep,
-                nhits, nmisses, nmisses_due_to_age, ctx->n_vector_cache_hits,
-                ctx->n_vector_cache_misses, quiet_counter, avg_n_neighbors);
+                    hvr_set_count(ctx->partition_time_window),
+                    ctx->n_partitions, abort,
+                    ctx->timestep >= ctx->max_timestep, nhits, nmisses,
+                    nmisses_due_to_age, ctx->n_vector_cache_hits,
+                    ctx->n_vector_cache_misses, quiet_counter, avg_n_neighbors);
+        }
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;
