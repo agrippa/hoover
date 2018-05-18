@@ -6,9 +6,9 @@
 #include <assert.h>
 
 #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
-#define SHMEM_LONG_CSWAP shmem_long_atomic_compare_cswap
-#define SHMEM_ULL_CSWAP shmem_ulonglong_atomic_compare_cswap
-#define SHMEM_UINT_CSWAP shmem_uint_atomic_compare_cswap
+#define SHMEM_LONG_CSWAP shmem_long_atomic_compare_swap
+#define SHMEM_ULL_CSWAP shmem_ulonglong_atomic_compare_swap
+#define SHMEM_UINT_CSWAP shmem_uint_atomic_compare_swap
 #else
 #define SHMEM_LONG_CSWAP shmem_long_cswap
 #define SHMEM_ULL_CSWAP(dst, expected, new_val, pe) shmem_longlong_cswap((long long *)dst, (long long)expected, (long long)new_val, pe)
