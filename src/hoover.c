@@ -1353,6 +1353,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
  */
 static void update_all_pe_timesteps_helper(const int target_pe,
         hvr_internal_ctx_t *ctx) {
+    assert(target_pe < ctx->npes);
     shmem_set_lock(ctx->all_pe_timesteps_locks + target_pe);
     shmem_getmem(ctx->all_pe_timesteps_buffer, ctx->all_pe_timesteps,
             ctx->npes * sizeof(hvr_time_t), target_pe);
