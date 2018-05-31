@@ -27,7 +27,7 @@ export LD_LIBRARY_PATH=$HCLIB_HOME/modules/openshmem/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$HCLIB_HOME/modules/sos/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$OFI_HOME/lib:$LD_LIBRARY_PATH
 
-export LD_PRELOAD=/opt/intel/compilers_and_libraries_2017.1.132/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
+export LD_PRELOAD=/opt/intel/compilers_and_libraries_2018.2.199/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
 export SHMEM_SYMMETRIC_SIZE=$((2 * 1024 * 1024 * 1024))
@@ -48,8 +48,8 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 120
 
-export BASE_ACTORS_PER_CELL=400 # big
-# export BASE_ACTORS_PER_CELL=200
+# export BASE_ACTORS_PER_CELL=400 # big
+export BASE_ACTORS_PER_CELL=200
 
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 1 node
