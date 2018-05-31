@@ -26,11 +26,76 @@
 
 // #define TRACK_VECTOR_GET_CACHE
 
-// #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
+static int print_profiling = 1;
+
+#define USE_CSWAP_BITWISE_ATOMICS
+
+#if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
+
 #define SHMEM_ULONGLONG_ATOMIC_OR shmem_ulonglong_atomic_or
-// #else
-// #define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
-// #endif
+#define SHMEM_UINT_ATOMIC_OR shmem_uint_atomic_or
+#define SHMEM_UINT_ATOMIC_AND shmem_uint_atomic_and
+
+#else
+/*
+ * Pre 1.4 some OpenSHMEM implementations offered a shmemx variant of atomic
+ * bitwise functions. For others, we have to implement it on top of cswap.
+ */
+
+#ifdef USE_CSWAP_BITWISE_ATOMICS
+#warning "Heads up! Using atomic compare-and-swap to implement atomic bitwise atomics!"
+
+static void inline _shmem_ulonglong_atomic_or(unsigned long long *dst,
+        unsigned long long val, int pe) {
+    unsigned long long curr_val;
+    shmem_getmem(&curr_val, dst, sizeof(curr_val), pe);
+
+    while (1) {
+        unsigned long long new_val = (curr_val | val);
+        unsigned long long old_val = SHMEM_ULL_CSWAP(dst, curr_val, new_val, pe);
+        if (old_val == curr_val) return;
+        curr_val = old_val;
+    }
+}
+
+static void inline _shmem_uint_atomic_or(unsigned int *dst, unsigned int val,
+        int pe) {
+    unsigned int curr_val;
+    shmem_getmem(&curr_val, dst, sizeof(curr_val), pe);
+
+    while (1) {
+        unsigned int new_val = (curr_val | val);
+        unsigned int old_val = SHMEM_UINT_CSWAP(dst, curr_val, new_val, pe);
+        if (old_val == curr_val) return;
+        curr_val = old_val;
+    }
+}
+
+static void inline _shmem_uint_atomic_and(unsigned int *dst, unsigned int val,
+        int pe) {
+    unsigned int curr_val;
+    shmem_getmem(&curr_val, dst, sizeof(curr_val), pe);
+
+    while (1) {
+        unsigned int new_val = (curr_val & val);
+        unsigned int old_val = SHMEM_UINT_CSWAP(dst, curr_val, new_val, pe);
+        if (old_val == curr_val) return;
+        curr_val = old_val;
+    }
+}
+
+#define SHMEM_ULONGLONG_ATOMIC_OR _shmem_ulonglong_atomic_or
+#define SHMEM_UINT_ATOMIC_OR _shmem_uint_atomic_or
+#define SHMEM_UINT_ATOMIC_AND _shmem_uint_atomic_or
+
+#else
+
+#define SHMEM_ULONGLONG_ATOMIC_OR shmemx_ulonglong_atomic_or
+#define SHMEM_UINT_ATOMIC_OR shmemx_uint_atomic_or
+#define SHMEM_UINT_ATOMIC_AND shmemx_uint_atomic_and
+
+#endif
+#endif
 
 #define EDGE_GET_BUFFERING 1024
 
@@ -1253,7 +1318,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
 
             if (hvr_set_contains(p, ctx->tmp_partition_time_window)) {
                 // Changed from being inactive to active, set bit
-                shmem_uint_atomic_or(
+                SHMEM_UINT_ATOMIC_OR(
                         ctx->pes_per_partition + (partition_offset *
                             ctx->partitions_per_pe_vec_length_in_words) + pe_word,
                         pe_mask, partition_owner_pe);
@@ -1261,7 +1326,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
             } else {
                 // Changed from being active to inactive, clear bit
                 pe_mask = ~pe_mask;
-                shmem_uint_atomic_and(
+                SHMEM_UINT_ATOMIC_AND(
                         ctx->pes_per_partition + (partition_offset *
                             ctx->partitions_per_pe_vec_length_in_words) + pe_word,
                         pe_mask, partition_owner_pe);
@@ -1288,6 +1353,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
  */
 static void update_all_pe_timesteps_helper(const int target_pe,
         hvr_internal_ctx_t *ctx) {
+    assert(target_pe < ctx->npes);
     shmem_set_lock(ctx->all_pe_timesteps_locks + target_pe);
     shmem_getmem(ctx->all_pe_timesteps_buffer, ctx->all_pe_timesteps,
             ctx->npes * sizeof(hvr_time_t), target_pe);
@@ -1483,6 +1549,10 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
         assert(new_ctx->dump_file);
     }
 
+    if (getenv("HVR_DISABLE_PROFILING_PRINTS")) {
+        print_profiling = 0;
+    }
+
     new_ctx->my_neighbors = hvr_create_empty_set(new_ctx->npes, new_ctx);
 
     new_ctx->coupled_pes = hvr_create_empty_set_symmetric(new_ctx);
@@ -1527,6 +1597,7 @@ static unsigned update_local_actor_metadata(const vertex_id_t actor,
         unsigned long long *quiet_neighbors_time,
        unsigned long long *update_metadata_time, hvr_internal_ctx_t *ctx,
        hvr_sparse_vec_cache_t *vec_caches, unsigned long long *quiet_counter) {
+    // Buffer used to linearize neighbors list into
     static size_t neighbors_capacity = 0;
     static vertex_id_t *neighbors = NULL;
     if (neighbors == NULL) {
@@ -1712,7 +1783,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         // Update each actor's metadata
         for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
             sum_n_neighbors += update_local_actor_metadata(i, to_couple_with,
-                    &fetch_neighbors_time, &quiet_neighbors_time, &update_metadata_time, ctx,
+                    &fetch_neighbors_time, &quiet_neighbors_time,
+                    &update_metadata_time, ctx,
                     vec_caches, &quiet_counter);
         }
         const double avg_n_neighbors = (double)sum_n_neighbors /
@@ -1932,37 +2004,44 @@ void hvr_body(hvr_ctx_t in_ctx) {
         sum_hits_and_misses(vec_caches, ctx->npes, &nhits, &nmisses,
                 &nmisses_due_to_age);
 
-        printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f %f) - summary %f ms "
-                "(%f %f %f) - edges %f ms (%f %f %llu %llu %llu) - neighbor "
-                "updates %f ms - coupled values %f ms - coupling %f ms (%u) - throttling %f ms - %u spins - %u / %u PE "
-                "neighbors %s - partition window = %s, %d / %d active - "
-                "aborting? %d - last step? %d - remote cache hits=%u misses=%u "
-                "age misses=%u, feature cache hits=%u misses=%u quiets=%llu, avg # edges=%f\n", ctx->pe, ctx->timestep,
-                (double)(finished_throttling - start_iter) / 1000.0,
-                (double)(finished_updates - start_iter) / 1000.0,
-                (double)fetch_neighbors_time / 1000.0,
-                (double)quiet_neighbors_time / 1000.0,
-                (double)update_metadata_time / 1000.0,
-                (double)(finished_summary_update - finished_updates) / 1000.0,
-                (double)(finished_actor_partitions - finished_updates) / 1000.0,
-                (double)(finished_time_window - finished_actor_partitions) / 1000.0,
-                (double)(finished_summary_update - finished_time_window) / 1000.0,
-                (double)(finished_edge_adds - finished_summary_update) / 1000.0,
-                (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0, n_edge_checks, partition_checks, n_distance_measures,
-                (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
-                (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0,
-                (double)(finished_coupling - finished_coupled_values) / 1000.0, n_coupled_spins,
-                (double)(finished_throttling - finished_coupling) / 1000.0,
-                nspins, hvr_set_count(ctx->my_neighbors), ctx->npes,
+        if (print_profiling) {
+            printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f "
+                    "%f) - summary %f ms (%f %f %f) - edges %f ms (%f %f %llu "
+                    "%llu %llu) - neighbor updates %f ms - coupled values %f "
+                    "ms - coupling %f ms (%u) - throttling %f ms - %u spins - "
+                    "%u / %u PE neighbors %s - partition window = %s, %d / %d "
+                    "active - aborting? %d - last step? %d - remote cache "
+                    "hits=%u misses=%u age misses=%u, feature cache hits=%u "
+                    "misses=%u quiets=%llu, avg # edges=%f\n", ctx->pe,
+                    ctx->timestep,
+                    (double)(finished_throttling - start_iter) / 1000.0,
+                    (double)(finished_updates - start_iter) / 1000.0,
+                    (double)fetch_neighbors_time / 1000.0,
+                    (double)quiet_neighbors_time / 1000.0,
+                    (double)update_metadata_time / 1000.0,
+                    (double)(finished_summary_update - finished_updates) / 1000.0,
+                    (double)(finished_actor_partitions - finished_updates) / 1000.0,
+                    (double)(finished_time_window - finished_actor_partitions) / 1000.0,
+                    (double)(finished_summary_update - finished_time_window) / 1000.0,
+                    (double)(finished_edge_adds - finished_summary_update) / 1000.0,
+                    (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0,
+                    n_edge_checks, partition_checks, n_distance_measures,
+                    (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
+                    (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0,
+                    (double)(finished_coupling - finished_coupled_values) / 1000.0, n_coupled_spins,
+                    (double)(finished_throttling - finished_coupling) / 1000.0,
+                    nspins, hvr_set_count(ctx->my_neighbors), ctx->npes,
 #ifdef VERBOSE
-                neighbors_str, partition_time_window_str,
+                    neighbors_str, partition_time_window_str,
 #else
-                "", "",
+                    "", "",
 #endif
-                hvr_set_count(ctx->partition_time_window), ctx->n_partitions,
-                abort, ctx->timestep >= ctx->max_timestep,
-                nhits, nmisses, nmisses_due_to_age, ctx->n_vector_cache_hits,
-                ctx->n_vector_cache_misses, quiet_counter, avg_n_neighbors);
+                    hvr_set_count(ctx->partition_time_window),
+                    ctx->n_partitions, abort,
+                    ctx->timestep >= ctx->max_timestep, nhits, nmisses,
+                    nmisses_due_to_age, ctx->n_vector_cache_hits,
+                    ctx->n_vector_cache_misses, quiet_counter, avg_n_neighbors);
+        }
 
         if (ctx->strict_mode) {
             *(ctx->strict_counter_src) = 0;

@@ -6,13 +6,6 @@
 #include "shmem_rw_lock.h"
 
 
-#if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
-#define SHMEM_CSWAP shmem_long_atomic_compare_swap
-#else
-#define SHMEM_CSWAP shmem_long_cswap
-#endif
-
-
 /*
  * In the long, the topmost bit is used to indicate a write lock request, the
  * remainder of the bits are used to count readers.
@@ -39,7 +32,7 @@ void hvr_rwlock_rlock(long *lock, const int target_pe) {
         } else {
             // No write request
             long new_val = add_reader(curr_val);
-            long old_val = SHMEM_CSWAP(lock, curr_val, new_val, target_pe);
+            long old_val = SHMEM_LONG_CSWAP(lock, curr_val, new_val, target_pe);
             if (old_val == curr_val) {
                 return;
             } else {
@@ -56,7 +49,7 @@ void hvr_rwlock_runlock(long *lock, const int target_pe) {
 
     while (1) {
         long new_val = remove_reader(curr_val);
-        long old_val = SHMEM_CSWAP(lock, curr_val, new_val, target_pe);
+        long old_val = SHMEM_LONG_CSWAP(lock, curr_val, new_val, target_pe);
         if (old_val == curr_val) {
             return;
         } else {
@@ -79,7 +72,7 @@ void hvr_rwlock_wlock(long *lock, const int target_pe) {
             shmem_getmem(&curr_val, lock, sizeof(curr_val), target_pe);
         } else {
             long new_val = set_writer(curr_val);
-            long old_val = SHMEM_CSWAP(lock, curr_val, new_val, target_pe);
+            long old_val = SHMEM_LONG_CSWAP(lock, curr_val, new_val, target_pe);
             if (old_val == curr_val) {
                 break;
             } else {
@@ -103,7 +96,7 @@ void hvr_rwlock_wunlock(long *lock, const int target_pe) {
 
     while (1) {
         long new_val = clear_writer(curr_val);
-        long old_val = SHMEM_CSWAP(lock, curr_val, new_val, target_pe);
+        long old_val = SHMEM_LONG_CSWAP(lock, curr_val, new_val, target_pe);
         if (old_val == curr_val) {
             return;
         } else {
