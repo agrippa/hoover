@@ -48,7 +48,8 @@ hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs,
 
     if (curr == NULL) {
         fprintf(stderr, "HOOVER> ERROR Ran out of sparse vectors in the pool "
-                "on PE %d. # free = %lu\n", shmem_my_pe(), nfree);
+                "on PE %d. # free = %lu, allocating %lu\n", shmem_my_pe(),
+                nfree, nvecs);
         abort();
     }
 
