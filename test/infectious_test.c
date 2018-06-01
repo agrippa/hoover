@@ -468,7 +468,8 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     // Seed the location of local actors.
-    hvr_sparse_vec_t *actors = hvr_sparse_vec_create_n(actors_per_cell);
+    hvr_sparse_vec_t *actors = hvr_sparse_vec_create_n(actors_per_cell,
+            hvr_ctx);
     for (int a = 0; a < actors_per_cell; a++) {
         const double x = random_double_in_range(PE_COL_CELL_START(pe),
                 PE_COL_CELL_START(pe) + cell_dim);

@@ -66,7 +66,7 @@ typedef struct _hvr_sparse_vec_t {
 /*
  * Create nvecs new, empty vectors. Collective call.
  */
-hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs);
+hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs, hvr_ctx_t ctx);
 
 /*
  * Initialize an empty sparse vector.

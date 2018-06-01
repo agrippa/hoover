@@ -138,17 +138,11 @@ static void wunlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
     hvr_rwlock_wunlock(ctx->actor_to_partition_lock, pe);
 }
 
-hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs) {
-    hvr_sparse_vec_t *new_vecs = (hvr_sparse_vec_t *)shmem_malloc_wrapper(
-            nvecs * sizeof(*new_vecs));
-    if (!new_vecs) {
-        fprintf(stderr, "Failed allocating %lu symmetric vectors\n", nvecs);
-        abort();
-    }
-    for (size_t i = 0; i < nvecs; i++) {
-        hvr_sparse_vec_init(&new_vecs[i]);
-    }
-    return new_vecs;
+hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs,
+        hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+
+    return hvr_alloc_sparse_vecs(nvecs, ctx->pool);
 }
 
 void hvr_sparse_vec_init(hvr_sparse_vec_t *vec) {
@@ -928,10 +922,19 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
         default_sparse_vec_val = atof(getenv("HVR_DEFAULT_SPARSE_VEC_VAL"));
     }
 
+    size_t symm_pool_nelements = 1024UL * 1024UL; // Default
+    if (getenv("HVR_SYMM_POOL_SIZE")) {
+        symm_pool_nelements = atoi(getenv("HVR_SYMM_POOL_SIZE"));
+    }
+
+    new_ctx->pool = hvr_sparse_vec_pool_create(symm_pool_nelements);
+
+#ifdef VERBOSE
     int err = gethostname(new_ctx->my_hostname, 1024);
     assert(err == 0);
 
     printf("PE %d is on host %s.\n", new_ctx->pe, new_ctx->my_hostname);
+#endif
 
     *out_ctx = new_ctx;
 }
@@ -1557,8 +1560,10 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
 
     new_ctx->coupled_pes = hvr_create_empty_set_symmetric(new_ctx);
     hvr_set_insert(new_ctx->pe, new_ctx->coupled_pes);
-    new_ctx->coupled_pes_values = hvr_sparse_vec_create_n(new_ctx->npes);
-    new_ctx->coupled_pes_values_buffer = hvr_sparse_vec_create_n(new_ctx->npes);
+    new_ctx->coupled_pes_values = hvr_sparse_vec_create_n(new_ctx->npes,
+            new_ctx);
+    new_ctx->coupled_pes_values_buffer = hvr_sparse_vec_create_n(new_ctx->npes,
+            new_ctx);
 
     new_ctx->coupled_lock = hvr_rwlock_create_n(1);
    

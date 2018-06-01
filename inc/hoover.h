@@ -3,7 +3,9 @@
 #ifndef _HOOVER_H
 #define _HOOVER_H
 #include <stdint.h>
+#include <stdio.h>
 
+#include "hvr_sparse_vec_pool.h"
 #include "hvr_sparse_vec.h"
 #include "hvr_common.h"
 #include "hoover_internal.h"
@@ -159,6 +161,8 @@ typedef struct _hvr_internal_ctx_t {
     int pe;
     // The number of PEs (caches shmem_n_pes())
     int npes;
+
+    hvr_sparse_vec_pool_t *pool;
 
     // Number of vertices owned by this PE
     vertex_id_t n_local_vertices;

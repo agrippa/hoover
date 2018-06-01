@@ -99,6 +99,8 @@ export MAX_NUM_TIMESTEPS=5
 export INFECTION_RADIUS=10.0
 export MAX_DELTA_VELOCITY=0.01
 
+export HVR_SYMM_POOL_SIZE=1024
+
 cd $SCRATCH
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \

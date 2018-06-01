@@ -309,7 +309,8 @@ int main(int argc, char **argv) {
      *  1: column of this cell
      *  2: whether this cell has been "infected" by its neighbors
      */
-    hvr_sparse_vec_t *vertices = hvr_sparse_vec_create_n(cells_per_pe + 1);
+    hvr_sparse_vec_t *vertices = hvr_sparse_vec_create_n(cells_per_pe + 1,
+            hvr_ctx);
     for (vertex_id_t vertex = grid_cell_start; vertex < grid_cell_end;
             vertex++) {
         const vertex_id_t row = vertex / grid_dim;
