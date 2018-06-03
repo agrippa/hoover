@@ -80,16 +80,6 @@ static int random_int_in_range(int max_val) {
     return (rand() % max_val);
 }
 
-/*
- * Callback for the HOOVER runtime to use to determine the PE owning a given
- * vertex, and that vertex's local offset on the owner PE.
- */
-void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
-        size_t *out_local_offset) {
-    *out_pe = vertex / actors_per_cell;
-    *out_local_offset = vertex % actors_per_cell;
-}
-
 uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     const double x = hvr_sparse_vec_get(PX, actor, ctx);
     const double y = hvr_sparse_vec_get(PY, actor, ctx);
@@ -476,7 +466,6 @@ int main(int argc, char **argv) {
         const double y = random_double_in_range(PE_ROW_CELL_START(pe),
                 PE_ROW_CELL_START(pe) + cell_dim);
 
-        hvr_sparse_vec_set_id(pe * actors_per_cell + a, &actors[a]);
         hvr_sparse_vec_set(PX, x, &actors[a], hvr_ctx);
         hvr_sparse_vec_set(PY, y, &actors[a], hvr_ctx);
         hvr_sparse_vec_set(HOME_X, x, &actors[a], hvr_ctx);
@@ -516,7 +505,7 @@ int main(int argc, char **argv) {
 
     hvr_init(PARTITION_DIM * PARTITION_DIM, actors_per_cell, actors,
             update_metadata, might_interact, check_abort,
-            vertex_owner, actor_to_partition, infection_radius /* threshold */,
+            actor_to_partition, infection_radius /* threshold */,
             0, 1, max_num_timesteps, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();

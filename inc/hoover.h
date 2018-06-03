@@ -120,12 +120,6 @@ typedef void (*hvr_update_metadata_func)(hvr_sparse_vec_t *metadata,
         hvr_set_t *couple_with, hvr_ctx_t ctx);
 
 /*
- * API for finding the owner of a given vertex and its offset on that PE.
- */
-typedef void (*hvr_vertex_owner_func)(vertex_id_t vertex, unsigned *out_pe,
-        size_t *out_local_offset);
-
-/*
  * API for checking if the simulation for this PE should be aborted based on the
  * status of vertices on this PE.
  */
@@ -175,7 +169,7 @@ typedef struct _hvr_internal_ctx_t {
     // Number of partitions passed in by the user
     uint16_t n_partitions;
 
-    // All local vertices
+    // All local vertices. This is not guaranteed to be symmetric.
     hvr_sparse_vec_t *vertices;
 
     // Set of edges for our local vertices
@@ -216,7 +210,6 @@ typedef struct _hvr_internal_ctx_t {
     hvr_update_metadata_func update_metadata;
     hvr_might_interact_func might_interact;
     hvr_check_abort_func check_abort;
-    hvr_vertex_owner_func vertex_owner;
     hvr_actor_to_partition actor_to_partition;
 
     /*
@@ -299,7 +292,6 @@ extern void hvr_init(const uint16_t n_partitions,
         hvr_update_metadata_func update_metadata,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort,
-        hvr_vertex_owner_func vertex_owner,
         hvr_actor_to_partition actor_to_partition,
         const double connectivity_threshold,
         const unsigned min_spatial_feature_inclusive,

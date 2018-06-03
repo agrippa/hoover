@@ -27,13 +27,13 @@ hvr_sparse_vec_pool_t *hvr_sparse_vec_pool_create(size_t pool_size);
  * Allocate 'nvecs' sparse vectors from the specified memory pool.
  */
 hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs,
-        hvr_sparse_vec_pool_t *pool);
+        hvr_ctx_t ctx);
 
 /*
  * Release 'nvecs' sparse vectors starting at memory address vecs in the
  * specified memory pool.
  */
 void hvr_free_sparse_vecs(hvr_sparse_vec_t *vecs, unsigned nvecs,
-        hvr_sparse_vec_pool_t *pool);
+        hvr_ctx_t ctx);
 
 #endif // _HVR_SPARSE_VEC_POOL_H

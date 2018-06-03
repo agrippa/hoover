@@ -3,10 +3,10 @@
 #SBATCH -p debug
 #SBATCH -N 4
 ###SBATCH -C haswell
-#SBATCH -t 00:05:00
+#SBATCH -t 00:01:00
 #SBATCH -J hoover
 #SBATCH --exclusive
-#SBATCH --contiguous
+####SBATCH --contiguous
 #SBATCH --mail-type=ALL
 
 # set -e
@@ -55,13 +55,13 @@ export BASE_ACTORS_PER_CELL=100
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 1 node
     export CELL_DIM=4000.0
-    export ACTORS_PER_CELL=19200
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 1024))
     export PE_ROWS=4
     export PE_COLS=6
 elif [[ $SLURM_NNODES -eq 4 ]]; then
     # For 4 nodes
     export CELL_DIM=2000.0
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 128))
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 256))
     export PE_ROWS=8
     export PE_COLS=12
 elif [[ $SLURM_NNODES -eq 16 ]]; then
@@ -103,12 +103,18 @@ export MAX_DELTA_VELOCITY=0.01
 export HVR_SYMM_POOL_SIZE=60000
 
 cd $SCRATCH
+
+echo "RUNNING INFECTIOUS MODEL"
+echo ""
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
     $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
     $MAX_DELTA_VELOCITY
 
+# echo ""
+# echo "RUNNING GRID TEST"
+# echo ""
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/init_test 50

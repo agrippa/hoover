@@ -38,30 +38,6 @@ long long elapsed_time = 0;
 long long p_wrk[SHMEM_REDUCE_MIN_WRKDATA_SIZE];
 long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 
-/*
- * Callback for the HOOVER runtime to use to determine the PE owning a given
- * vertex, and that vertex's local offset on the owner PE.
- */
-void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
-        size_t *out_local_offset) {
-    const unsigned grid_size = grid_dim * grid_dim;
-    const unsigned cells_per_pe = grid_size / npes;
-    unsigned leftover = grid_size - (npes * cells_per_pe);
-
-    if (vertex < (leftover * (cells_per_pe + 1))) {
-        *out_pe = vertex / (cells_per_pe + 1);
-        const unsigned base_pe_offset = *out_pe * (cells_per_pe + 1);
-        *out_local_offset = vertex - base_pe_offset;
-    } else {
-        unsigned new_vertex = vertex - (leftover * (cells_per_pe + 1));
-        *out_pe = leftover + (new_vertex / cells_per_pe);
-        const unsigned base_pe_offset =
-            (leftover * (cells_per_pe + 1)) +
-            ((new_vertex / cells_per_pe) * cells_per_pe);
-        *out_local_offset = vertex - base_pe_offset;
-    }
-}
-
 uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     const double row = hvr_sparse_vec_get(0, actor, ctx);
     const double col = hvr_sparse_vec_get(1, actor, ctx);
@@ -134,8 +110,8 @@ int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
     if (first_timestep || existing_minx != minx || existing_miny != miny ||
             existing_maxx != maxx || existing_maxy != maxy) {
 
-        hvr_sparse_vec_init(mins);
-        hvr_sparse_vec_init(maxs);
+        hvr_sparse_vec_init(mins, ctx);
+        hvr_sparse_vec_init(maxs, ctx);
         hvr_sparse_vec_set(0, minx, mins, ctx);
         hvr_sparse_vec_set(1, miny, mins, ctx);
         hvr_sparse_vec_set(0, maxx, maxs, ctx);
@@ -316,7 +292,6 @@ int main(int argc, char **argv) {
         const vertex_id_t row = vertex / grid_dim;
         const vertex_id_t col = vertex % grid_dim;
 
-        hvr_sparse_vec_set_id(vertex, &vertices[vertex - grid_cell_start]);
         hvr_sparse_vec_set(0, (double)row, &vertices[vertex - grid_cell_start],
                 hvr_ctx);
         hvr_sparse_vec_set(1, (double)col, &vertices[vertex - grid_cell_start],
@@ -342,7 +317,7 @@ int main(int argc, char **argv) {
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
     hvr_init(PARTITION_DIM * PARTITION_DIM, grid_cells_this_pe, vertices,
             update_metadata, might_interact, check_abort,
-            vertex_owner, actor_to_partition, CONNECTIVITY_THRESHOLD, 0, 1,
+            actor_to_partition, CONNECTIVITY_THRESHOLD, 0, 1,
             MAX_TIMESTAMP, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();

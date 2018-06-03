@@ -30,6 +30,10 @@ hvr_sparse_vec_pool_t *hvr_sparse_vec_pool_create(size_t pool_size) {
         abort();
     }
 
+    for (unsigned i = 0; i < pool_size; i++) {
+        (pool->pool)[i].id = HVR_INVALID_VERTEX_ID;
+    }
+
     pool->pool_size = pool_size;
     pool->free_list = create_free_node(0, pool_size);
 
@@ -37,7 +41,10 @@ hvr_sparse_vec_pool_t *hvr_sparse_vec_pool_create(size_t pool_size) {
 }
 
 hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs,
-        hvr_sparse_vec_pool_t *pool) {
+        hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    hvr_sparse_vec_pool_t *pool = ctx->pool;
+
     // Greedily find the first free node large enough to satisfy this request
     hvr_sparse_vec_pool_free_node_t *curr = pool->free_list;
     size_t nfree = 0;
@@ -48,7 +55,7 @@ hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs,
 
     if (curr == NULL) {
         fprintf(stderr, "HOOVER> ERROR Ran out of sparse vectors in the pool "
-                "on PE %d. # free = %lu, allocating %lu\n", shmem_my_pe(),
+                "on PE %d. # free = %lu, allocating %u\n", shmem_my_pe(),
                 nfree, nvecs);
         abort();
     }
@@ -79,22 +86,30 @@ hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs,
         free(curr);
     }
 
-    // Initialize each of the reserved vectors
+    // Initialize each of the reserved vectors, including giving them valid IDs
     hvr_sparse_vec_t *allocated = pool->pool + alloc_start_index;
     for (size_t i = 0; i < nvecs; i++) {
-        hvr_sparse_vec_init(&allocated[i]);
+        hvr_sparse_vec_init(&allocated[i], ctx);
     }
     return allocated;
 }
 
 void hvr_free_sparse_vecs(hvr_sparse_vec_t *vecs, unsigned nvecs,
-        hvr_sparse_vec_pool_t *pool) {
+        hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    hvr_sparse_vec_pool_t *pool = ctx->pool;
+
     const size_t pool_index = vecs - pool->pool;
     hvr_sparse_vec_pool_free_node_t *prev = NULL;
     hvr_sparse_vec_pool_free_node_t *next = pool->free_list;
     while (next && next->start_index < pool_index) {
         prev = next;
         next = next->next;
+    }
+
+    // Indicate to anyone scanning the pool that these are invalid vertices
+    for (unsigned i = 0; i < nvecs; i++) {
+        vecs[i].id = HVR_INVALID_VERTEX_ID;
     }
 
     if (prev == NULL && next == NULL) {
