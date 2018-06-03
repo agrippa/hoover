@@ -78,6 +78,7 @@ include in their caption which version of HOOVER the results are collected from.
 0.4                     & \texttt{0129e2a81c2a14959e8966965b25c3fc7cf5c752} & Mar 17 2018 \\\hline
 0.5                     & \texttt{09631dfeb925adaccb52f63ff4eaad4ba4fc8243} & Apr 08 2018 \\\hline
 0.6                     & \texttt{26deaf397ee98ca785bd381528047ef79790814c} & May 02 2018 \\\hline
+0.7                     & \texttt{bc770cc2bdf00b2a9a4d26632d47d5d7d6a8b061} & June 03 2018 \\\hline
 \end{tabular}
 \caption{Strong scaling of the HOOVER framework on OSSS OpenSHMEM running a
     simple infectious disease model with varying \# of iters and infection
@@ -362,6 +363,20 @@ only 400 actors per PE.
     24,576                      & 5,865   & 1.60$\times$ \\\hline
 \end{tabularx}
 \caption{Larger scale tests on 9,830,400 actors with the HOOVER v0.6 framework on the Edison supercomputer.}
+\label{tab:large_scale5}
+\end{table}
+
+\begin{table}
+\centering
+\begin{tabularx}{\textwidth}{ | X || X | X |}
+\hline
+    \textbf{\# PEs}             & \textbf{Execution Time (ms)} & \textbf{Speedup Relative to Previous} \\\hline
+    384                         & 56,296  &               \\\hline
+    1,536                       & 13,229  & 4.26$\times$ \\\hline
+    6,144                       & 6,642   & 1.99$\times$  \\\hline
+    24,576                      & Not Run & \\\hline
+\end{tabularx}
+\caption{Larger scale tests on 9,830,400 actors with the HOOVER v0.7 framework on the Edison supercomputer.}
 \label{tab:large_scale5}
 \end{table}
 
