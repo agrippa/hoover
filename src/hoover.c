@@ -1272,40 +1272,44 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
 
     wlock_actor_to_partition(ctx->pe, ctx);
 
-    // TODO might need to update this to be an iteration over the used segments of the pool, assuming only the user can allocate from it now.
-    for (unsigned a = 0; a < ctx->n_local_vertices; a++) {
-        hvr_sparse_vec_t *curr = ctx->vertices + a;
+    hvr_sparse_vec_range_node_t *iter = ctx->pool->used_list;
+    while (iter) {
+        for (unsigned a = 0; a < iter->length; a++) {
+            hvr_sparse_vec_t *curr = ctx->pool->pool + (iter->start_index + a);
 
-        uint16_t partition;
-        if (curr->id == HVR_INVALID_VERTEX_ID) {
-            // For now, this should never be taken
-            assert(0);
-            partition = HVR_INVALID_PARTITION;
-        } else {
-            partition = ctx->actor_to_partition(curr, ctx);
-            assert(partition < ctx->n_partitions);
-        }
-
-        // Update a mapping from local actor to the partition it belongs to
-        (ctx->actor_to_partition_map)[VERTEX_ID_OFFSET(curr->id)] = partition;
-
-        if (partition != HVR_INVALID_PARTITION) {
-            /*
-             * This doesn't necessarily need to be in the critical section, but
-             * to avoid multiple traversal over all actors (i.e. a second loop
-             * over n_local_vertices outside of the critical section) we stick
-             * it here.
-             */
-            (ctx->last_timestep_using_partition)[partition] = ctx->timestep;
-
-            if (partition_lists[partition]) {
-                curr->next_in_partition = partition_lists[partition];
-                partition_lists[partition] = curr;
+            uint16_t partition;
+            if (curr->id == HVR_INVALID_VERTEX_ID) {
+                // For now, this should never be taken TODO remove?
+                assert(0);
+                partition = HVR_INVALID_PARTITION;
             } else {
-                curr->next_in_partition = NULL;
-                partition_lists[partition] = curr;
+                partition = ctx->actor_to_partition(curr, ctx);
+                assert(partition < ctx->n_partitions);
+            }
+
+            // Update a mapping from local actor to the partition it belongs to
+            (ctx->actor_to_partition_map)[VERTEX_ID_OFFSET(curr->id)] =
+                partition;
+
+            if (partition != HVR_INVALID_PARTITION) {
+                /*
+                 * This doesn't necessarily need to be in the critical section,
+                 * but to avoid multiple traversal over all actors (i.e. a
+                 * second loop over n_local_vertices outside of the critical
+                 * section) we stick it here.
+                 */
+                (ctx->last_timestep_using_partition)[partition] = ctx->timestep;
+
+                if (partition_lists[partition]) {
+                    curr->next_in_partition = partition_lists[partition];
+                    partition_lists[partition] = curr;
+                } else {
+                    curr->next_in_partition = NULL;
+                    partition_lists[partition] = curr;
+                }
             }
         }
+        iter = iter->next;
     }
 
     wunlock_actor_to_partition(ctx->pe, ctx);
@@ -1439,8 +1443,8 @@ static void oldest_pe_timestep(hvr_internal_ctx_t *ctx,
     *out_oldest_pe = oldest_pe;
 }
 
-void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
-        hvr_sparse_vec_t *vertices, hvr_update_metadata_func update_metadata,
+void hvr_init(const uint16_t n_partitions,
+        hvr_update_metadata_func update_metadata,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort,
         hvr_actor_to_partition actor_to_partition,
@@ -1515,14 +1519,14 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
 
     assert(n_partitions <= HVR_INVALID_PARTITION);
     new_ctx->n_partitions = n_partitions;
-    new_ctx->n_local_vertices = n_local_vertices;
-    new_ctx->vertices_per_pe = (long long *)shmem_malloc_wrapper(
-            new_ctx->npes * sizeof(long long));
-    assert(new_ctx->vertices_per_pe);
-    for (unsigned p = 0; p < new_ctx->npes; p++) {
-        shmem_longlong_p(&(new_ctx->vertices_per_pe[new_ctx->pe]),
-                n_local_vertices, p);
-    }
+    // new_ctx->n_local_vertices = n_local_vertices;
+    // new_ctx->vertices_per_pe = (long long *)shmem_malloc_wrapper(
+    //         new_ctx->npes * sizeof(long long));
+    // assert(new_ctx->vertices_per_pe);
+    // for (unsigned p = 0; p < new_ctx->npes; p++) {
+    //     shmem_longlong_p(&(new_ctx->vertices_per_pe[new_ctx->pe]),
+    //             n_local_vertices, p);
+    // }
 
     /*
      * Need a barrier to ensure everyone has done their puts before summing into
@@ -1530,16 +1534,16 @@ void hvr_init(const uint16_t n_partitions, const vertex_id_t n_local_vertices,
      */
     shmem_barrier_all();
 
-    new_ctx->max_n_local_vertices = new_ctx->vertices_per_pe[0];
-    new_ctx->n_global_vertices = 0;
-    for (unsigned p = 0; p < new_ctx->npes; p++) {
-        new_ctx->n_global_vertices += new_ctx->vertices_per_pe[p];
-        if (new_ctx->vertices_per_pe[p] > new_ctx->max_n_local_vertices) {
-            new_ctx->max_n_local_vertices = new_ctx->vertices_per_pe[p];
-        }
-    }
+    // new_ctx->max_n_local_vertices = new_ctx->vertices_per_pe[0];
+    // new_ctx->n_global_vertices = 0;
+    // for (unsigned p = 0; p < new_ctx->npes; p++) {
+    //     new_ctx->n_global_vertices += new_ctx->vertices_per_pe[p];
+    //     if (new_ctx->vertices_per_pe[p] > new_ctx->max_n_local_vertices) {
+    //         new_ctx->max_n_local_vertices = new_ctx->vertices_per_pe[p];
+    //     }
+    // }
 
-    new_ctx->vertices = vertices;
+    // new_ctx->vertices = vertices;
 
     new_ctx->actor_to_partition_map = (uint16_t *)shmem_malloc_wrapper(
             new_ctx->pool->pool_size * sizeof(uint16_t));
@@ -1725,9 +1729,13 @@ static inline void finalize_actor_for_timestep(hvr_sparse_vec_t *actor,
 
 static void finalize_actors_for_timestep(hvr_internal_ctx_t *ctx,
         const hvr_time_t timestep) {
-    for (unsigned i = 0; i < ctx->n_local_vertices; i++) {
-        hvr_sparse_vec_t *curr = &(ctx->vertices[i]);
-        finalize_actor_for_timestep(curr, ctx, timestep);
+    hvr_sparse_vec_range_node_t *iter = ctx->pool->used_list;
+    while (iter) {
+        for (unsigned a = 0; a < iter->length; a++) {
+            hvr_sparse_vec_t *curr = ctx->pool->pool + (iter->start_index + a);
+            finalize_actor_for_timestep(curr, ctx, timestep);
+        }
+        iter = iter->next;
     }
 }
 
@@ -1805,15 +1813,23 @@ void hvr_body(hvr_ctx_t in_ctx) {
         unsigned long long sum_n_neighbors = 0;
 
         // Update each actor's metadata
-        for (vertex_id_t i = 0; i < ctx->n_local_vertices; i++) {
-            sum_n_neighbors += update_local_actor_metadata(ctx->vertices + i,
-                    to_couple_with,
-                    &fetch_neighbors_time, &quiet_neighbors_time,
-                    &update_metadata_time, ctx,
-                    vec_caches, &quiet_counter);
+        hvr_sparse_vec_range_node_t *iter = ctx->pool->used_list;
+        size_t count_vertices = 0;
+        while (iter) {
+            for (unsigned a = 0; a < iter->length; a++) {
+                hvr_sparse_vec_t *curr = ctx->pool->pool +
+                    (iter->start_index + a);
+                sum_n_neighbors += update_local_actor_metadata(curr,
+                        to_couple_with,
+                        &fetch_neighbors_time, &quiet_neighbors_time,
+                        &update_metadata_time, ctx,
+                        vec_caches, &quiet_counter);
+                count_vertices++;
+            }
+            iter = iter->next;
         }
         const double avg_n_neighbors = (double)sum_n_neighbors /
-            (double)(ctx->n_local_vertices);
+            (double)count_vertices;
 
         const unsigned long long finished_updates = hvr_current_time_us();
 
@@ -1860,8 +1876,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
         hvr_sparse_vec_t coupled_metric;
         memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
                 sizeof(coupled_metric));
-        abort = ctx->check_abort(ctx->vertices, ctx->n_local_vertices,
-                ctx, &coupled_metric);
+
+        abort = ctx->check_abort(ctx->pool->used_list, ctx->pool->pool, ctx,
+                &coupled_metric);
         finalize_actor_for_timestep(
                 &coupled_metric, ctx, ctx->timestep);
 
@@ -1996,22 +2013,28 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_throttling = hvr_current_time_us();
 
-        if (ctx->dump_mode) {
+        if (ctx->dump_mode && ctx->pool->used_list) {
             // Assume that all vertices have the same features.
             unsigned nfeatures;
             unsigned features[HVR_BUCKET_SIZE];
-            hvr_sparse_vec_unique_features(&ctx->vertices[0], ctx->timestep,
-                    features, &nfeatures);
+            hvr_sparse_vec_unique_features(
+                    ctx->pool->pool + ctx->pool->used_list->start_index,
+                    ctx->timestep, features, &nfeatures);
 
-            for (unsigned v = 0; v < ctx->n_local_vertices; v++) {
-                hvr_sparse_vec_t *vertex = ctx->vertices + v;
-                fprintf(ctx->dump_file, "%lu,%u,%ld,%d", vertex->id, nfeatures,
-                        (int64_t)ctx->timestep, ctx->pe);
-                for (unsigned f = 0; f < nfeatures; f++) {
-                    fprintf(ctx->dump_file, ",%u,%f", features[f],
-                            hvr_sparse_vec_get(features[f], vertex, ctx));
+            hvr_sparse_vec_range_node_t *iter = ctx->pool->used_list;
+            while (iter) {
+                for (unsigned a = 0; a < iter->length; a++) {
+                    hvr_sparse_vec_t *vertex = ctx->pool->pool +
+                        (iter->start_index + a);
+                    fprintf(ctx->dump_file, "%lu,%u,%ld,%d", vertex->id,
+                            nfeatures, (int64_t)ctx->timestep, ctx->pe);
+                    for (unsigned f = 0; f < nfeatures; f++) {
+                        fprintf(ctx->dump_file, ",%u,%f", features[f],
+                                hvr_sparse_vec_get(features[f], vertex, ctx));
+                    }
+                    fprintf(ctx->dump_file, ",,\n");
                 }
-                fprintf(ctx->dump_file, ",,\n");
+                iter = iter->next;
             }
         }
 

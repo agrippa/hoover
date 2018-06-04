@@ -123,8 +123,8 @@ typedef void (*hvr_update_metadata_func)(hvr_sparse_vec_t *metadata,
  * API for checking if the simulation for this PE should be aborted based on the
  * status of vertices on this PE.
  */
-typedef int (*hvr_check_abort_func)(hvr_sparse_vec_t *vertices,
-        const size_t n_vertices, hvr_ctx_t ctx,
+typedef int (*hvr_check_abort_func)(hvr_sparse_vec_range_node_t *used,
+        hvr_sparse_vec_t *pool, hvr_ctx_t ctx,
         hvr_sparse_vec_t *out_coupled_metric);
 
 /*
@@ -159,18 +159,18 @@ typedef struct _hvr_internal_ctx_t {
     hvr_sparse_vec_pool_t *pool;
 
     // Number of vertices owned by this PE
-    vertex_id_t n_local_vertices;
+    // vertex_id_t n_local_vertices;
     // Array of length npes that stores the number of vertices owned by each PE
-    long long *vertices_per_pe;
+    // long long *vertices_per_pe;
     // Maximum # of local vertices owned by any PE
-    vertex_id_t max_n_local_vertices;
+    // vertex_id_t max_n_local_vertices;
     // Total number of vertices in this simulation
-    long long n_global_vertices;
+    // long long n_global_vertices;
     // Number of partitions passed in by the user
     uint16_t n_partitions;
 
     // All local vertices. This is not guaranteed to be symmetric.
-    hvr_sparse_vec_t *vertices;
+    // hvr_sparse_vec_t *vertices;
 
     // Set of edges for our local vertices
     hvr_edge_set_t *edges;
@@ -287,8 +287,6 @@ extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
 
 // Initialize the state of the simulation/ctx
 extern void hvr_init(const uint16_t n_partitions,
-        const vertex_id_t n_local_vertices,
-        hvr_sparse_vec_t *vertices,
         hvr_update_metadata_func update_metadata,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort,

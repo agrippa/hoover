@@ -38,6 +38,8 @@ long long elapsed_time = 0;
 long long p_wrk[SHMEM_REDUCE_MIN_WRKDATA_SIZE];
 long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 
+static unsigned grid_cells_this_pe;
+
 uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     const double row = hvr_sparse_vec_get(0, actor, ctx);
     const double col = hvr_sparse_vec_get(1, actor, ctx);
@@ -195,19 +197,25 @@ static unsigned long long last_time = 0;
  * Callback used by the HOOVER runtime to check if this PE can abort out of the
  * simulation.
  */
-int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
+int check_abort(hvr_sparse_vec_range_node_t *used, hvr_sparse_vec_t *pool,
         hvr_ctx_t ctx, hvr_sparse_vec_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
+    hvr_sparse_vec_range_node_t *iter = used;
     size_t nset = 0;
-    for (int i = 0; i < n_vertices; i++) {
-        if (hvr_sparse_vec_get(2, &vertices[i], ctx) > 0.0) {
-            nset++;
+    while (iter) {
+        for (unsigned i = 0; i < iter->length; i++) {
+            hvr_sparse_vec_t *vert = pool + (iter->start_index + i);
+
+            if (hvr_sparse_vec_get(2, vert, ctx) > 0.0) {
+                nset++;
+            }
         }
+        iter = iter->next;
     }
 
     unsigned long long this_time = hvr_current_time_us();
-    printf("PE %d - timestep %lu - set %lu / %lu - %f ms\n", pe,
-            (uint64_t)hvr_current_timestep(ctx), nset, n_vertices,
+    printf("PE %d - timestep %lu - set %lu / %u - %f ms\n", pe,
+            (uint64_t)hvr_current_timestep(ctx), nset, grid_cells_this_pe,
             last_time == 0 ? 0 : (double)(this_time - last_time) / 1000.0);
     last_time = this_time;
 
@@ -226,9 +234,9 @@ int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
     // }
 
     hvr_sparse_vec_set(0, (double)nset, out_coupled_metric, ctx);
-    hvr_sparse_vec_set(1, (double)n_vertices, out_coupled_metric, ctx);
+    hvr_sparse_vec_set(1, (double)grid_cells_this_pe, out_coupled_metric, ctx);
 
-    if (nset == n_vertices) {
+    if (nset == grid_cells_this_pe) {
         return 1;
     } else {
         return 0;
@@ -265,7 +273,7 @@ int main(int argc, char **argv) {
         grid_cell_start = base + (pe - leftover) * cells_per_pe;
         grid_cell_end = grid_cell_start + cells_per_pe;
     }
-    const unsigned grid_cells_this_pe = grid_cell_end - grid_cell_start;
+    grid_cells_this_pe = grid_cell_end - grid_cell_start;
 
     if (pe == 0) {
         fprintf(stderr, "%d PEs, %u x %u = %u grid points, %u grid cells per "
@@ -315,7 +323,7 @@ int main(int argc, char **argv) {
 #endif
 
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
-    hvr_init(PARTITION_DIM * PARTITION_DIM, grid_cells_this_pe, vertices,
+    hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
             actor_to_partition, CONNECTIVITY_THRESHOLD, 0, 1,
             MAX_TIMESTAMP, hvr_ctx);

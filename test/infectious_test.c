@@ -327,25 +327,30 @@ static unsigned long long last_time = 0;
  * Callback used by the HOOVER runtime to check if this PE can abort out of the
  * simulation.
  */
-int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
+int check_abort(hvr_sparse_vec_range_node_t *used, hvr_sparse_vec_t *pool,
         hvr_ctx_t ctx, hvr_sparse_vec_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
+    hvr_sparse_vec_range_node_t *iter = used;
     size_t nset = 0;
-    for (int i = 0; i < n_vertices; i++) {
-        if (hvr_sparse_vec_get(INFECTED, &vertices[i], ctx) > 0.0) {
-            nset++;
+    while (iter) {
+        for (unsigned i = 0; i < iter->length; i++) {
+            hvr_sparse_vec_t *vert = pool + (iter->start_index + i);
+            if (hvr_sparse_vec_get(INFECTED, vert, ctx) > 0.0) {
+                nset++;
+            }
         }
+        iter = iter->next;
     }
 
     unsigned long long this_time = hvr_current_time_us();
     if (nset > 0) {
-        printf("PE %d - timestep %lu - set %lu / %lu\n", pe,
-                (uint64_t)hvr_current_timestep(ctx), nset, n_vertices);
+        printf("PE %d - timestep %lu - set %lu / %u\n", pe,
+                (uint64_t)hvr_current_timestep(ctx), nset, actors_per_cell);
     }
     last_time = this_time;
 
     hvr_sparse_vec_set(0, (double)nset, out_coupled_metric, ctx);
-    if (nset == n_vertices) {
+    if (nset == actors_per_cell) {
         return 1;
     } else {
         return 0;
@@ -489,7 +494,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    hvr_init(PARTITION_DIM * PARTITION_DIM, actors_per_cell, actors,
+    hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
             actor_to_partition, infection_radius /* threshold */,
             0, 1, max_num_timesteps, hvr_ctx);
