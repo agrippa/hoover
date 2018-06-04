@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 ###SBATCH -C haswell
-#SBATCH -t 00:01:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -115,9 +115,13 @@ cd $SCRATCH
 echo ""
 echo "RUNNING GRID TEST"
 echo ""
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/init_test 50
+
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/init_test 50
+    $HOME/hoover/bin/add_vertices_test 50
 
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \

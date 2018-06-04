@@ -158,19 +158,8 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_sparse_vec_pool_t *pool;
 
-    // Number of vertices owned by this PE
-    // vertex_id_t n_local_vertices;
-    // Array of length npes that stores the number of vertices owned by each PE
-    // long long *vertices_per_pe;
-    // Maximum # of local vertices owned by any PE
-    // vertex_id_t max_n_local_vertices;
-    // Total number of vertices in this simulation
-    // long long n_global_vertices;
     // Number of partitions passed in by the user
     uint16_t n_partitions;
-
-    // All local vertices. This is not guaranteed to be symmetric.
-    // hvr_sparse_vec_t *vertices;
 
     // Set of edges for our local vertices
     hvr_edge_set_t *edges;

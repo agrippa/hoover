@@ -97,7 +97,7 @@ static void inline _shmem_uint_atomic_and(unsigned int *dst, unsigned int val,
 #endif
 #endif
 
-#define EDGE_GET_BUFFERING 1024
+#define EDGE_GET_BUFFERING 2048
 
 static int have_default_sparse_vec_val = 0;
 static double default_sparse_vec_val = 0.0;
@@ -150,6 +150,7 @@ void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_ctx_t in_ctx) {
 
     memset(vec, 0x00, sizeof(*vec));
     vec->cached_timestamp = -1;
+    vec->created_timestamp = ctx->timestep;
 
     for (unsigned i = 0; i < HVR_BUCKETS; i++) {
         vec->timestamps[i] = -1;
@@ -599,8 +600,8 @@ hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(unsigned offset,
         int success = get_newest_timestamp(&(iter->vec), &newest_timestamp);
 
         if (success && (newest_timestamp >= target_timestep ||
-                    target_timestep - newest_timestamp <=
-                    CACHED_TIMESTEPS_TOLERANCE)) {
+                    target_timestep - newest_timestamp <= CACHED_TIMESTEPS_TOLERANCE ||
+                    iter->pending_comm)) {
             // Can use, update the cache to make this most recently used
             if (prev) {
                 prev->next = iter->next;
@@ -1078,6 +1079,14 @@ static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
         hvr_time_t other_pes_timestep, hvr_internal_ctx_t *ctx,
         unsigned long long *n_distance_measures) {
     unsigned long long local_n_distance_measures = 0;
+
+    if (remote_vec->created_timestamp >= ctx->timestep) {
+        /*
+         * Early abort on remote actors that didn't exist until our current
+         * timestep (so we'll have no past state to look back at).
+         */
+        return;
+    }
 
     for (unsigned p = 0; p < n_interacting_partitions; p++) {
         hvr_sparse_vec_t *partition_list =
@@ -1774,8 +1783,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         exit(1);
     }
 
-    int abort = 0;
-    while (!abort && ctx->timestep < ctx->max_timestep) {
+    int should_abort = 0;
+    while (!should_abort && ctx->timestep < ctx->max_timestep) {
         const unsigned long long start_iter = hvr_current_time_us();
 
         unsigned long long quiet_counter = 0;
@@ -1794,12 +1803,14 @@ void hvr_body(hvr_ctx_t in_ctx) {
             for (unsigned a = 0; a < iter->length; a++) {
                 hvr_sparse_vec_t *curr = ctx->pool->pool +
                     (iter->start_index + a);
-                sum_n_neighbors += update_local_actor_metadata(curr,
-                        to_couple_with,
-                        &fetch_neighbors_time, &quiet_neighbors_time,
-                        &update_metadata_time, ctx,
-                        vec_caches, &quiet_counter);
-                count_vertices++;
+                if (curr->created_timestamp < ctx->timestep) {
+                    sum_n_neighbors += update_local_actor_metadata(curr,
+                            to_couple_with,
+                            &fetch_neighbors_time, &quiet_neighbors_time,
+                            &update_metadata_time, ctx,
+                            vec_caches, &quiet_counter);
+                    count_vertices++;
+                }
             }
             iter = iter->next;
         }
@@ -1852,8 +1863,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
         memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
                 sizeof(coupled_metric));
 
-        abort = ctx->check_abort(ctx->pool->used_list, ctx->pool->pool, ctx,
-                &coupled_metric);
+        should_abort = ctx->check_abort(ctx->pool->used_list, ctx->pool->pool,
+                ctx, &coupled_metric);
         finalize_actor_for_timestep(
                 &coupled_metric, ctx, ctx->timestep);
 
@@ -2060,7 +2071,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     "", "",
 #endif
                     hvr_set_count(ctx->partition_time_window),
-                    ctx->n_partitions, abort,
+                    ctx->n_partitions, should_abort,
                     ctx->timestep >= ctx->max_timestep, nhits, nmisses,
                     nmisses_due_to_age, ctx->n_vector_cache_hits,
                     ctx->n_vector_cache_misses, quiet_counter, avg_n_neighbors);
