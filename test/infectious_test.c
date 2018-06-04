@@ -344,20 +344,6 @@ int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
     }
     last_time = this_time;
 
-    // Only really makes sense when running on one PE for testing
-    // printf("\nPE %d - timestep %lu:\n", pe, hvr_current_timestep(ctx));
-    // for (int i = grid_dim - 1; i >= 0; i--) {
-    //     printf("  ");
-    //     for (int j = 0; j < grid_dim; j++) {
-    //         if (hvr_sparse_vec_get(2, &vertices[i * grid_dim + j], ctx) > 0.0) {
-    //             printf(" 1");
-    //         } else {
-    //             printf(" 0");
-    //         }
-    //     }
-    //     printf("\n");
-    // }
-
     hvr_sparse_vec_set(0, (double)nset, out_coupled_metric, ctx);
     if (nset == n_vertices) {
         return 1;

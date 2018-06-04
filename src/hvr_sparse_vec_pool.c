@@ -4,10 +4,16 @@
 #include "hoover.h"
 #include "hvr_sparse_vec_pool.h"
 
-static hvr_sparse_vec_pool_free_node_t *create_free_node(unsigned start_index,
+static hvr_sparse_vec_range_node_t *remove_from_range(unsigned start_index,
+        unsigned nvecs, hvr_sparse_vec_range_node_t *list_head);
+
+static hvr_sparse_vec_range_node_t *add_to_range(unsigned start_index,
+        unsigned nvecs, hvr_sparse_vec_range_node_t *list_head);
+
+static hvr_sparse_vec_range_node_t *create_node(unsigned start_index,
         unsigned length)  {
-    hvr_sparse_vec_pool_free_node_t *node =
-        (hvr_sparse_vec_pool_free_node_t *)malloc(sizeof(*node));
+    hvr_sparse_vec_range_node_t *node =
+        (hvr_sparse_vec_range_node_t *)malloc(sizeof(*node));
     assert(node);
 
     node->start_index = start_index;
@@ -15,6 +21,150 @@ static hvr_sparse_vec_pool_free_node_t *create_free_node(unsigned start_index,
     node->next = NULL;
     node->prev = NULL;
     return node;
+}
+
+/*
+ * Returns new head for the list, which may be the same as the old head.
+ */
+static hvr_sparse_vec_range_node_t *remove_from_range(unsigned start_index,
+        unsigned nvecs, hvr_sparse_vec_range_node_t *list_head) {
+    // Find the node containing the range start_index to start_index + nvecs
+    hvr_sparse_vec_range_node_t *curr = list_head;
+    while (curr && !(start_index >= curr->start_index &&
+                start_index < curr->start_index + curr->length)) {
+        curr = curr->next;
+    }
+    assert(curr);
+    assert(start_index >= curr->start_index &&
+            start_index < curr->start_index + curr->length);
+    assert(start_index + nvecs >= curr->start_index &&
+            start_index + nvecs <= curr->start_index + curr->length);
+
+    unsigned nvecs_before = start_index - curr->start_index;
+    unsigned nvecs_after = (curr->start_index + curr->length) -
+        (start_index + nvecs);
+
+    hvr_sparse_vec_range_node_t *new_head = NULL;
+    if (nvecs_before == 0 && nvecs_after == 0) {
+        // Remove whole node
+        if (curr->prev == NULL && curr->next == NULL) {
+            // Only element in the list
+            assert(list_head == curr);
+            new_head = NULL;
+        } else if (curr->prev == NULL) {
+            // First element in a list of at least 2 elements
+            assert(list_head == curr);
+            new_head = curr->next;
+            new_head->prev = NULL;
+        } else if (curr->next == NULL) {
+            // Last element in a list of at least 2 elements
+            curr->prev->next = NULL;
+            new_head = list_head;
+        } else {
+            // Interior element
+            curr->prev->next = curr->next;
+            curr->next->prev = curr->prev;
+            new_head = list_head;
+        }
+
+        free(curr);
+    } else if (nvecs_before > 0 && nvecs_after > 0) {
+        // Pull interior section out of current node
+        hvr_sparse_vec_range_node_t *new_node = create_node(start_index + nvecs,
+                nvecs_after);
+        new_node->next = curr->next;
+        new_node->prev = curr;
+
+        curr->length = nvecs_before;
+        curr->next = new_node;
+
+        new_head = list_head;
+    } else if (nvecs_before == 0) {
+        // Just move this node's start forward
+        curr->start_index += nvecs;
+        new_head = list_head;
+    } else if (nvecs_after == 0) {
+        // Move this node's end backwards
+        curr->length -= nvecs;
+        new_head = list_head;
+    } else {
+        assert(0);
+    }
+    assert(new_head);
+
+    return new_head;
+}
+
+static hvr_sparse_vec_range_node_t *add_to_range(unsigned start_index,
+        unsigned nvecs, hvr_sparse_vec_range_node_t *list_head) {
+    hvr_sparse_vec_range_node_t *prev = NULL;
+    hvr_sparse_vec_range_node_t *next = list_head;
+    while (next && next->start_index < start_index) {
+        prev = next;
+        next = next->next;
+    }
+
+    /*
+     * Prev is the last node that has a start offset < start_index. So, we need
+     * to assert that this range doesn't overlap with prev or next and then
+     * merge with one or both.
+     */
+    assert(start_index >= prev->start_index + prev->length);
+    assert(start_index + nvecs <= next->start_index);
+
+    hvr_sparse_vec_range_node_t *new_head = NULL;
+    if (prev && next && start_index == prev->start_index + prev->length &&
+            start_index + nvecs == next->start_index) {
+        // Merge with both, both must be non-NULL
+        prev->length += (nvecs + next->length);
+        prev->next = next->next;
+        next->next->prev = prev;
+        free(next);
+        new_head = list_head;
+    } else if ((prev == NULL ||
+                start_index > prev->start_index + prev->length) &&
+            (next == NULL || start_index + nvecs < next->start_index)) {
+        // Merge with neither, either may be NULL
+        if (prev == NULL && next == NULL) {
+            // Both prev and next are NULL, empty list
+            assert(list_head == NULL);
+            new_head = create_node(start_index, nvecs);
+        } else if (prev == NULL) {
+            // prev is NULL, inserting at the front of a non-empty list
+            assert(list_head == next);
+            new_head = create_node(start_index, nvecs);
+            new_head->next = next;
+            next->prev = new_head;
+        } else if (next == NULL) {
+            // next is NULL, inserting at end of a non-empty list
+            hvr_sparse_vec_range_node_t *new_node = create_node(start_index,
+                    nvecs);
+            prev->next = new_node;
+            new_node->prev = prev;
+            new_head = list_head;
+        } else { // both non-NULL
+            hvr_sparse_vec_range_node_t *new_node = create_node(start_index,
+                    nvecs);
+            prev->next = new_node;
+            new_node->prev = prev;
+            new_node->next = next;
+            next->prev = new_node;
+            new_head = list_head;
+        }
+    } else if (prev && start_index == prev->start_index + prev->length) {
+        // Merge with prev, must be non-NULL
+        prev->length += nvecs;
+        new_head = list_head;
+    } else if (next && start_index + nvecs == next->start_index) {
+        // Merge with next
+        next->start_index -= nvecs;
+        next->length += nvecs;
+        new_head = list_head;
+    } else {
+        assert(0);
+    }
+
+    return new_head;
 }
 
 hvr_sparse_vec_pool_t *hvr_sparse_vec_pool_create(size_t pool_size) {
@@ -35,7 +185,8 @@ hvr_sparse_vec_pool_t *hvr_sparse_vec_pool_create(size_t pool_size) {
     }
 
     pool->pool_size = pool_size;
-    pool->free_list = create_free_node(0, pool_size);
+    pool->free_list = create_node(0, pool_size);
+    pool->used_list = NULL;
 
     return pool;
 }
@@ -46,7 +197,7 @@ hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs,
     hvr_sparse_vec_pool_t *pool = ctx->pool;
 
     // Greedily find the first free node large enough to satisfy this request
-    hvr_sparse_vec_pool_free_node_t *curr = pool->free_list;
+    hvr_sparse_vec_range_node_t *curr = pool->free_list;
     size_t nfree = 0;
     while (curr && curr->length < nvecs) {
         nfree += curr->length;
@@ -60,31 +211,10 @@ hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs,
         abort();
     }
 
-    unsigned alloc_start_index = curr->start_index;
-    curr->start_index += nvecs;
-    curr->length -= nvecs;
-    if (curr->length == 0) {
-        // Remove this node from the list
-        if (curr->prev == NULL && curr->next == NULL) {
-            // Only element in the list
-            assert(pool->free_list == curr);
-            pool->free_list = NULL;
-        } else if (curr->prev == NULL) {
-            // First element in a list of at least 2 elements
-            assert(pool->free_list == curr);
-            pool->free_list = curr->next;
-            curr->next->prev = NULL;
-        } else if (curr->next == NULL) {
-            // Last element in a list of at least 2 elements
-            curr->prev->next = NULL;
-        } else {
-            // Interior element
-            curr->prev->next = curr->next;
-            curr->next->prev = curr->prev;
-        }
-
-        free(curr);
-    }
+    const unsigned alloc_start_index = curr->start_index;
+    pool->free_list = remove_from_range(alloc_start_index, nvecs,
+            pool->free_list);
+    pool->used_list = add_to_range(alloc_start_index, nvecs, pool->used_list);
 
     // Initialize each of the reserved vectors, including giving them valid IDs
     hvr_sparse_vec_t *allocated = pool->pool + alloc_start_index;
@@ -98,76 +228,13 @@ void hvr_free_sparse_vecs(hvr_sparse_vec_t *vecs, unsigned nvecs,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     hvr_sparse_vec_pool_t *pool = ctx->pool;
-
     const size_t pool_index = vecs - pool->pool;
-    hvr_sparse_vec_pool_free_node_t *prev = NULL;
-    hvr_sparse_vec_pool_free_node_t *next = pool->free_list;
-    while (next && next->start_index < pool_index) {
-        prev = next;
-        next = next->next;
-    }
+
+    pool->used_list = remove_from_range(pool_index, nvecs, pool->used_list);
+    pool->free_list = add_to_range(pool_index, nvecs, pool->free_list);
 
     // Indicate to anyone scanning the pool that these are invalid vertices
     for (unsigned i = 0; i < nvecs; i++) {
         vecs[i].id = HVR_INVALID_VERTEX_ID;
-    }
-
-    if (prev == NULL && next == NULL) {
-        // Empty free list, insert this as a new node
-        hvr_sparse_vec_pool_free_node_t *node = create_free_node(pool_index,
-                nvecs);
-        pool->free_list = node;
-    } else if (prev == NULL) {
-        // Insert at front of pool free list
-        assert(next == pool->free_list);
-
-        if (pool_index + nvecs == next->start_index) {
-            // Merge into first node
-            next->start_index -= nvecs;
-            next->length += nvecs;
-        } else {
-            // Create new node and prepend it
-            hvr_sparse_vec_pool_free_node_t *node = create_free_node(
-                    pool_index, nvecs);
-            node->next = next;
-            next->prev = node;
-            pool->free_list = node;
-        }
-    } else if (next == NULL) {
-        // Insert at end of pool free list. prev is the last node in the list
-        if (prev->start_index + prev->length == pool_index) {
-            // Merge into last node
-            prev->length += nvecs;
-        }  else {
-            hvr_sparse_vec_pool_free_node_t *node = create_free_node(
-                    pool_index, nvecs);
-            prev->next = node;
-            node->prev = prev;
-        }
-    } else {
-        // Insert between prev and next
-        if (prev->start_index + prev->length == pool_index &&
-                pool_index + nvecs == next->start_index) {
-            // Merge all three ranges together
-            prev->length += (nvecs + next->length);
-            prev->next = next->next;
-            if (next->next) next->next->prev = prev;
-            free(next);
-        } else if (prev->start_index + prev->length == pool_index) {
-            // Just merge with prev
-            prev->length += nvecs;
-        } else if (pool_index + nvecs == next->start_index) {
-            // Just merge with next
-            next->start_index -= nvecs;
-            next->length += nvecs;
-        } else {
-            // No merge, just create a new node
-            hvr_sparse_vec_pool_free_node_t *node = create_free_node(
-                    pool_index, nvecs);
-            prev->next = node;
-            next->prev = node;
-            node->next = next;
-            node->prev = prev;
-        }
     }
 }

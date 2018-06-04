@@ -3,18 +3,19 @@
 
 #include "hvr_sparse_vec.h"
 
-typedef struct _hvr_sparse_vec_pool_free_node_t {
+typedef struct _hvr_sparse_vec_range_node_t {
     unsigned start_index;
     unsigned length;
-    struct _hvr_sparse_vec_pool_free_node_t *next;
-    struct _hvr_sparse_vec_pool_free_node_t *prev;
-} hvr_sparse_vec_pool_free_node_t;
+    struct _hvr_sparse_vec_range_node_t *next;
+    struct _hvr_sparse_vec_range_node_t *prev;
+} hvr_sparse_vec_range_node_t;
 
 typedef struct _hvr_sparse_vec_pool_t {
     hvr_sparse_vec_t *pool;
     size_t pool_size;
 
-    hvr_sparse_vec_pool_free_node_t *free_list;
+    hvr_sparse_vec_range_node_t *free_list;
+    hvr_sparse_vec_range_node_t *used_list;
 } hvr_sparse_vec_pool_t;
 
 /*

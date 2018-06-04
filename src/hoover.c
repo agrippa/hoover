@@ -1272,6 +1272,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
 
     wlock_actor_to_partition(ctx->pe, ctx);
 
+    // TODO might need to update this to be an iteration over the used segments of the pool, assuming only the user can allocate from it now.
     for (unsigned a = 0; a < ctx->n_local_vertices; a++) {
         hvr_sparse_vec_t *curr = ctx->vertices + a;
 
@@ -1999,7 +2000,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
             // Assume that all vertices have the same features.
             unsigned nfeatures;
             unsigned features[HVR_BUCKET_SIZE];
-            hvr_sparse_vec_unique_features(ctx->vertices, ctx->timestep,
+            hvr_sparse_vec_unique_features(&ctx->vertices[0], ctx->timestep,
                     features, &nfeatures);
 
             for (unsigned v = 0; v < ctx->n_local_vertices; v++) {
