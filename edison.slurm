@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 4
+#SBATCH -N 256
 ###SBATCH -C haswell
 #SBATCH -t 00:01:00
 #SBATCH -J hoover
@@ -48,9 +48,9 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 ./bin/init_test 120
 
-# export BASE_ACTORS_PER_CELL=400 # big
+export BASE_ACTORS_PER_CELL=400 # big
 # export BASE_ACTORS_PER_CELL=200
-export BASE_ACTORS_PER_CELL=100
+# export BASE_ACTORS_PER_CELL=100
 
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 1 node

@@ -109,8 +109,8 @@ static hvr_sparse_vec_range_node_t *add_to_range(unsigned start_index,
      * to assert that this range doesn't overlap with prev or next and then
      * merge with one or both.
      */
-    assert(start_index >= prev->start_index + prev->length);
-    assert(start_index + nvecs <= next->start_index);
+    assert(prev == NULL || start_index >= prev->start_index + prev->length);
+    assert(next == NULL || start_index + nvecs <= next->start_index);
 
     hvr_sparse_vec_range_node_t *new_head = NULL;
     if (prev && next && start_index == prev->start_index + prev->length &&

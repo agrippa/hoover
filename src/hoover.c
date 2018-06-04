@@ -1519,31 +1519,6 @@ void hvr_init(const uint16_t n_partitions,
 
     assert(n_partitions <= HVR_INVALID_PARTITION);
     new_ctx->n_partitions = n_partitions;
-    // new_ctx->n_local_vertices = n_local_vertices;
-    // new_ctx->vertices_per_pe = (long long *)shmem_malloc_wrapper(
-    //         new_ctx->npes * sizeof(long long));
-    // assert(new_ctx->vertices_per_pe);
-    // for (unsigned p = 0; p < new_ctx->npes; p++) {
-    //     shmem_longlong_p(&(new_ctx->vertices_per_pe[new_ctx->pe]),
-    //             n_local_vertices, p);
-    // }
-
-    /*
-     * Need a barrier to ensure everyone has done their puts before summing into
-     * n_global_vertices.
-     */
-    shmem_barrier_all();
-
-    // new_ctx->max_n_local_vertices = new_ctx->vertices_per_pe[0];
-    // new_ctx->n_global_vertices = 0;
-    // for (unsigned p = 0; p < new_ctx->npes; p++) {
-    //     new_ctx->n_global_vertices += new_ctx->vertices_per_pe[p];
-    //     if (new_ctx->vertices_per_pe[p] > new_ctx->max_n_local_vertices) {
-    //         new_ctx->max_n_local_vertices = new_ctx->vertices_per_pe[p];
-    //     }
-    // }
-
-    // new_ctx->vertices = vertices;
 
     new_ctx->actor_to_partition_map = (uint16_t *)shmem_malloc_wrapper(
             new_ctx->pool->pool_size * sizeof(uint16_t));
