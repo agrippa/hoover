@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 256
+#SBATCH -N 4
 ###SBATCH -C haswell
 #SBATCH -t 00:01:00
 #SBATCH -J hoover
@@ -104,20 +104,20 @@ export HVR_SYMM_POOL_SIZE=60000
 
 cd $SCRATCH
 
-echo "RUNNING INFECTIOUS MODEL"
-echo ""
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
-    $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    $MAX_DELTA_VELOCITY
-
-# echo ""
-# echo "RUNNING GRID TEST"
+# echo "RUNNING INFECTIOUS MODEL"
 # echo ""
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/init_test 50
+#     $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
+#     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
+#     $MAX_DELTA_VELOCITY
+
+echo ""
+echo "RUNNING GRID TEST"
+echo ""
+srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/init_test 50
 
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
