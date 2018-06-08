@@ -55,6 +55,11 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     return partition;
 }
 
+void start_time_step(hvr_ctx_t ctx) {
+    printf("Hello from PE %d on time step %d\n", hvr_my_pe(ctx),
+            hvr_current_timestep(ctx));
+}
+
 /*
  * Callback for the HOOVER runtime for updating positional or logical metadata
  * attached to each vertex based on the updated neighbors on each time step.
@@ -337,7 +342,7 @@ int main(int argc, char **argv) {
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
-            actor_to_partition, CONNECTIVITY_THRESHOLD, 0, 1,
+            actor_to_partition, start_time_step, CONNECTIVITY_THRESHOLD, 0, 1,
             MAX_TIMESTAMP, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();

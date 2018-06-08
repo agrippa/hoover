@@ -1457,6 +1457,7 @@ void hvr_init(const uint16_t n_partitions,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort,
         hvr_actor_to_partition actor_to_partition,
+        hvr_start_time_step start_time_step,
         const double connectivity_threshold, const unsigned min_spatial_feature,
         const unsigned max_spatial_feature, const hvr_time_t max_timestep,
         hvr_ctx_t in_ctx) {
@@ -1540,6 +1541,8 @@ void hvr_init(const uint16_t n_partitions,
     new_ctx->might_interact = might_interact;
     new_ctx->check_abort = check_abort;
     new_ctx->actor_to_partition = actor_to_partition;
+    new_ctx->start_time_step = start_time_step;
+
     new_ctx->connectivity_threshold = connectivity_threshold;
     assert(min_spatial_feature <= max_spatial_feature);
     new_ctx->min_spatial_feature = min_spatial_feature;
@@ -1791,6 +1794,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
         unsigned long long fetch_neighbors_time = 0;
         unsigned long long quiet_neighbors_time = 0;
         unsigned long long update_metadata_time = 0;
+
+        if (ctx->start_time_step) {
+            ctx->start_time_step(ctx);
+        }
 
         hvr_set_wipe(to_couple_with);
 
@@ -2143,6 +2150,10 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
 hvr_time_t hvr_current_timestep(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     return ctx->timestep;
+}
+
+int hvr_my_pe(hvr_ctx_t ctx) {
+    return ctx->pe;
 }
 
 unsigned long long hvr_current_time_us() {

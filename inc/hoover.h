@@ -120,6 +120,12 @@ typedef void (*hvr_update_metadata_func)(hvr_sparse_vec_t *metadata,
         hvr_set_t *couple_with, hvr_ctx_t ctx);
 
 /*
+ * Optional callback at the start of every timestep, usually used to update
+ * non-graph data structures or insert/remove vertices.
+ */
+typedef void (*hvr_start_time_step)(hvr_ctx_t ctx);
+
+/*
  * API for checking if the simulation for this PE should be aborted based on the
  * status of vertices on this PE.
  */
@@ -200,6 +206,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_might_interact_func might_interact;
     hvr_check_abort_func check_abort;
     hvr_actor_to_partition actor_to_partition;
+    hvr_start_time_step start_time_step;
 
     /*
      * Distance threshold below which edges are automatically added between
@@ -280,6 +287,7 @@ extern void hvr_init(const uint16_t n_partitions,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort,
         hvr_actor_to_partition actor_to_partition,
+        hvr_start_time_step start_time_step,
         const double connectivity_threshold,
         const unsigned min_spatial_feature_inclusive,
         const unsigned max_spatial_feature_inclusive,
@@ -296,6 +304,9 @@ extern void hvr_finalize(hvr_ctx_t ctx);
 
 // Get the current timestep of the local PE
 extern hvr_time_t hvr_current_timestep(hvr_ctx_t ctx);
+
+// Get the PE ID we are running on
+extern int hvr_my_pe(hvr_ctx_t ctx);
 
 // Simple utility for time measurement in microseconds
 extern unsigned long long hvr_current_time_us();
