@@ -10,6 +10,7 @@
 #include "hvr_common.h"
 #include "hoover_internal.h"
 #include "hvr_avl_tree.h"
+#include "hvr_vertex_iter.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -129,9 +130,8 @@ typedef void (*hvr_start_time_step)(hvr_ctx_t ctx);
  * API for checking if the simulation for this PE should be aborted based on the
  * status of vertices on this PE.
  */
-typedef int (*hvr_check_abort_func)(hvr_sparse_vec_range_node_t *used,
-        hvr_sparse_vec_t *pool, hvr_ctx_t ctx,
-        hvr_sparse_vec_t *out_coupled_metric);
+typedef int (*hvr_check_abort_func)(hvr_vertex_iter_t *iter,
+        hvr_ctx_t ctx, hvr_sparse_vec_t *out_coupled_metric);
 
 /*
  * API for checking if this PE might have any vertices that interact with

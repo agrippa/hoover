@@ -1,34 +1,41 @@
+#include "hoover.h"
 #include "hvr_vertex_iter.h"
 
-        hvr_sparse_vec_range_node_t *iter = ctx->pool->used_list;
-        size_t count_vertices = 0;
-        while (iter) {
-            for (unsigned a = 0; a < iter->length; a++) {
-                hvr_sparse_vec_t *curr = ctx->pool->pool +
-                    (iter->start_index + a);
-                if (curr->created_timestamp < ctx->timestep) {
-                    sum_n_neighbors += update_local_actor_metadata(curr,
-                            to_couple_with,
-                            &fetch_neighbors_time, &quiet_neighbors_time,
-                            &update_metadata_time, ctx,
-                            vec_caches, &quiet_counter);
-                    count_vertices++;
-                }
-            }
-            iter = iter->next;
-        }
-
-
-void hvr_vertex_iter_init(hvr_vertex_iter_t *iter, hvr_sparse_vec_t *pool) {
-    iter->next = pool->used_list;
+void hvr_vertex_iter_init(hvr_vertex_iter_t *iter,
+        hvr_internal_ctx_t *ctx) {
+    iter->current_chunk = ctx->pool->used_list;
     iter->index_for_current_chunk = 0;
-    iter->pool = pool;
+    iter->pool = ctx->pool;
+    iter->ctx = ctx;
 }
 
 hvr_sparse_vec_t *hvr_vertex_iter_next(hvr_vertex_iter_t *iter) {
-    hvr_sparse_vec_t *result = iter->next;
-    if (result) {
+    if (iter->current_chunk == NULL) {
+        return NULL;
+    } else {
+        hvr_sparse_vec_t *result = iter->pool->pool +
+            (iter->current_chunk->start_index + iter->index_for_current_chunk);
         // Haven't already found that we're at the end
+        int found = 0;
+        while (!found) {
+            iter->index_for_current_chunk += 1;
+            if (iter->index_for_current_chunk == iter->current_chunk->length) {
+                // Move to next chunk, which may be NULL
+                iter->current_chunk = iter->current_chunk->next;
+                iter->index_for_current_chunk = 0;
+            }
+
+            if (iter->current_chunk == NULL) {
+                found = 1;
+            } else {
+                hvr_sparse_vec_t *vertex = iter->pool->pool +
+                    (iter->current_chunk->start_index +
+                     iter->index_for_current_chunk);
+                if (vertex->created_timestamp < iter->ctx->timestep) {
+                    found = 1;
+                }
+            }
+        }
+        return result;
     }
-    return result;
 }

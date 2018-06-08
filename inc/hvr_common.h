@@ -3,6 +3,7 @@
 #ifndef _HOOVER_COMMON_H
 #define _HOOVER_COMMON_H
 
+#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 
