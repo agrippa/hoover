@@ -1741,10 +1741,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
     ctx->other_pe_partition_time_window = hvr_create_empty_set(
             ctx->n_partitions, ctx);
 
-    finalize_actors_for_timestep(ctx, 0);
-
     *(ctx->symm_timestep) = 0;
     ctx->timestep = 1;
+
+    finalize_actors_for_timestep(ctx, 0);
 
     update_actor_partitions(ctx);
     update_partition_time_window(ctx);
@@ -1814,14 +1814,15 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_updates = hvr_current_time_us();
 
-        __sync_synchronize();
-
-        finalize_actors_for_timestep(ctx, ctx->timestep);
-
-        __sync_synchronize();
-
         *(ctx->symm_timestep) = ctx->timestep;
         ctx->timestep += 1;
+
+        __sync_synchronize();
+
+        // Finalize the updates we just made
+        finalize_actors_for_timestep(ctx, ctx->timestep - 1);
+
+        __sync_synchronize();
 
         // Update mapping from actors to partitions
         update_actor_partitions(ctx);

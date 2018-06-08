@@ -217,6 +217,7 @@ static unsigned long long last_time = 0;
 int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_sparse_vec_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
+    size_t nset = 0;
     hvr_sparse_vec_t *vert = hvr_vertex_iter_next(iter);
     while (vert) {
         if (hvr_sparse_vec_get(2, vert, ctx) > 0.0) {
