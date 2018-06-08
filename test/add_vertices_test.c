@@ -58,6 +58,15 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
 void start_time_step(hvr_ctx_t ctx) {
     printf("Hello from PE %d on time step %d\n", hvr_my_pe(ctx),
             hvr_current_timestep(ctx));
+
+    if (hvr_current_timestep(ctx) <= VERT_MULTIPLIER) {
+        hvr_sparse_vec_t *new_vertex = hvr_sparse_vec_create_n(1, ctx);
+        double rand_row = grid_dim * ((double)rand() / (double)RAND_MAX);
+        double rand_col = grid_dim * ((double)rand() / (double)RAND_MAX);
+        hvr_sparse_vec_set(0, rand_row, new_vertex, ctx);
+        hvr_sparse_vec_set(1, rand_col, new_vertex, ctx);
+        hvr_sparse_vec_set(2, 1, new_vertex, ctx); // Initialize to be infected
+    }
 }
 
 /*
@@ -80,15 +89,6 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
                 break;
             }
         }
-    }
-
-    if (hvr_current_timestep(ctx) <= VERT_MULTIPLIER) {
-        hvr_sparse_vec_t *new_vertex = hvr_sparse_vec_create_n(1, ctx);
-        hvr_sparse_vec_set(0, hvr_sparse_vec_get(0, vertex, ctx), new_vertex,
-                ctx);
-        hvr_sparse_vec_set(1, hvr_sparse_vec_get(1, vertex, ctx), new_vertex,
-                ctx);
-        hvr_sparse_vec_set(2, 1, new_vertex, ctx);
     }
 }
 
@@ -253,7 +253,7 @@ int check_abort(hvr_sparse_vec_range_node_t *used, hvr_sparse_vec_t *pool,
     hvr_sparse_vec_set(0, (double)nset, out_coupled_metric, ctx);
     hvr_sparse_vec_set(1, (double)grid_cells_this_pe, out_coupled_metric, ctx);
 
-    if (nset == grid_cells_this_pe * VERT_MULTIPLIER_SQUARED) {
+    if (nset == grid_cells_this_pe + VERT_MULTIPLIER) {
         return 1;
     } else {
         return 0;
