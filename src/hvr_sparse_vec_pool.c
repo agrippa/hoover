@@ -25,6 +25,9 @@ static hvr_sparse_vec_range_node_t *create_node(unsigned start_index,
 
 /*
  * Returns new head for the list, which may be the same as the old head.
+ *
+ * Removes the range of values starting at start_index (inclusive) and including
+ * the following nvecs values.
  */
 static hvr_sparse_vec_range_node_t *remove_from_range(unsigned start_index,
         unsigned nvecs, hvr_sparse_vec_range_node_t *list_head) {
@@ -34,6 +37,11 @@ static hvr_sparse_vec_range_node_t *remove_from_range(unsigned start_index,
                 start_index < curr->start_index + curr->length)) {
         curr = curr->next;
     }
+
+    /*
+     * Assert that the whole block at start_index is included in our current
+     * range node.
+     */
     assert(curr);
     assert(start_index >= curr->start_index &&
             start_index < curr->start_index + curr->length);
@@ -82,6 +90,7 @@ static hvr_sparse_vec_range_node_t *remove_from_range(unsigned start_index,
     } else if (nvecs_before == 0) {
         // Just move this node's start forward
         curr->start_index += nvecs;
+        curr->length -= nvecs;
         new_head = list_head;
     } else if (nvecs_after == 0) {
         // Move this node's end backwards

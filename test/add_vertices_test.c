@@ -55,7 +55,7 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     return partition;
 }
 
-void start_time_step(hvr_ctx_t ctx) {
+void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     printf("Hello from PE %d on time step %d\n", hvr_my_pe(ctx),
             hvr_current_timestep(ctx));
 
@@ -67,6 +67,12 @@ void start_time_step(hvr_ctx_t ctx) {
         hvr_sparse_vec_set(1, rand_col, new_vertex, ctx);
         hvr_sparse_vec_set(2, 1, new_vertex, ctx); // Initialize to be infected
     }
+
+    // if (hvr_current_timestep(ctx) > 20) {
+    //     hvr_sparse_vec_t *vec = hvr_vertex_iter_next(iter);
+    //     assert(vec);
+    //     hvr_sparse_vec_delete(vec, ctx);
+    // }
 }
 
 /*
@@ -218,17 +224,20 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_sparse_vec_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
     size_t nset = 0;
+    size_t ntotal = 0;
     hvr_sparse_vec_t *vert = hvr_vertex_iter_next(iter);
     while (vert) {
         if (hvr_sparse_vec_get(2, vert, ctx) > 0.0) {
             nset++;
         }
+        ntotal++;
         vert = hvr_vertex_iter_next(iter);
     }
 
     unsigned long long this_time = hvr_current_time_us();
-    printf("PE %d - timestep %lu - set %lu / %u - %f ms\n", pe,
-            (uint64_t)hvr_current_timestep(ctx), nset, grid_cells_this_pe,
+    printf("PE %d - timestep %lu - set %lu / %lu - %f ms\n", pe,
+            (uint64_t)hvr_current_timestep(ctx), nset,
+            ntotal,
             last_time == 0 ? 0 : (double)(this_time - last_time) / 1000.0);
     last_time = this_time;
 
@@ -247,20 +256,23 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     // }
 
     hvr_sparse_vec_set(0, (double)nset, out_coupled_metric, ctx);
-    hvr_sparse_vec_set(1, (double)grid_cells_this_pe, out_coupled_metric, ctx);
+    hvr_sparse_vec_set(1, (double)ntotal, out_coupled_metric, ctx);
 
-    if (nset == grid_cells_this_pe + VERT_MULTIPLIER) {
-        return 1;
-    } else {
-        return 0;
-    }
+    return 0;
+    // if (nset == grid_cells_this_pe + VERT_MULTIPLIER) {
+    //     return 1;
+    // } else {
+    //     return 0;
+    // }
 }
 
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc == 2) {
+    int num_timesteps = 20;
+    if (argc == 3) {
         grid_dim = atoi(argv[1]);
+        num_timesteps = atoi(argv[2]);
     }
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
@@ -339,7 +351,7 @@ int main(int argc, char **argv) {
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
             actor_to_partition, start_time_step, CONNECTIVITY_THRESHOLD, 0, 1,
-            MAX_TIMESTAMP, hvr_ctx);
+            num_timesteps, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);

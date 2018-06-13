@@ -1788,7 +1788,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
         unsigned long long update_metadata_time = 0;
 
         if (ctx->start_time_step) {
-            ctx->start_time_step(ctx);
+            hvr_vertex_iter_t iter;
+            hvr_vertex_iter_init(&iter, ctx);
+            ctx->start_time_step(&iter, ctx);
         }
 
         hvr_set_wipe(to_couple_with);

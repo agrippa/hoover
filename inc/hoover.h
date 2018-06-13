@@ -124,7 +124,7 @@ typedef void (*hvr_update_metadata_func)(hvr_sparse_vec_t *metadata,
  * Optional callback at the start of every timestep, usually used to update
  * non-graph data structures or insert/remove vertices.
  */
-typedef void (*hvr_start_time_step)(hvr_ctx_t ctx);
+typedef void (*hvr_start_time_step)(hvr_vertex_iter_t *iter, hvr_ctx_t ctx);
 
 /*
  * API for checking if the simulation for this PE should be aborted based on the

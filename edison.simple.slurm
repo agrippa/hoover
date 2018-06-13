@@ -40,7 +40,7 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
 # export HVR_TRACE_DUMP=1
 
-export MAX_NUM_TIMESTEPS=5
+export MAX_NUM_TIMESTEPS=25
 
 export HVR_SYMM_POOL_SIZE=60000
 
@@ -49,13 +49,13 @@ cd $SCRATCH
 echo ""
 echo "RUNNING GRID TEST"
 echo ""
-# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/init_test 50
+srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/init_test 50
 
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/add_vertices_test 40
+    $HOME/hoover/bin/add_vertices_test 40 $MAX_NUM_TIMESTEPS
 
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
