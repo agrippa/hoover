@@ -22,11 +22,10 @@
  * vector replicated HVR_BUCKETS times, once for each historical timestep.
  */
 typedef struct _hvr_sparse_vec_t {
-    // Globally unique ID for this node
+    // Globally unique ID for this node if remotely accessible
     vertex_id_t id;
 
-    // PE that owns this vertex
-    int pe;
+    hvr_time_t created_timestamp;
 
     // Values for each feature on each timestep
     double values[HVR_BUCKETS][HVR_BUCKET_SIZE];
@@ -66,12 +65,12 @@ typedef struct _hvr_sparse_vec_t {
 /*
  * Create nvecs new, empty vectors. Collective call.
  */
-hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs);
+hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs, hvr_ctx_t ctx);
 
 /*
  * Initialize an empty sparse vector.
  */
-void hvr_sparse_vec_init(hvr_sparse_vec_t *vec);
+void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_ctx_t ctx);
 
 /*
  * Set the specified feature to the specified value in the provided vector.
@@ -90,16 +89,6 @@ double hvr_sparse_vec_get(const unsigned feature, hvr_sparse_vec_t *vec,
  */
 void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
         const size_t buf_size, hvr_ctx_t in_ctx);
-
-/*
- * Set the globally unique ID of this sparse vector
- */
-void hvr_sparse_vec_set_id(const vertex_id_t id, hvr_sparse_vec_t *vec);
-
-/*
- * Get the globally unique ID of this sparse vector
- */
-vertex_id_t hvr_sparse_vec_get_id(hvr_sparse_vec_t *vec);
 
 /*
  * Get the PE that is responsible for this sparse vector

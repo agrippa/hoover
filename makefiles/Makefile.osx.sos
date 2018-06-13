@@ -2,7 +2,7 @@ CFLAGS=-Wall -g -O2 -Iinc
 
 all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test bin/infectious_test
 
-bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c
+bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c src/hvr_sparse_vec_pool.c src/hvr_vertex_iter.c
 	oshcc $(CFLAGS) $^ -o $@ -shared -fPIC -lm
 
 bin/init_test: test/init_test.c

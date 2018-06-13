@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
     hvr_ctx_t ctx;
     hvr_ctx_create(&ctx);
 
-    hvr_sparse_vec_t *vec = hvr_sparse_vec_create_n(1);
+    hvr_sparse_vec_t *vec = hvr_sparse_vec_create_n(1, ctx);
 
     // Everything should be zero
     for (unsigned i = 0; i < 100; i++) {

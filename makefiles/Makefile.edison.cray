@@ -2,9 +2,11 @@
 CFLAGS=-g -O2 -Iinc -std=c99 -Wall
 SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -L$(OPENSHMEM_INSTALL)/lib64 -lsma
 
-all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test bin/infectious_test bin/shmem_rw_lock bin/write_lock_stress
+all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test \
+	bin/infectious_test bin/shmem_rw_lock bin/write_lock_stress \
+	bin/test_vertex_id bin/add_vertices_test
 
-bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c
+bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c src/hvr_sparse_vec_pool.c src/hvr_vertex_iter.c
 	gcc $(CFLAGS) $^ -o $@ -shared -fPIC $(SHMEM_FLAGS)
 
 bin/init_test: test/init_test.c
@@ -26,6 +28,12 @@ bin/shmem_rw_lock: test/shmem_rw_lock.c
 	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/write_lock_stress: test/write_lock_stress.c
+	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+
+bin/test_vertex_id: test/test_vertex_id.c
+	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+
+bin/add_vertices_test: test/add_vertices_test.c
 	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 clean:

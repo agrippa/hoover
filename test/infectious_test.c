@@ -80,16 +80,6 @@ static int random_int_in_range(int max_val) {
     return (rand() % max_val);
 }
 
-/*
- * Callback for the HOOVER runtime to use to determine the PE owning a given
- * vertex, and that vertex's local offset on the owner PE.
- */
-void vertex_owner(vertex_id_t vertex, unsigned *out_pe,
-        size_t *out_local_offset) {
-    *out_pe = vertex / actors_per_cell;
-    *out_local_offset = vertex % actors_per_cell;
-}
-
 uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     const double x = hvr_sparse_vec_get(PX, actor, ctx);
     const double y = hvr_sparse_vec_get(PY, actor, ctx);
@@ -337,39 +327,27 @@ static unsigned long long last_time = 0;
  * Callback used by the HOOVER runtime to check if this PE can abort out of the
  * simulation.
  */
-int check_abort(hvr_sparse_vec_t *vertices, const size_t n_vertices,
-        hvr_ctx_t ctx, hvr_sparse_vec_t *out_coupled_metric) {
+int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_sparse_vec_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
     size_t nset = 0;
-    for (int i = 0; i < n_vertices; i++) {
-        if (hvr_sparse_vec_get(INFECTED, &vertices[i], ctx) > 0.0) {
+    hvr_sparse_vec_t *vert = hvr_vertex_iter_next(iter);
+    while (vert) {
+        if (hvr_sparse_vec_get(INFECTED, vert, ctx) > 0.0) {
             nset++;
         }
+        vert = hvr_vertex_iter_next(iter);
     }
 
     unsigned long long this_time = hvr_current_time_us();
     if (nset > 0) {
-        printf("PE %d - timestep %lu - set %lu / %lu\n", pe,
-                (uint64_t)hvr_current_timestep(ctx), nset, n_vertices);
+        printf("PE %d - timestep %lu - set %lu / %u\n", pe,
+                (uint64_t)hvr_current_timestep(ctx), nset, actors_per_cell);
     }
     last_time = this_time;
 
-    // Only really makes sense when running on one PE for testing
-    // printf("\nPE %d - timestep %lu:\n", pe, hvr_current_timestep(ctx));
-    // for (int i = grid_dim - 1; i >= 0; i--) {
-    //     printf("  ");
-    //     for (int j = 0; j < grid_dim; j++) {
-    //         if (hvr_sparse_vec_get(2, &vertices[i * grid_dim + j], ctx) > 0.0) {
-    //             printf(" 1");
-    //         } else {
-    //             printf(" 0");
-    //         }
-    //     }
-    //     printf("\n");
-    // }
-
     hvr_sparse_vec_set(0, (double)nset, out_coupled_metric, ctx);
-    if (nset == n_vertices) {
+    if (nset == actors_per_cell) {
         return 1;
     } else {
         return 0;
@@ -468,14 +446,14 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     // Seed the location of local actors.
-    hvr_sparse_vec_t *actors = hvr_sparse_vec_create_n(actors_per_cell);
+    hvr_sparse_vec_t *actors = hvr_sparse_vec_create_n(actors_per_cell,
+            hvr_ctx);
     for (int a = 0; a < actors_per_cell; a++) {
         const double x = random_double_in_range(PE_COL_CELL_START(pe),
                 PE_COL_CELL_START(pe) + cell_dim);
         const double y = random_double_in_range(PE_ROW_CELL_START(pe),
                 PE_ROW_CELL_START(pe) + cell_dim);
 
-        hvr_sparse_vec_set_id(pe * actors_per_cell + a, &actors[a]);
         hvr_sparse_vec_set(PX, x, &actors[a], hvr_ctx);
         hvr_sparse_vec_set(PY, y, &actors[a], hvr_ctx);
         hvr_sparse_vec_set(HOME_X, x, &actors[a], hvr_ctx);
@@ -513,9 +491,9 @@ int main(int argc, char **argv) {
         }
     }
 
-    hvr_init(PARTITION_DIM * PARTITION_DIM, actors_per_cell, actors,
+    hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
-            vertex_owner, actor_to_partition, infection_radius /* threshold */,
+            actor_to_partition, NULL, infection_radius /* threshold */,
             0, 1, max_num_timesteps, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
