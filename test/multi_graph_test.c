@@ -38,6 +38,7 @@ long long total_time = 0;
 long long max_elapsed = 0;
 long long elapsed_time = 0;
 hvr_graph_id_t graph = HVR_INVALID_GRAPH;
+hvr_graph_id_t graph2 = HVR_INVALID_GRAPH;
 
 long long p_wrk[SHMEM_REDUCE_MIN_WRKDATA_SIZE];
 long p_sync[SHMEM_REDUCE_SYNC_SIZE];
@@ -57,11 +58,13 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
 }
 
 void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
-    printf("Hello from PE %d on time step %d\n", hvr_my_pe(ctx),
-            hvr_current_timestep(ctx));
 
     if (hvr_current_timestep(ctx) <= VERT_MULTIPLIER) {
-        hvr_sparse_vec_t *new_vertex = hvr_sparse_vec_create_n(1, graph, ctx);
+        /*
+         * Add vertices to the secondary graph, preventing them from being
+         * includded in the main graph.
+         */
+        hvr_sparse_vec_t *new_vertex = hvr_sparse_vec_create_n(1, graph2, ctx);
         double rand_row = grid_dim * ((double)rand() / (double)RAND_MAX);
         double rand_col = grid_dim * ((double)rand() / (double)RAND_MAX);
         hvr_sparse_vec_set(0, rand_row, new_vertex, ctx);
@@ -69,11 +72,31 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         hvr_sparse_vec_set(2, 1, new_vertex, ctx); // Initialize to be infected
     }
 
-    // if (hvr_current_timestep(ctx) > 20) {
-    //     hvr_sparse_vec_t *vec = hvr_vertex_iter_next(iter);
-    //     assert(vec);
-    //     hvr_sparse_vec_delete(vec, ctx);
-    // }
+    assert(iter->target_graphs == graph);
+
+    unsigned count_main_graph_vertices = 0;
+    hvr_sparse_vec_t *curr = hvr_vertex_iter_next(iter);
+    while (curr) {
+        count_main_graph_vertices++;
+        curr = hvr_vertex_iter_next(iter);
+    }
+    assert(count_main_graph_vertices == grid_cells_this_pe);
+
+    unsigned count_secondary_graph_vertices = 0;
+    hvr_vertex_iter_t secondary_iter;
+    hvr_vertex_iter_init(&secondary_iter, graph2, ctx);
+    curr = hvr_vertex_iter_next(&secondary_iter);
+    while (curr) {
+        count_secondary_graph_vertices++;
+        curr = hvr_vertex_iter_next(&secondary_iter);
+    }
+    assert(count_secondary_graph_vertices ==
+            (hvr_current_timestep(ctx) <= VERT_MULTIPLIER) ?
+            hvr_current_timestep(ctx) : VERT_MULTIPLIER);
+
+    printf("Hello from PE %d on time step %d - %u primary vertices - %u "
+            "secondary vertices\n", hvr_my_pe(ctx), hvr_current_timestep(ctx),
+            count_main_graph_vertices, count_secondary_graph_vertices);
 }
 
 /*
@@ -259,12 +282,11 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     hvr_sparse_vec_set(0, (double)nset, out_coupled_metric, ctx);
     hvr_sparse_vec_set(1, (double)ntotal, out_coupled_metric, ctx);
 
-    return 0;
-    // if (nset == grid_cells_this_pe + VERT_MULTIPLIER) {
-    //     return 1;
-    // } else {
-    //     return 0;
-    // }
+    if (nset == grid_cells_this_pe) {
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 int main(int argc, char **argv) {
@@ -283,6 +305,7 @@ int main(int argc, char **argv) {
     shmem_init();
     hvr_ctx_create(&hvr_ctx);
     graph = hvr_graph_create(hvr_ctx);
+    graph2 = hvr_graph_create(hvr_ctx);
 
     pe = shmem_my_pe();
     npes = shmem_n_pes();
@@ -367,8 +390,8 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     if (pe == 0) {
-        fprintf(stderr, "%d PEs, total CPU time = %f ms, max elapsed = %f ms, ~%u cells "
-                "per PE\n", npes, (double)total_time / 1000.0,
+        fprintf(stderr, "%d PEs, %d timesteps, total CPU time = %f ms, max elapsed = %f ms, ~%u cells "
+                "per PE\n", npes, hvr_current_timestep(hvr_ctx), (double)total_time / 1000.0,
                 (double)max_elapsed / 1000.0, cells_per_pe);
     }
 

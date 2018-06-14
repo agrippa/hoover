@@ -112,8 +112,8 @@ int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
     if (first_timestep || existing_minx != minx || existing_miny != miny ||
             existing_maxx != maxx || existing_maxy != maxy) {
 
-        hvr_sparse_vec_init(mins, ctx);
-        hvr_sparse_vec_init(maxs, ctx);
+        hvr_sparse_vec_init(mins, HVR_INVALID_GRAPH, ctx);
+        hvr_sparse_vec_init(maxs, HVR_INVALID_GRAPH, ctx);
         hvr_sparse_vec_set(0, minx, mins, ctx);
         hvr_sparse_vec_set(1, miny, mins, ctx);
         hvr_sparse_vec_set(0, maxx, maxs, ctx);
@@ -252,6 +252,7 @@ int main(int argc, char **argv) {
 
     shmem_init();
     hvr_ctx_create(&hvr_ctx);
+    hvr_graph_id_t graph = hvr_graph_create(hvr_ctx);
 
     pe = shmem_my_pe();
     npes = shmem_n_pes();
@@ -290,7 +291,7 @@ int main(int argc, char **argv) {
      *  2: whether this cell has been "infected" by its neighbors
      */
     hvr_sparse_vec_t *vertices = hvr_sparse_vec_create_n(
-            grid_cell_end - grid_cell_start, hvr_ctx);
+            grid_cell_end - grid_cell_start, graph, hvr_ctx);
     for (vertex_id_t vertex = grid_cell_start; vertex < grid_cell_end;
             vertex++) {
         const vertex_id_t row = vertex / grid_dim;
@@ -321,7 +322,7 @@ int main(int argc, char **argv) {
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
-            actor_to_partition, NULL, CONNECTIVITY_THRESHOLD, 0, 1,
+            actor_to_partition, NULL, graph, CONNECTIVITY_THRESHOLD, 0, 1,
             MAX_TIMESTAMP, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();

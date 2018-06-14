@@ -276,10 +276,17 @@ typedef struct _hvr_internal_ctx_t {
 
     // List of local vertices in each partition
     hvr_sparse_vec_t **partition_lists;
+
+    // Counter for which graph IDs have already been allocated
+    hvr_graph_id_t allocated_graphs;
+    hvr_graph_id_t main_graph;
 } hvr_internal_ctx_t;
 
 // Must be called after shmem_init, zeroes out_ctx and fills in pe and npes
 extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
+
+// Reserve a graph identifier for allocating vertices inside.
+extern hvr_graph_id_t hvr_graph_create(hvr_ctx_t ctx);
 
 // Initialize the state of the simulation/ctx
 extern void hvr_init(const uint16_t n_partitions,
@@ -288,6 +295,7 @@ extern void hvr_init(const uint16_t n_partitions,
         hvr_check_abort_func check_abort,
         hvr_actor_to_partition actor_to_partition,
         hvr_start_time_step start_time_step,
+        hvr_graph_id_t main_graph,
         const double connectivity_threshold,
         const unsigned min_spatial_feature_inclusive,
         const unsigned max_spatial_feature_inclusive,

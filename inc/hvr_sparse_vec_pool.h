@@ -2,6 +2,7 @@
 #define _HVR_SPARSE_VEC_POOL_H
 
 #include "hvr_sparse_vec.h"
+#include "hvr_common.h"
 
 typedef struct _hvr_sparse_vec_range_node_t {
     unsigned start_index;
@@ -28,7 +29,7 @@ hvr_sparse_vec_pool_t *hvr_sparse_vec_pool_create(size_t pool_size);
  * Allocate 'nvecs' sparse vectors from the specified memory pool.
  */
 hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs,
-        hvr_ctx_t ctx);
+        hvr_graph_id_t graph, hvr_ctx_t ctx);
 
 /*
  * Release 'nvecs' sparse vectors starting at memory address vecs in the

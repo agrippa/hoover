@@ -24,6 +24,16 @@ typedef uint64_t vertex_id_t;
 typedef vertex_id_t vertex_index_t;
 
 /*
+ * Type definition for a graph identifier.
+ *
+ * Under the hood, this is used as a bitvector. As a result, we are currently
+ * limited to at most 32 graphs.
+ */
+typedef uint32_t hvr_graph_id_t;
+
+#define HVR_INVALID_GRAPH 0
+
+/*
  * Vertex ID for any local vertices. For remotely accessible vertices, the top
  * 32 bits stores the PE that the vertex sits on, the bottom 32 bits store its
  * offset in the pool of that PE.

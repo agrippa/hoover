@@ -384,6 +384,7 @@ int main(int argc, char **argv) {
 
     shmem_init();
     hvr_ctx_create(&hvr_ctx);
+    hvr_graph_id_t graph = hvr_graph_create(hvr_ctx);
 
     pe = shmem_my_pe();
     npes = shmem_n_pes();
@@ -447,7 +448,7 @@ int main(int argc, char **argv) {
 
     // Seed the location of local actors.
     hvr_sparse_vec_t *actors = hvr_sparse_vec_create_n(actors_per_cell,
-            hvr_ctx);
+            graph, hvr_ctx);
     for (int a = 0; a < actors_per_cell; a++) {
         const double x = random_double_in_range(PE_COL_CELL_START(pe),
                 PE_COL_CELL_START(pe) + cell_dim);
@@ -493,7 +494,7 @@ int main(int argc, char **argv) {
 
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
-            actor_to_partition, NULL, infection_radius /* threshold */,
+            actor_to_partition, NULL, graph, infection_radius /* threshold */,
             0, 1, max_num_timesteps, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();

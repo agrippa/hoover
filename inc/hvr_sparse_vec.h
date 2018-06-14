@@ -26,6 +26,7 @@ typedef struct _hvr_sparse_vec_t {
     vertex_id_t id;
 
     hvr_time_t created_timestamp;
+    hvr_graph_id_t graph;
 
     // Values for each feature on each timestep
     double values[HVR_BUCKETS][HVR_BUCKET_SIZE];
@@ -65,12 +66,14 @@ typedef struct _hvr_sparse_vec_t {
 /*
  * Create nvecs new, empty vectors. Collective call.
  */
-hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs, hvr_ctx_t ctx);
+hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs,
+        hvr_graph_id_t graph, hvr_ctx_t ctx);
 
 /*
  * Initialize an empty sparse vector.
  */
-void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_ctx_t ctx);
+void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_graph_id_t graph,
+        hvr_ctx_t ctx);
 
 /*
  * Set the specified feature to the specified value in the provided vector.
@@ -95,5 +98,12 @@ void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
  */
 int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec);
 
+/*
+ * WARNING: In general, this API should never be used by HOOVER applications.
+ *
+ * We only expose it here to be used by testing code.
+ */
+void finalize_actor_for_timestep(hvr_sparse_vec_t *actor,
+        const hvr_time_t timestep);
 
 #endif // _HVR_SPARSE_VEC_H

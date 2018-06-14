@@ -140,18 +140,20 @@ static void wunlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
 }
 
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs,
-        hvr_ctx_t in_ctx) {
+        hvr_graph_id_t graph, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
 
-    return hvr_alloc_sparse_vecs(nvecs, ctx);
+    return hvr_alloc_sparse_vecs(nvecs, graph, ctx);
 }
 
-void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_ctx_t in_ctx) {
+void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_graph_id_t graph,
+        hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
 
     memset(vec, 0x00, sizeof(*vec));
     vec->cached_timestamp = -1;
     vec->created_timestamp = ctx->timestep;
+    vec->graph = graph;
 
     for (unsigned i = 0; i < HVR_BUCKETS; i++) {
         vec->timestamps[i] = -1;
@@ -951,6 +953,19 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
     *out_ctx = new_ctx;
 }
 
+hvr_graph_id_t hvr_graph_create(hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+
+    hvr_graph_id_t next_graph = (ctx->allocated_graphs)++;
+
+    if (next_graph >= BITS_PER_BYTE * sizeof(hvr_graph_id_t)) {
+        fprintf(stderr, "Ran out of graph IDs\n");
+        abort();
+    }
+
+    return (1 << next_graph);
+}
+
 /*
  * For every other PE in this simulation, reach out and take the bit vector of
  * partitions that they have had actors in during a recent time window.
@@ -1283,7 +1298,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
     wlock_actor_to_partition(ctx->pe, ctx);
 
     hvr_vertex_iter_t iter;
-    hvr_vertex_iter_init(&iter, ctx);
+    hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
     hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter);
     while (curr) {
         assert(curr->id != HVR_INVALID_VERTEX_ID);
@@ -1451,6 +1466,7 @@ void hvr_init(const uint16_t n_partitions,
         hvr_check_abort_func check_abort,
         hvr_actor_to_partition actor_to_partition,
         hvr_start_time_step start_time_step,
+        hvr_graph_id_t main_graph,
         const double connectivity_threshold, const unsigned min_spatial_feature,
         const unsigned max_spatial_feature, const hvr_time_t max_timestep,
         hvr_ctx_t in_ctx) {
@@ -1575,7 +1591,8 @@ void hvr_init(const uint16_t n_partitions,
             new_ctx->npes * sizeof(hvr_sparse_vec_t));
     assert(new_ctx->coupled_pes_values);
     for (unsigned i = 0; i < new_ctx->npes; i++) {
-        hvr_sparse_vec_init(&(new_ctx->coupled_pes_values)[i], new_ctx);
+        hvr_sparse_vec_init(&(new_ctx->coupled_pes_values)[i],
+                HVR_INVALID_GRAPH, new_ctx);
     }
 
     new_ctx->coupled_pes_values_buffer = (hvr_sparse_vec_t *)malloc(
@@ -1602,6 +1619,8 @@ void hvr_init(const uint16_t n_partitions,
     new_ctx->partition_lists = (hvr_sparse_vec_t **)malloc(
             sizeof(hvr_sparse_vec_t *) * new_ctx->n_partitions);
     assert(new_ctx->partition_lists);
+
+    new_ctx->main_graph = main_graph;
 
     // Print the number of bytes allocated
     // shmem_malloc_wrapper(0);
@@ -1698,8 +1717,8 @@ static unsigned update_local_actor_metadata(hvr_sparse_vec_t *vertex,
     }
 }
 
-static inline void finalize_actor_for_timestep(hvr_sparse_vec_t *actor,
-        hvr_internal_ctx_t *ctx, const hvr_time_t timestep) {
+void finalize_actor_for_timestep(hvr_sparse_vec_t *actor,
+        const hvr_time_t timestep) {
     unsigned latest_bucket = prev_bucket(actor->next_bucket);
     if (actor->timestamps[latest_bucket] == timestep) {
         assert(actor->finalized[latest_bucket] < timestep);
@@ -1710,10 +1729,10 @@ static inline void finalize_actor_for_timestep(hvr_sparse_vec_t *actor,
 static void finalize_actors_for_timestep(hvr_internal_ctx_t *ctx,
         const hvr_time_t timestep) {
     hvr_vertex_iter_t iter;
-    hvr_vertex_iter_init(&iter, ctx);
+    hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
     hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter);
     while (curr) {
-        finalize_actor_for_timestep(curr, ctx, timestep);
+        finalize_actor_for_timestep(curr, timestep);
         curr = hvr_vertex_iter_next(&iter);
     }
 }
@@ -1789,7 +1808,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
         if (ctx->start_time_step) {
             hvr_vertex_iter_t iter;
-            hvr_vertex_iter_init(&iter, ctx);
+            hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
             ctx->start_time_step(&iter, ctx);
         }
 
@@ -1800,7 +1819,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         // Update each actor's metadata
         size_t count_vertices = 0;
         hvr_vertex_iter_t iter;
-        hvr_vertex_iter_init(&iter, ctx);
+        hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
         hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter);
         while (curr) {
             sum_n_neighbors += update_local_actor_metadata(curr,
@@ -1861,10 +1880,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
         memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
                 sizeof(coupled_metric));
 
-        hvr_vertex_iter_init(&iter, ctx);
+        hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
         should_abort = ctx->check_abort(&iter, ctx, &coupled_metric);
         finalize_actor_for_timestep(
-                &coupled_metric, ctx, ctx->timestep);
+                &coupled_metric, ctx->timestep);
 
         // Update my local information on PEs I am coupled with.
         hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
@@ -2006,7 +2025,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     ctx->timestep, features, &nfeatures);
 
             hvr_vertex_iter_t iter;
-            hvr_vertex_iter_init(&iter, ctx);
+            hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
             hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter);
             while (curr) {
                 fprintf(ctx->dump_file, "%lu,%u,%ld,%d", curr->id,
@@ -2104,7 +2123,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
         hvr_sparse_vec_set_internal(features[f], last_val,
                 ctx->coupled_pes_values + ctx->pe, MAX_TIMESTAMP);
     }
-    finalize_actor_for_timestep(ctx->coupled_pes_values + ctx->pe, ctx,
+    finalize_actor_for_timestep(ctx->coupled_pes_values + ctx->pe,
             MAX_TIMESTAMP);
 
     hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);

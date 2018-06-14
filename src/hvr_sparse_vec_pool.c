@@ -200,7 +200,7 @@ hvr_sparse_vec_pool_t *hvr_sparse_vec_pool_create(size_t pool_size) {
     return pool;
 }
 
-hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs,
+hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs, hvr_graph_id_t graph,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     hvr_sparse_vec_pool_t *pool = ctx->pool;
@@ -228,7 +228,7 @@ hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs,
     // Initialize each of the reserved vectors, including giving them valid IDs
     hvr_sparse_vec_t *allocated = pool->pool + alloc_start_index;
     for (size_t i = 0; i < nvecs; i++) {
-        hvr_sparse_vec_init(&allocated[i], ctx);
+        hvr_sparse_vec_init(&allocated[i], graph, ctx);
     }
     return allocated;
 }
