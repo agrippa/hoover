@@ -53,9 +53,19 @@ srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
     $HOME/hoover/bin/init_test 50
 
+echo ""
+echo "RUNNING ADD VERTICES TEST"
+echo ""
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
     $HOME/hoover/bin/add_vertices_test 40 $MAX_NUM_TIMESTEPS
+
+echo ""
+echo "RUNNING MULTI GRAPH TEST"
+echo ""
+srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/multi_graph_test 40 $MAX_NUM_TIMESTEPS
 
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \

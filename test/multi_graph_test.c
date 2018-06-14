@@ -90,13 +90,15 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         count_secondary_graph_vertices++;
         curr = hvr_vertex_iter_next(&secondary_iter);
     }
-    assert(count_secondary_graph_vertices ==
-            (hvr_current_timestep(ctx) <= VERT_MULTIPLIER) ?
-            hvr_current_timestep(ctx) : VERT_MULTIPLIER);
 
-    printf("Hello from PE %d on time step %d - %u primary vertices - %u "
-            "secondary vertices\n", hvr_my_pe(ctx), hvr_current_timestep(ctx),
-            count_main_graph_vertices, count_secondary_graph_vertices);
+    fprintf(stderr, "Hello from PE %d on time step %d - %u primary vertices - "
+            "%u secondary vertices\n", hvr_my_pe(ctx),
+            hvr_current_timestep(ctx), count_main_graph_vertices,
+            count_secondary_graph_vertices);
+
+    assert(count_secondary_graph_vertices ==
+            ((hvr_current_timestep(ctx) <= VERT_MULTIPLIER + 1) ?
+            hvr_current_timestep(ctx) : VERT_MULTIPLIER + 1));
 }
 
 /*
