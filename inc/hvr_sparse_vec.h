@@ -26,6 +26,7 @@ typedef struct _hvr_sparse_vec_t {
     vertex_id_t id;
 
     hvr_time_t created_timestamp;
+    hvr_time_t deleted_timestamp;
     hvr_graph_id_t graph;
 
     // Values for each feature on each timestep
@@ -68,6 +69,12 @@ typedef struct _hvr_sparse_vec_t {
  */
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs,
         hvr_graph_id_t graph, hvr_ctx_t ctx);
+
+/*
+ * Remove these vertices from the graph.
+ */
+void hvr_sparse_vec_delete_n(hvr_sparse_vec_t *vecs,
+        const size_t nvecs, hvr_ctx_t ctx);
 
 /*
  * Initialize an empty sparse vector.

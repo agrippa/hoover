@@ -146,6 +146,16 @@ hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs,
     return hvr_alloc_sparse_vecs(nvecs, graph, ctx);
 }
 
+void hvr_sparse_vec_delete_n(hvr_sparse_vec_t *vecs,
+        const size_t nvecs, hvr_ctx_t in_ctx) {
+    // Mark for deletion, but don't actually free them yet
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    for (unsigned i = 0; i < nvecs; i++) {
+        vecs[i].deleted_timestamp = ctx->timestep;
+        finalize_actor_for_timestep(vecs + i, ctx->timestep);
+    }
+}
+
 void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_graph_id_t graph,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
@@ -153,6 +163,7 @@ void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_graph_id_t graph,
     memset(vec, 0x00, sizeof(*vec));
     vec->cached_timestamp = -1;
     vec->created_timestamp = ctx->timestep;
+    vec->deleted_timestamp = MAX_TIMESTAMP;
     vec->graph = graph;
 
     for (unsigned i = 0; i < HVR_BUCKETS; i++) {
@@ -246,6 +257,7 @@ static void set_helper(hvr_sparse_vec_t *vec, const unsigned curr_bucket,
 static void hvr_sparse_vec_set_internal(const unsigned feature,
         const double val, hvr_sparse_vec_t *vec, const hvr_time_t timestep) {
     assert(timestep <= MAX_TIMESTAMP);
+    assert(vec->deleted_timestamp == MAX_TIMESTAMP);
     unsigned initial_bucket = prev_bucket(vec->next_bucket);
 
     if (vec->timestamps[initial_bucket] == timestep) {
@@ -354,7 +366,6 @@ static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
 static int hvr_sparse_vec_get_internal(const unsigned feature,
         hvr_sparse_vec_t *vec, const hvr_time_t curr_timestamp,
         double *out_val, unsigned *nhits, unsigned *nmisses) {
-
     int target_bucket = hvr_sparse_vec_find_bucket(vec, curr_timestamp, nhits,
             nmisses);
 
@@ -1095,11 +1106,20 @@ static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
         hvr_time_t other_pes_timestep, hvr_internal_ctx_t *ctx,
         unsigned long long *n_distance_measures) {
     unsigned long long local_n_distance_measures = 0;
+    assert(remote_vec->id != HVR_INVALID_VERTEX_ID);
 
     if (remote_vec->created_timestamp >= ctx->timestep) {
         /*
          * Early abort on remote actors that didn't exist until our current
          * timestep (so we'll have no past state to look back at).
+         */
+        return;
+    }
+
+    if (remote_vec->deleted_timestamp < ctx->timestep) {
+        /*
+         * Early abort on remote actors that were deleted before our current
+         * timestep.
          */
         return;
     }
@@ -1298,13 +1318,12 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
     wlock_actor_to_partition(ctx->pe, ctx);
 
     hvr_vertex_iter_t iter;
-    hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
-    hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter);
-    while (curr) {
+    hvr_vertex_iter_init_with_dead_vertices(&iter, ctx->main_graph, ctx);
+    for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
+            curr = hvr_vertex_iter_next(&iter)) {
         assert(curr->id != HVR_INVALID_VERTEX_ID);
 
-        uint16_t partition;
-        partition = ctx->actor_to_partition(curr, ctx);
+        uint16_t partition = ctx->actor_to_partition(curr, ctx);
         assert(partition < ctx->n_partitions);
 
         // Update a mapping from local actor to the partition it belongs to
@@ -1314,10 +1333,18 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
         /*
          * This doesn't necessarily need to be in the critical section,
          * but to avoid multiple traversal over all actors (i.e. a
-         * second loop over n_local_vertices outside of the critical
+         * second loop over # local vertices outside of the critical
          * section) we stick it here.
          */
-        (ctx->last_timestep_using_partition)[partition] = ctx->timestep;
+        if (curr->deleted_timestamp != MAX_TIMESTAMP) {
+            if (curr->deleted_timestamp >
+                    (ctx->last_timestep_using_partition)[partition]) {
+                (ctx->last_timestep_using_partition)[partition] =
+                    curr->deleted_timestamp;
+            }
+        } else {
+            (ctx->last_timestep_using_partition)[partition] = ctx->timestep;
+        }
 
         if (partition_lists[partition]) {
             curr->next_in_partition = partition_lists[partition];
@@ -1326,10 +1353,22 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
             curr->next_in_partition = NULL;
             partition_lists[partition] = curr;
         }
-        curr = hvr_vertex_iter_next(&iter);
     }
 
     wunlock_actor_to_partition(ctx->pe, ctx);
+}
+
+static void free_old_actors(hvr_time_t timestep, hvr_internal_ctx_t *ctx) {
+    hvr_vertex_iter_t iter;
+    hvr_vertex_iter_init_with_dead_vertices(&iter, ctx->main_graph, ctx);
+    for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
+            curr = hvr_vertex_iter_next(&iter)) {
+        if (curr->deleted_timestamp != MAX_TIMESTAMP &&
+                timestep - curr->deleted_timestamp >= HVR_BUCKETS) {
+            // Release back into the pool
+            hvr_free_sparse_vecs(curr, 1, ctx);
+        }
+    }
 }
 
 /*
@@ -1693,10 +1732,17 @@ static unsigned update_local_actor_metadata(hvr_sparse_vec_t *vertex,
          * Copy from the cache nodes into a contiguous buffer before passing to
          * the user
          */
+        unsigned actual_n_neighbors = 0;
         for (unsigned n = 0; n < n_neighbors; n++) {
-            memcpy(ctx->buffered_neighbors + n,
-                    &((ctx->neighbor_buffer)[n]->vec),
+            hvr_sparse_vec_t *vec = &((ctx->neighbor_buffer)[n]->vec);
+            assert(vec->id != HVR_INVALID_VERTEX_ID);
+            if (vec->deleted_timestamp < ctx->timestep) {
+                continue;
+            }
+
+            memcpy(ctx->buffered_neighbors + actual_n_neighbors, vec,
                     sizeof(hvr_sparse_vec_t));
+            actual_n_neighbors++;
         }
 
         const unsigned long long finish_neighbor_quiet = hvr_current_time_us();
@@ -1704,7 +1750,7 @@ static unsigned update_local_actor_metadata(hvr_sparse_vec_t *vertex,
         *quiet_neighbors_time += (finish_neighbor_quiet - finish_neighbor_fetch);
 
         ctx->update_metadata(vertex, ctx->buffered_neighbors,
-                n_neighbors, to_couple_with, ctx);
+                actual_n_neighbors, to_couple_with, ctx);
         update_metadata_time += (hvr_current_time_us() - finish_neighbor_fetch);
         return n_neighbors;
     } else {
@@ -1730,10 +1776,9 @@ static void finalize_actors_for_timestep(hvr_internal_ctx_t *ctx,
         const hvr_time_t timestep) {
     hvr_vertex_iter_t iter;
     hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
-    hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter);
-    while (curr) {
+    for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
+            curr = hvr_vertex_iter_next(&iter)) {
         finalize_actor_for_timestep(curr, timestep);
-        curr = hvr_vertex_iter_next(&iter);
     }
 }
 
@@ -1756,7 +1801,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
     }
 
     shmem_barrier_all();
-
     ctx->other_pe_partition_time_window = hvr_create_empty_set(
             ctx->n_partitions, ctx);
 
@@ -1820,15 +1864,14 @@ void hvr_body(hvr_ctx_t in_ctx) {
         size_t count_vertices = 0;
         hvr_vertex_iter_t iter;
         hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
-        hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter);
-        while (curr) {
+        for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
+                curr = hvr_vertex_iter_next(&iter)) {
             sum_n_neighbors += update_local_actor_metadata(curr,
                     to_couple_with,
                     &fetch_neighbors_time, &quiet_neighbors_time,
                     &update_metadata_time, ctx,
                     vec_caches, &quiet_counter);
             count_vertices++;
-            curr = hvr_vertex_iter_next(&iter);
         }
         const double avg_n_neighbors = (double)sum_n_neighbors /
             (double)count_vertices;
@@ -2014,6 +2057,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
             nspins++;
         }
 
+        free_old_actors(oldest_timestep, ctx);
+
         const unsigned long long finished_throttling = hvr_current_time_us();
 
         if (ctx->dump_mode && ctx->pool->used_list) {
@@ -2026,8 +2071,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
 
             hvr_vertex_iter_t iter;
             hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
-            hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter);
-            while (curr) {
+            for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
+                    curr = hvr_vertex_iter_next(&iter)) {
                 fprintf(ctx->dump_file, "%lu,%u,%ld,%d", curr->id,
                         nfeatures, (int64_t)ctx->timestep, ctx->pe);
                 for (unsigned f = 0; f < nfeatures; f++) {
@@ -2035,8 +2080,6 @@ void hvr_body(hvr_ctx_t in_ctx) {
                             hvr_sparse_vec_get(features[f], curr, ctx));
                 }
                 fprintf(ctx->dump_file, ",,\n");
-
-                curr = hvr_vertex_iter_next(&iter);
             }
         }
 
