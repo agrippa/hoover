@@ -257,7 +257,12 @@ static void set_helper(hvr_sparse_vec_t *vec, const unsigned curr_bucket,
 static void hvr_sparse_vec_set_internal(const unsigned feature,
         const double val, hvr_sparse_vec_t *vec, const hvr_time_t timestep) {
     assert(timestep <= MAX_TIMESTAMP);
-    assert(vec->deleted_timestamp == MAX_TIMESTAMP);
+    if (vec->deleted_timestamp != MAX_TIMESTAMP) {
+        fprintf(stderr, "ERROR Setting value on deleted vertex? "
+                "ctx->timestep=%d vec->deleted_timestamp=%d\n", timestep,
+                vec->deleted_timestamp);
+        abort();
+    }
     unsigned initial_bucket = prev_bucket(vec->next_bucket);
 
     if (vec->timestamps[initial_bucket] == timestep) {

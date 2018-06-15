@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 2
 ###SBATCH -C haswell
-#SBATCH -t 00:05:00
+#SBATCH -t 00:03:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -74,6 +74,9 @@ srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
     $HOME/hoover/bin/remove_vertices_test 40 $MAX_NUM_TIMESTEPS
 
+# echo ""
+# echo "RUNNING LOCK STRESS TEST"
+# echo ""
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/write_lock_stress

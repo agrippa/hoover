@@ -98,7 +98,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
 
     assert(count_secondary_graph_vertices ==
             ((hvr_current_timestep(ctx) <= VERT_MULTIPLIER + 1) ?
-            hvr_current_timestep(ctx) : VERT_MULTIPLIER + 1));
+            hvr_current_timestep(ctx) - 1: VERT_MULTIPLIER));
 }
 
 /*
