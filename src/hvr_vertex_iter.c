@@ -18,11 +18,14 @@ static void hvr_vertex_iter_init_helper(hvr_vertex_iter_t *iter,
     iter->target_graphs = target_graphs;
     iter->include_dead_vertices = include_dead_vertices;
 
-    // If the first vertex isn't valid, need to iterate to the next one
-    hvr_sparse_vec_t *first = iter->pool->pool +
-        (iter->current_chunk->start_index + iter->index_for_current_chunk);
-    if (!is_valid_vertex(first, iter)) {
-        hvr_vertex_iter_next(iter);
+    // May be NULL if no vertices are allocated yet
+    if (iter->current_chunk) {
+        // If the first vertex isn't valid, need to iterate to the next one
+        hvr_sparse_vec_t *first = iter->pool->pool +
+            (iter->current_chunk->start_index + iter->index_for_current_chunk);
+        if (!is_valid_vertex(first, iter)) {
+            hvr_vertex_iter_next(iter);
+        }
     }
 }
 
