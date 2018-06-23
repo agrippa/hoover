@@ -20,8 +20,8 @@
  *
  * It is important to not mix these up.
  */
-typedef uint64_t vertex_id_t;
-typedef vertex_id_t vertex_index_t;
+typedef uint64_t hvr_vertex_id_t;
+typedef hvr_vertex_id_t hvr_vertex_index_t;
 
 /*
  * Type definition for a graph identifier.
@@ -43,7 +43,7 @@ typedef uint32_t hvr_graph_id_t;
 #define VERTEX_ID_PE(my_id) ((my_id) >> 32)
 #define VERTEX_ID_OFFSET(my_id) ((my_id) & UINT32_MAX)
 
-static inline uint64_t construct_vertex_id(int pe, uint64_t offset) {
+static inline hvr_vertex_id_t construct_vertex_id(int pe, uint64_t offset) {
     uint64_t id = pe;
     id = (id << 32);
 

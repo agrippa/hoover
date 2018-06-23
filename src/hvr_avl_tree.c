@@ -18,7 +18,7 @@ static inline int height(hvr_avl_tree_node_t *N) {
  
 /* Helper function that allocates a new node with the given key and
     NULL left and right pointers. */
-static hvr_avl_tree_node_t *newNode(vertex_id_t key) {
+static hvr_avl_tree_node_t *newNode(hvr_vertex_id_t key) {
     hvr_avl_tree_node_t* node = (hvr_avl_tree_node_t*)malloc(
             sizeof(hvr_avl_tree_node_t));
     assert(node);
@@ -61,7 +61,7 @@ static hvr_avl_tree_node_t *doubleWithRightChild(hvr_avl_tree_node_t *k1) {
 // Recursive function to insert key in subtree rooted
 // with node and returns new root of subtree.
 hvr_avl_tree_node_t* hvr_tree_insert(hvr_avl_tree_node_t* node,
-        vertex_id_t key) {
+        hvr_vertex_id_t key) {
     if (node == NULL) {
         node = newNode(key);
     } else if (key == node->key) {
@@ -94,7 +94,8 @@ hvr_avl_tree_node_t* hvr_tree_insert(hvr_avl_tree_node_t* node,
     return node;
 }
 
-hvr_avl_tree_node_t *hvr_tree_find(hvr_avl_tree_node_t *curr, vertex_id_t key) {
+hvr_avl_tree_node_t *hvr_tree_find(hvr_avl_tree_node_t *curr,
+        hvr_vertex_id_t key) {
     if (curr == NULL) {
         return NULL;
     }
@@ -125,7 +126,7 @@ size_t hvr_tree_size(hvr_avl_tree_node_t *curr) {
     return 1 + hvr_tree_size(curr->left) + hvr_tree_size(curr->right);
 }
 
-static void hvr_tree_linearize_helper(vertex_id_t *arr, unsigned *index,
+static void hvr_tree_linearize_helper(hvr_vertex_id_t *arr, unsigned *index,
         hvr_avl_tree_node_t *curr) {
     if (curr == NULL) {
         return;
@@ -137,12 +138,12 @@ static void hvr_tree_linearize_helper(vertex_id_t *arr, unsigned *index,
     *index += 1;
 }
 
-size_t hvr_tree_linearize(vertex_id_t **arr, size_t *arr_capacity,
+size_t hvr_tree_linearize(hvr_vertex_id_t **arr, size_t *arr_capacity,
         hvr_avl_tree_node_t *curr) {
     const size_t tree_size = hvr_tree_size(curr);
     if (*arr_capacity < tree_size) {
         free(*arr);
-        *arr = (vertex_id_t *)malloc(tree_size * sizeof(vertex_id_t));
+        *arr = (hvr_vertex_id_t *)malloc(tree_size * sizeof(hvr_vertex_id_t));
         assert(*arr);
         *arr_capacity = tree_size;
     }

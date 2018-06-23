@@ -731,7 +731,7 @@ static hvr_set_t *hvr_create_empty_set_helper(hvr_internal_ctx_t *ctx,
     return set;
 }
 
-hvr_set_t *hvr_create_empty_set_symmetric_custom(const unsigned nvals,
+hvr_set_t *hvr_create_empty_set_symmetric(const unsigned nvals,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     const size_t bits_per_ele = sizeof(bit_vec_element_type) *
@@ -743,11 +743,6 @@ hvr_set_t *hvr_create_empty_set_symmetric_custom(const unsigned nvals,
             nelements * sizeof(bit_vec_element_type));
     assert(bit_vector);
     return hvr_create_empty_set_helper(ctx, nelements, set, bit_vector);
-}
-
-hvr_set_t *hvr_create_empty_set_symmetric(hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    return hvr_create_empty_set_symmetric_custom(ctx->npes, ctx);
 }
 
 hvr_set_t *hvr_create_empty_set(const unsigned nvals,
@@ -764,10 +759,18 @@ hvr_set_t *hvr_create_empty_set(const unsigned nvals,
     return hvr_create_empty_set_helper(ctx, nelements, set, bit_vector);
 }
 
-static int hvr_set_insert_internal(int pe,
+hvr_set_t *hvr_create_full_set(const unsigned nvals, hvr_ctx_t in_ctx) {
+    hvr_set_t *empty_set = hvr_create_empty_set(nvals, in_ctx);
+    for (unsigned i = 0; i < nvals; i++) {
+        hvr_set_insert(i, empty_set);
+    }
+    return empty_set;
+}
+
+static int hvr_set_insert_internal(int val,
         bit_vec_element_type *bit_vector) {
-    const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
-    const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const int element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const int bit = val % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
     const bit_vec_element_type new_val =
         (old_val | ((bit_vec_element_type)1 << bit));
@@ -775,11 +778,11 @@ static int hvr_set_insert_internal(int pe,
     return old_val != new_val;
 }
 
-int hvr_set_insert(int pe, hvr_set_t *set) {
-    const int changed = hvr_set_insert_internal(pe, set->bit_vector);
+int hvr_set_insert(int val, hvr_set_t *set) {
+    const int changed = hvr_set_insert_internal(val, set->bit_vector);
     if (changed) {
         if (set->n_contained < PE_SET_CACHE_SIZE) {
-            (set->cache)[set->n_contained] = pe;
+            (set->cache)[set->n_contained] = val;
         }
         set->n_contained++;
     }
@@ -791,9 +794,9 @@ void hvr_set_wipe(hvr_set_t *set) {
     set->n_contained = 0;
 }
 
-int hvr_set_contains_internal(int pe, bit_vec_element_type *bit_vector) {
-    const int element = pe / (sizeof(*bit_vector) * BITS_PER_BYTE);
-    const int bit = pe % (sizeof(*bit_vector) * BITS_PER_BYTE);
+int hvr_set_contains_internal(int val, bit_vec_element_type *bit_vector) {
+    const int element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const int bit = val % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
     if (old_val & ((bit_vec_element_type)1 << bit)) {
         return 1;
@@ -802,8 +805,8 @@ int hvr_set_contains_internal(int pe, bit_vec_element_type *bit_vector) {
     }
 }
 
-int hvr_set_contains(int pe, hvr_set_t *set) {
-    return hvr_set_contains_internal(pe, set->bit_vector);
+int hvr_set_contains(int val, hvr_set_t *set) {
+    return hvr_set_contains_internal(val, set->bit_vector);
 }
 
 unsigned hvr_set_count(hvr_set_t *set) {
@@ -881,16 +884,16 @@ hvr_edge_set_t *hvr_create_empty_edge_set() {
     return new_set;
 }
 
-void hvr_add_edge(const vertex_id_t local_vertex_id,
-        const vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
+void hvr_add_edge(const hvr_vertex_id_t local_vertex_id,
+        const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
     // If it already exists, just returns existing node in tree
     set->tree = hvr_tree_insert(set->tree, local_vertex_id);
     hvr_avl_tree_node_t *inserted = hvr_tree_find(set->tree, local_vertex_id);
     inserted->subtree = hvr_tree_insert(inserted->subtree, global_vertex_id);
 }
 
-int hvr_have_edge(const vertex_id_t local_vertex_id,
-        const vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
+int hvr_have_edge(const hvr_vertex_id_t local_vertex_id,
+        const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
     hvr_avl_tree_node_t *inserted = hvr_tree_find(set->tree, local_vertex_id);
     if (inserted == NULL) {
         return 0;
@@ -898,7 +901,8 @@ int hvr_have_edge(const vertex_id_t local_vertex_id,
     return hvr_tree_find(inserted->subtree, global_vertex_id) != NULL;
 }
 
-size_t hvr_count_edges(const vertex_id_t local_vertex_id, hvr_edge_set_t *set) {
+size_t hvr_count_edges(const hvr_vertex_id_t local_vertex_id,
+        hvr_edge_set_t *set) {
     hvr_avl_tree_node_t *found = hvr_tree_find(set->tree, local_vertex_id);
     if (found == NULL) return 0;
     else return hvr_tree_size(found->subtree);
@@ -1106,6 +1110,17 @@ static hvr_sparse_vec_cache_node_t *get_remote_vec_nbi(const uint32_t offset,
     }
 }
 
+static void get_remote_vec_blocking(hvr_vertex_id_t vertex,
+        hvr_sparse_vec_t *dst, hvr_internal_ctx_t *ctx) {
+    hvr_sparse_vec_cache_node_t *placeholder = get_remote_vec_nbi(
+            VERTEX_ID_OFFSET(vertex), VERTEX_ID_PE(vertex), ctx,
+            ctx->vec_caches);
+    shmem_quiet();
+    hvr_sparse_vec_cache_quiet(ctx->vec_caches + VERTEX_ID_PE(vertex),
+            &(ctx->cache_perf_info.quiet_counter));
+    memcpy(dst, &(placeholder->vec), sizeof(*dst));
+}
+
 static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
         uint16_t *interacting_partitions, unsigned n_interacting_partitions,
         hvr_time_t other_pes_timestep, hvr_internal_ctx_t *ctx,
@@ -1221,7 +1236,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
         unsigned nbuffered = 0;
 
         // For each vertex on the remote PE
-        for (vertex_id_t j = 0; j < ctx->pool->pool_size; j++) {
+        for (hvr_vertex_id_t j = 0; j < ctx->pool->pool_size; j++) {
 #ifdef FINE_GRAIN_TIMING
             const unsigned long long start_time = hvr_current_time_us();
 #endif
@@ -1309,6 +1324,21 @@ static void update_edges(hvr_internal_ctx_t *ctx,
     *out_n_distance_measures = n_distance_measures;
 }
 
+static uint16_t wrap_actor_to_partition(hvr_sparse_vec_t *vec,
+        hvr_internal_ctx_t *ctx) {
+    uint16_t partition = ctx->actor_to_partition(vec, ctx);
+    if (partition >= ctx->n_partitions) {
+        char buf[1024];
+        hvr_sparse_vec_dump(vec, buf, 1024, ctx);
+
+        fprintf(stderr, "Invalid partition %d (# partitions = %d) returned "
+                "from actor_to_partition. Vector = {%s}\n", partition,
+                ctx->n_partitions, buf);
+        abort();
+    }
+    return partition;
+}
+
 /*
  * Update the mapping from each local actor to the partition it belongs to
  * (actor_to_partition_map) as well as information on the last timestep that
@@ -1328,8 +1358,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
             curr = hvr_vertex_iter_next(&iter)) {
         assert(curr->id != HVR_INVALID_VERTEX_ID);
 
-        uint16_t partition = ctx->actor_to_partition(curr, ctx);
-        assert(partition < ctx->n_partitions);
+        uint16_t partition = wrap_actor_to_partition(curr, ctx);
 
         // Update a mapping from local actor to the partition it belongs to
         (ctx->actor_to_partition_map)[VERTEX_ID_OFFSET(curr->id)] =
@@ -1571,7 +1600,7 @@ void hvr_init(const uint16_t n_partitions,
         (new_ctx->last_timestep_using_partition)[i] = -1;
     }
 
-    new_ctx->partition_time_window = hvr_create_empty_set_symmetric_custom(
+    new_ctx->partition_time_window = hvr_create_empty_set_symmetric(
             n_partitions, new_ctx);
     new_ctx->tmp_partition_time_window = hvr_create_empty_set(
             n_partitions, new_ctx);
@@ -1628,7 +1657,8 @@ void hvr_init(const uint16_t n_partitions,
 
     new_ctx->my_neighbors = hvr_create_empty_set(new_ctx->npes, new_ctx);
 
-    new_ctx->coupled_pes = hvr_create_empty_set_symmetric(new_ctx);
+    new_ctx->coupled_pes = hvr_create_empty_set_symmetric(new_ctx->npes,
+            new_ctx);
     hvr_set_insert(new_ctx->pe, new_ctx->coupled_pes);
 
     new_ctx->coupled_pes_values = (hvr_sparse_vec_t *)shmem_malloc_wrapper(
@@ -1666,10 +1696,158 @@ void hvr_init(const uint16_t n_partitions,
 
     new_ctx->main_graph = main_graph;
 
+    new_ctx->vec_caches = (hvr_sparse_vec_cache_t *)malloc(
+            new_ctx->npes * sizeof(hvr_sparse_vec_cache_t));
+    assert(new_ctx->vec_caches);
+    for (int i = 0; i < new_ctx->npes; i++) {
+        hvr_sparse_vec_cache_init(new_ctx->vec_caches + i);
+    }
+
     // Print the number of bytes allocated
     // shmem_malloc_wrapper(0);
 
     shmem_barrier_all();
+}
+
+/*
+ * Retrieve a list of vertices that have edges with the specified vertex
+ * (whether remote or local).
+ */
+void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex, hvr_ctx_t in_ctx,
+        hvr_vertex_id_t **neighbors_out, unsigned *n_neighbors_out) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+
+    hvr_set_t *full_partition_set = hvr_create_full_set(ctx->n_partitions, ctx);
+
+    uint16_t *other_actor_to_partition_map = (uint16_t *)malloc(
+            ctx->pool->pool_size * sizeof(uint16_t));
+    assert(other_actor_to_partition_map);
+  
+    int owning_pe = VERTEX_ID_PE(vertex);
+    *neighbors_out = NULL;
+    *n_neighbors_out = 0;
+
+    if (owning_pe == ctx->pe) {
+        // I already have the neighbors of this vertex, as it is local
+        hvr_avl_tree_node_t *vertex_edge_tree = hvr_tree_find(
+                ctx->edges->tree, vertex);
+
+        // If vertex_edge_tree is NULL, this node has no edges
+        if (vertex_edge_tree) {
+            size_t capacity = 0;
+            *n_neighbors_out = hvr_tree_linearize(neighbors_out,
+                    &capacity, vertex_edge_tree->subtree);
+        }
+    } else {
+        // Must figure out the edges on a remote vertex
+        hvr_sparse_vec_t remote_vec;
+        get_remote_vec_blocking(vertex, &remote_vec,ctx);
+
+        // Compute partition for this vertex
+        uint16_t partition = wrap_actor_to_partition(&remote_vec, ctx);
+
+        uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
+        unsigned n_interacting_partitions;
+        // Figure out all partitions it might interact with
+        if (ctx->might_interact(partition, full_partition_set,
+                    interacting_partitions, &n_interacting_partitions,
+                    MAX_INTERACTING_PARTITIONS, ctx)) {
+
+            for (int interacting_part_index = 0;
+                    interacting_part_index < n_interacting_partitions;
+                    interacting_part_index++) {
+                uint16_t interacting_partition =
+                    interacting_partitions[interacting_part_index];
+
+                const int partition_owner_pe = interacting_partition /
+                    ctx->partitions_per_pe;
+                const int partition_offset = interacting_partition %
+                    ctx->partitions_per_pe;
+
+                shmem_getmem(ctx->local_pes_per_partition_buffer,
+                        ctx->pes_per_partition + (partition_offset *
+                            ctx->partitions_per_pe_vec_length_in_words),
+                        ctx->partitions_per_pe_vec_length_in_words *
+                            sizeof(unsigned),
+                        partition_owner_pe);
+
+                for (unsigned p = 0; p < ctx->npes; p++) {
+                    unsigned word = p / BITS_PER_WORD;
+                    unsigned bit = p % BITS_PER_WORD;
+                    unsigned bit_mask = (1U << bit);
+
+                    unsigned word_val =
+                        (ctx->local_pes_per_partition_buffer)[word];
+                    if (word_val & bit_mask) {
+                        // PE 'p' may have neighbors of this vertex
+
+                        // Grab the target PEs mapping from actors to partitions
+                        rlock_actor_to_partition(p, ctx);
+                        shmem_getmem(other_actor_to_partition_map,
+                                ctx->actor_to_partition_map,
+                                ctx->pool->pool_size * sizeof(uint16_t), p);
+                        runlock_actor_to_partition(p, ctx);
+
+                        /*
+                         * For each vertex on the remote PE that may be a
+                         * neighbor of vertex
+                         */
+                        for (hvr_vertex_id_t j = 0; j < ctx->pool->pool_size;
+                                j++) {
+                            const uint16_t remote_actor_partition =
+                                other_actor_to_partition_map[j];
+
+                            int is_interacting = 0;
+                            for (unsigned k = 0; k < n_interacting_partitions;
+                                    k++) {
+                                if (interacting_partitions[k] ==
+                                        remote_actor_partition) {
+                                    is_interacting = 1;
+                                    break;
+                                }
+                            }
+
+                            if (is_interacting) {
+                                /*
+                                 * Get this vector and check if an edge should
+                                 * be added
+                                 */
+                                hvr_sparse_vec_t remote_remote_vec;
+                                get_remote_vec_blocking(
+                                        construct_vertex_id(p, j),
+                                        &remote_remote_vec, ctx);
+
+                                if (remote_remote_vec.created_timestamp < ctx->timestep &&
+                                        remote_remote_vec.deleted_timestamp >= ctx->timestep) {
+                                    const double distance = sparse_vec_distance_measure(
+                                            &remote_vec, &remote_remote_vec,
+                                            ctx->timestep - 1, ctx->timestep - 1,
+                                            ctx->min_spatial_feature,
+                                            ctx->max_spatial_feature,
+                                            &ctx->n_vector_cache_hits,
+                                            &ctx->n_vector_cache_misses);
+                                    if (distance < ctx->connectivity_threshold *
+                                            ctx->connectivity_threshold) {
+                                        // Add as a neighbor
+                                        *neighbors_out = (hvr_vertex_id_t *)realloc(
+                                                *neighbors_out,
+                                                (*n_neighbors_out + 1) * sizeof(hvr_vertex_id_t));
+                                        assert(*neighbors_out);
+                                        (*neighbors_out)[*n_neighbors_out] = remote_remote_vec.id;
+                                        *n_neighbors_out += 1;
+                                    }
+                                }
+                            }
+                        }
+
+                    }
+                }
+            }
+        }
+    }
+
+    free(other_actor_to_partition_map);
+    hvr_set_destroy(full_partition_set);
 }
 
 /*
@@ -1684,10 +1862,10 @@ static unsigned update_local_actor_metadata(hvr_sparse_vec_t *vertex,
        hvr_sparse_vec_cache_t *vec_caches, unsigned long long *quiet_counter) {
     // Buffer used to linearize neighbors list into
     static size_t neighbors_capacity = 0;
-    static vertex_id_t *neighbors = NULL;
+    static hvr_vertex_id_t *neighbors = NULL;
     if (neighbors == NULL) {
         neighbors_capacity = 256;
-        neighbors = (vertex_id_t *)malloc(neighbors_capacity *
+        neighbors = (hvr_vertex_id_t *)malloc(neighbors_capacity *
                 sizeof(*neighbors));
         assert(neighbors);
     }
@@ -1712,7 +1890,7 @@ static unsigned update_local_actor_metadata(hvr_sparse_vec_t *vertex,
         // Fetch all neighbors of this vertex
         const unsigned long long start_single_update = hvr_current_time_us();
         for (unsigned n = 0; n < n_neighbors; n++) {
-            const vertex_id_t neighbor = neighbors[n];
+            const hvr_vertex_id_t neighbor = neighbors[n];
 
             uint64_t other_pe = VERTEX_ID_PE(neighbor);
             uint64_t local_offset = VERTEX_ID_OFFSET(neighbor);
@@ -1795,15 +1973,8 @@ static void *aborting_thread(void *user_data) {
     abort(); // Get a core dump
 }
 
-void hvr_body(hvr_ctx_t in_ctx) {
+hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-
-    hvr_sparse_vec_cache_t *vec_caches =
-        (hvr_sparse_vec_cache_t *)malloc(ctx->npes * sizeof(*vec_caches));
-    assert(vec_caches);
-    for (int i = 0; i < ctx->npes; i++) {
-        hvr_sparse_vec_cache_init(vec_caches + i);
-    }
 
     shmem_barrier_all();
     ctx->other_pe_partition_time_window = hvr_create_empty_set(
@@ -1828,8 +1999,8 @@ void hvr_body(hvr_ctx_t in_ctx) {
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
     unsigned long long unused;
-    update_edges(ctx, vec_caches, &unused, &unused, &unused, &unused, &unused,
-            &unused);
+    update_edges(ctx, ctx->vec_caches, &unused, &unused, &unused, &unused,
+            &unused, &unused);
 
     hvr_set_t *to_couple_with = hvr_create_empty_set(ctx->npes, ctx);
 
@@ -1850,10 +2021,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
     while (!should_abort && ctx->timestep < ctx->max_timestep) {
         const unsigned long long start_iter = hvr_current_time_us();
 
-        unsigned long long quiet_counter = 0;
-        unsigned long long fetch_neighbors_time = 0;
-        unsigned long long quiet_neighbors_time = 0;
-        unsigned long long update_metadata_time = 0;
+        memset(&(ctx->cache_perf_info), 0x00, sizeof(ctx->cache_perf_info));
 
         if (ctx->start_time_step) {
             hvr_vertex_iter_t iter;
@@ -1873,9 +2041,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
                 curr = hvr_vertex_iter_next(&iter)) {
             sum_n_neighbors += update_local_actor_metadata(curr,
                     to_couple_with,
-                    &fetch_neighbors_time, &quiet_neighbors_time,
-                    &update_metadata_time, ctx,
-                    vec_caches, &quiet_counter);
+                    &ctx->cache_perf_info.fetch_neighbors_time,
+                    &ctx->cache_perf_info.quiet_neighbors_time,
+                    &ctx->cache_perf_info.update_metadata_time, ctx,
+                    ctx->vec_caches, &ctx->cache_perf_info.quiet_counter);
             count_vertices++;
         }
         const double avg_n_neighbors = (double)sum_n_neighbors /
@@ -1918,8 +2087,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
         unsigned long long n_edge_checks = 0;
         unsigned long long partition_checks = 0;
         unsigned long long n_distance_measures = 0;
-        update_edges(ctx, vec_caches, &getmem_time, &update_edge_time,
-                &n_edge_checks, &partition_checks, &quiet_counter,
+        update_edges(ctx, ctx->vec_caches, &getmem_time, &update_edge_time,
+                &n_edge_checks, &partition_checks,
+                &ctx->cache_perf_info.quiet_counter,
                 &n_distance_measures);
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
@@ -2099,7 +2269,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
 #endif
 
         unsigned nhits, nmisses, nmisses_due_to_age;
-        sum_hits_and_misses(vec_caches, ctx->npes, &nhits, &nmisses,
+        sum_hits_and_misses(ctx->vec_caches, ctx->npes, &nhits, &nmisses,
                 &nmisses_due_to_age);
 
         if (print_profiling) {
@@ -2114,9 +2284,9 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     ctx->timestep,
                     (double)(finished_throttling - start_iter) / 1000.0,
                     (double)(finished_updates - start_iter) / 1000.0,
-                    (double)fetch_neighbors_time / 1000.0,
-                    (double)quiet_neighbors_time / 1000.0,
-                    (double)update_metadata_time / 1000.0,
+                    (double)ctx->cache_perf_info.fetch_neighbors_time / 1000.0,
+                    (double)ctx->cache_perf_info.quiet_neighbors_time / 1000.0,
+                    (double)ctx->cache_perf_info.update_metadata_time / 1000.0,
                     (double)(finished_summary_update - finished_updates) / 1000.0,
                     (double)(finished_actor_partitions - finished_updates) / 1000.0,
                     (double)(finished_time_window - finished_actor_partitions) / 1000.0,
@@ -2138,7 +2308,7 @@ void hvr_body(hvr_ctx_t in_ctx) {
                     ctx->n_partitions, should_abort,
                     ctx->timestep >= ctx->max_timestep, nhits, nmisses,
                     nmisses_due_to_age, ctx->n_vector_cache_hits,
-                    ctx->n_vector_cache_misses, quiet_counter, avg_n_neighbors);
+                    ctx->n_vector_cache_misses, ctx->cache_perf_info.quiet_counter, avg_n_neighbors);
         }
 
         if (ctx->strict_mode) {
@@ -2194,6 +2364,10 @@ void hvr_body(hvr_ctx_t in_ctx) {
             }
         }
     }
+
+    hvr_exec_info info;
+    info.executed_timesteps = ctx->timestep;
+    return info;
 }
 
 void hvr_finalize(hvr_ctx_t in_ctx) {

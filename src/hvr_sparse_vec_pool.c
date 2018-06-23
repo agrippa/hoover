@@ -215,8 +215,8 @@ hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs, hvr_graph_id_t graph,
 
     if (curr == NULL) {
         fprintf(stderr, "HOOVER> ERROR Ran out of sparse vectors in the pool "
-                "on PE %d. # free = %lu, allocating %u\n", shmem_my_pe(),
-                nfree, nvecs);
+                "on PE %d. # free = %lu, allocating %u, total %lu\n",
+                shmem_my_pe(), nfree, nvecs, pool->pool_size);
         abort();
     }
 

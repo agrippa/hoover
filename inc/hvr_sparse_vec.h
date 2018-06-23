@@ -23,7 +23,7 @@
  */
 typedef struct _hvr_sparse_vec_t {
     // Globally unique ID for this node if remotely accessible
-    vertex_id_t id;
+    hvr_vertex_id_t id;
 
     hvr_time_t created_timestamp;
     hvr_time_t deleted_timestamp;

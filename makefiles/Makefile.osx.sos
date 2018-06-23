@@ -34,8 +34,8 @@ bin/multi_graph_test: test/multi_graph_test.c
 bin/remove_vertices_test: test/remove_vertices_test.c
 	oshcc $(CFLAGS) $^ -o $@ -Lbin -lhoover
 
-bin/intrusion_detection: test/intrusion_detection.c
-	oshcc $(CFLAGS) $^ -o $@ -Lbin -lhoover
+bin/intrusion_detection: test/intrusion_detection.cpp
+	oshc++ $(CFLAGS) $^ -o $@ -Lbin -lhoover -lm
 
 clean:
 	rm -f bin/*

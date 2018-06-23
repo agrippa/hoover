@@ -5,6 +5,10 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "hvr_sparse_vec_pool.h"
 #include "hvr_sparse_vec.h"
 #include "hvr_common.h"
@@ -280,13 +284,35 @@ typedef struct _hvr_internal_ctx_t {
     // Counter for which graph IDs have already been allocated
     hvr_graph_id_t allocated_graphs;
     hvr_graph_id_t main_graph;
+
+    hvr_sparse_vec_cache_t *vec_caches;
+
+    struct {
+        unsigned long long quiet_counter;
+        unsigned long long fetch_neighbors_time;
+        unsigned long long quiet_neighbors_time;
+        unsigned long long update_metadata_time;
+    } cache_perf_info;
+
 } hvr_internal_ctx_t;
+
+/*
+ * Information on the execution of a problem after it completes which is
+ * returned to the caller.
+ */
+typedef struct _hvr_exec_info {
+    hvr_time_t executed_timesteps;
+} hvr_exec_info;
 
 // Must be called after shmem_init, zeroes out_ctx and fills in pe and npes
 extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
 
 // Reserve a graph identifier for allocating vertices inside.
 extern hvr_graph_id_t hvr_graph_create(hvr_ctx_t ctx);
+
+// Find the vertex IDs of the vertices that are neighbors of the provided vertex
+void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex, hvr_ctx_t in_ctx,
+        hvr_vertex_id_t **neighbors_out, unsigned *n_neighbors_out);
 
 // Initialize the state of the simulation/ctx
 extern void hvr_init(const uint16_t n_partitions,
@@ -305,7 +331,7 @@ extern void hvr_init(const uint16_t n_partitions,
  * Run the simulation. Returns when the local PE is done, but that return is not
  * collective.
  */
-extern void hvr_body(hvr_ctx_t ctx);
+extern hvr_exec_info hvr_body(hvr_ctx_t ctx);
 
 // Collective call to clean up
 extern void hvr_finalize(hvr_ctx_t ctx);
@@ -318,5 +344,9 @@ extern int hvr_my_pe(hvr_ctx_t ctx);
 
 // Simple utility for time measurement in microseconds
 extern unsigned long long hvr_current_time_us();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
