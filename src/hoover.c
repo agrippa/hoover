@@ -1728,6 +1728,7 @@ void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex, hvr_ctx_t in_ctx,
     *n_neighbors_out = 0;
 
     if (owning_pe == ctx->pe) {
+        fprintf(stderr, "PE %d getting neighbors for local vertex\n", ctx->pe);
         // I already have the neighbors of this vertex, as it is local
         hvr_avl_tree_node_t *vertex_edge_tree = hvr_tree_find(
                 ctx->edges->tree, vertex);
@@ -1739,6 +1740,7 @@ void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex, hvr_ctx_t in_ctx,
                     &capacity, vertex_edge_tree->subtree);
         }
     } else {
+        fprintf(stderr, "PE %d getting neighbors for remote vertex\n", ctx->pe);
         // Must figure out the edges on a remote vertex
         hvr_sparse_vec_t remote_vec;
         get_remote_vec_blocking(vertex, &remote_vec,ctx);

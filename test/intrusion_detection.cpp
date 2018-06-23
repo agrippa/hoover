@@ -445,11 +445,16 @@ int main(int argc, char **argv) {
     }
 
     shmem_init();
-    hvr_ctx_create(&hvr_ctx);
-    graph = hvr_graph_create(hvr_ctx);
 
     pe = shmem_my_pe();
     npes = shmem_n_pes();
+
+    if (pe == 0) {
+        fprintf(stderr, "%d PE(s) running...\n", npes);
+    }
+
+    hvr_ctx_create(&hvr_ctx);
+    graph = hvr_graph_create(hvr_ctx);
 
     max_feat_val = npes * range_per_pe;
     feat_range_per_partition = max_feat_val / (double)PARTITION_DIM;
