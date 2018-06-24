@@ -15,6 +15,7 @@
 #define MIN(a, b) (((a) < (b)) ? a : b)
 
 #define MAX_SUBGRAPH_VERTICES 3
+#define TOP_N 3
 
 const unsigned PARTITION_DIM = 40U;
 static double distance_threshold = 1.0;
@@ -233,6 +234,10 @@ static void explore_subgraphs(subgraph_t *curr_state,
     }
 }
 
+static unsigned score_pattern(pattern_count_t *pattern) {
+    return pattern->count * adjacency_matrix_n_edges(&pattern->matrix);
+}
+
 // Taken from https://phoxis.org/2013/05/04/generating-random-numbers-from-normal-distribution-in-c/
 double randn(double mu, double sigma) {
     double U1, U2, W, mult;
@@ -312,64 +317,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         hvr_sparse_vec_set(2, feat3, &new_vertices[i], ctx);
     }
 
-    /*
-     * Calculate the K most common subgraphs in our current partition of the
-     * graph, which may imply fetching vertices from remote nodes.
-     *
-     * The best candidate subgraph is the one that minimizes the sum of the
-     * descriptive length of the subgraph and the overall graph when compressed
-     * by the subgraph. For simplicity, we define the descriptive length of a
-     * graph as the number of edges.
-     */
-
-    pattern_count_t *known_patterns = NULL;
-    unsigned n_known_patterns = 0;
-
-    unsigned n_explores = 0;
-    unsigned max_explores = 2048;
-    for (hvr_sparse_vec_t *vertex = hvr_vertex_iter_next(iter); vertex;
-            vertex = hvr_vertex_iter_next(iter)) {
-        assert(vertex->id != HVR_INVALID_VERTEX_ID);
-
-        subgraph_t sub;
-        sub.adjacency_matrix.n_vertices = 1;
-        sub.vertices[0] = vertex->id;
-        memset(sub.adjacency_matrix.matrix, 0x00, MAX_SUBGRAPH_VERTICES *
-                MAX_SUBGRAPH_VERTICES * sizeof(unsigned char));
-
-        std::set<hvr_vertex_id_t> visited;
-        explore_subgraphs(&sub, &known_patterns, &n_known_patterns, ctx,
-                visited, &n_explores, max_explores);
-    }
-
-    unsigned max_score = 0;
-    pattern_count_t *best_pattern = NULL;
-    for (unsigned i = 0; i < n_known_patterns; i++) {
-        pattern_count_t *pattern = known_patterns + i;
-        unsigned score = pattern->count * adjacency_matrix_n_edges(&pattern->matrix);
-        if (best_pattern == NULL || score > max_score) {
-            max_score = score;
-            best_pattern = pattern;
-        }
-    }
-
-    // TODO score the patterns and pick the best
-
-    if (n_known_patterns > 0) {
-        fprintf(stderr, "PE %d found %u patterns on timestep %d using %d "
-                "visits. Best score = %u, vertex count = %u, edge count = %u\n",
-                pe, n_known_patterns, hvr_current_timestep(ctx), max_explores,
-                max_score, best_pattern->matrix.n_vertices,
-                adjacency_matrix_n_edges(&best_pattern->matrix));
-    }
-
-    // for (unsigned i = 0; i < n_known_patterns; i++) {
-    //     char buf[1024];
-    //     adjacency_matrix_to_string(&known_patterns[i].matrix, buf, 1024);
-    //     fprintf(stderr, "Pattern %d (count = %u)\n", i,
-    //             known_patterns[i].count);
-    //     fprintf(stderr, "%s\n", buf);
-    // }
 }
 
 void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
@@ -377,6 +324,10 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
     /*
      * NOOP. Vertices never move, and so we never need to use this to update
      * their features.
+     *
+     * Conceivably, HOOVER could use the fact that update_metadata is never used
+     * as an optimization to avoid re-checking vertices which haven't been
+     * updated.
      */
 }
 
@@ -428,10 +379,6 @@ int might_interact(const uint16_t partition, hvr_set_t *partitions,
             for (int other_feat3_partition = feat3_min / feat_range_per_partition;
                     other_feat3_partition < feat3_max / feat_range_per_partition;
                     other_feat3_partition++) {
-                // fprintf(stderr, "(%d, %d, %d) - checking (%d, %d, %d)\n",
-                //         feat1_partition, feat2_partition, feat3_partition,
-                //         other_feat1_partition, other_feat2_partition,
-                //         other_feat3_partition);
 
                 unsigned this_part = other_feat1_partition * PARTITION_DIM *
                     PARTITION_DIM + other_feat2_partition * PARTITION_DIM +
@@ -453,9 +400,66 @@ int might_interact(const uint16_t partition, hvr_set_t *partitions,
 int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_sparse_vec_t *out_coupled_metric) {
     /*
-     * May be a no-op for intrusion detection? Could use this callback to
-     * iterate over the graph and check for anomalous patterns, then print that
-     * info to STDOUT?
+     * Calculate the K most common subgraphs in our current partition of the
+     * graph, which may imply fetching vertices from remote nodes.
+     *
+     * The best candidate subgraph is the one that minimizes the sum of the
+     * descriptive length of the subgraph and the overall graph when compressed
+     * by the subgraph. For simplicity, we define the descriptive length of a
+     * graph as the number of edges.
+     */
+
+    pattern_count_t *known_patterns = NULL;
+    unsigned n_known_patterns = 0;
+
+    unsigned n_explores = 0;
+    unsigned max_explores = 2048;
+    for (hvr_sparse_vec_t *vertex = hvr_vertex_iter_next(iter); vertex;
+            vertex = hvr_vertex_iter_next(iter)) {
+        assert(vertex->id != HVR_INVALID_VERTEX_ID);
+
+        subgraph_t sub;
+        sub.adjacency_matrix.n_vertices = 1;
+        sub.vertices[0] = vertex->id;
+        memset(sub.adjacency_matrix.matrix, 0x00, MAX_SUBGRAPH_VERTICES *
+                MAX_SUBGRAPH_VERTICES * sizeof(unsigned char));
+
+        std::set<hvr_vertex_id_t> visited;
+        explore_subgraphs(&sub, &known_patterns, &n_known_patterns, ctx,
+                visited, &n_explores, max_explores);
+    }
+
+    // Sort known patterns by score, highest to lowest
+    for (unsigned i = 0; i < n_known_patterns; i++) {
+        unsigned best_score = score_pattern(known_patterns + i);
+        unsigned best_score_index = i;
+        for (unsigned j = i + 1; j < n_known_patterns; j++) {
+            unsigned this_score = score_pattern(known_patterns + j);
+            if (best_score < this_score) {
+                best_score = this_score;
+                best_score_index = j;
+            }
+        }
+
+        pattern_count_t tmp;
+        memcpy(&tmp, known_patterns + i, sizeof(tmp));
+        memcpy(known_patterns + i, known_patterns + best_score_index,
+                sizeof(tmp));
+        memcpy(known_patterns + best_score_index, &tmp, sizeof(tmp));
+    }
+
+    if (n_known_patterns > 0) {
+        fprintf(stderr, "PE %d found %u patterns on timestep %d using %d "
+                "visits. Best score = %u, vertex count = %u, edge count = %u\n",
+                pe, n_known_patterns, hvr_current_timestep(ctx), max_explores,
+                score_pattern(known_patterns + 0),
+                known_patterns[0].matrix.n_vertices,
+                adjacency_matrix_n_edges(&known_patterns[0].matrix));
+    }
+
+    /*
+     * TODO collapse the top N patterns into a 64-bit value and share with
+     * everyone through coupled_metric.
      */
     hvr_sparse_vec_set(0, 0.0, out_coupled_metric, ctx);
 
