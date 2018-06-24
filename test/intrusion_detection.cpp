@@ -69,32 +69,44 @@ static int same_pattern(adjacency_matrix_t *a, adjacency_matrix_t *b) {
     return 1;
 }
 
-static void adjacency_matrix_to_string(adjacency_matrix_t *a, char *buf,
-        size_t buf_size) {
-    unsigned buf_index = 0;
+// static void adjacency_matrix_to_string(adjacency_matrix_t *a, char *buf,
+//         size_t buf_size) {
+//     unsigned buf_index = 0;
+// 
+//     int nwritten = snprintf(buf + buf_index, buf_size - buf_index,
+//             "[# vertices = %d]\n", a->n_vertices);
+//     assert(nwritten > 0 && (unsigned)nwritten < buf_size - buf_index);
+//     buf_index += nwritten;
+// 
+//     for (int i = 0; i < MAX_SUBGRAPH_VERTICES; i++) {
+//         int nwritten = snprintf(buf + buf_index, buf_size - buf_index,
+//                 "[");
+//         assert(nwritten > 0 && (unsigned)nwritten < buf_size - buf_index);
+//         buf_index += nwritten;
+// 
+//         for (int j = 0; j < MAX_SUBGRAPH_VERTICES; j++) {
+//             int nwritten = snprintf(buf + buf_index, buf_size - buf_index,
+//                     " %d", a->matrix[i][j]);
+//             assert(nwritten > 0 && (unsigned)nwritten < buf_size - buf_index);
+//             buf_index += nwritten;
+//         }
+// 
+//         nwritten = snprintf(buf + buf_index, buf_size - buf_index, "]\n");
+//         assert(nwritten > 0 && (unsigned)nwritten < buf_size - buf_index);
+//         buf_index += nwritten;
+//     }
+// }
 
-    int nwritten = snprintf(buf + buf_index, buf_size - buf_index,
-            "[# vertices = %d]\n", a->n_vertices);
-    assert(nwritten > 0 && (unsigned)nwritten < buf_size - buf_index);
-    buf_index += nwritten;
-
-    for (int i = 0; i < MAX_SUBGRAPH_VERTICES; i++) {
-        int nwritten = snprintf(buf + buf_index, buf_size - buf_index,
-                "[");
-        assert(nwritten > 0 && (unsigned)nwritten < buf_size - buf_index);
-        buf_index += nwritten;
-
-        for (int j = 0; j < MAX_SUBGRAPH_VERTICES; j++) {
-            int nwritten = snprintf(buf + buf_index, buf_size - buf_index,
-                    " %d", a->matrix[i][j]);
-            assert(nwritten > 0 && (unsigned)nwritten < buf_size - buf_index);
-            buf_index += nwritten;
+static unsigned adjacency_matrix_n_edges(adjacency_matrix_t *a) {
+    unsigned count_edges = 0;
+    for (unsigned i = 0; i < MAX_SUBGRAPH_VERTICES; i++) {
+        for (unsigned j = 0; j <= i; j++) {
+            if (a->matrix[i][j]) {
+                count_edges++;
+            }
         }
-
-        nwritten = snprintf(buf + buf_index, buf_size - buf_index, "]\n");
-        assert(nwritten > 0 && (unsigned)nwritten < buf_size - buf_index);
-        buf_index += nwritten;
     }
+    return count_edges;
 }
 
 static int index_in_subgraph(hvr_vertex_id_t vertex, subgraph_t *graph) {
@@ -133,7 +145,11 @@ static void subgraph_add_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
 
 static void explore_subgraphs(subgraph_t *curr_state,
         pattern_count_t **known_patterns, unsigned *n_known_patterns,
-        hvr_ctx_t ctx, std::set<hvr_vertex_id_t> &visited) {
+        hvr_ctx_t ctx, std::set<hvr_vertex_id_t> &visited, unsigned *n_explores,
+        unsigned max_explores) {
+    if (*n_explores >= max_explores) return;
+    *n_explores += 1;
+
     /*
      * Track the existence of this state so we can find the most common
      * states after this traversal
@@ -194,7 +210,8 @@ static void explore_subgraphs(subgraph_t *curr_state,
                     memcpy(&new_state, curr_state, sizeof(new_state));
                     subgraph_add_edge(neighbor, existing_vertex, &new_state);
                     explore_subgraphs(&new_state, known_patterns,
-                            n_known_patterns, ctx, visited);
+                            n_known_patterns, ctx, visited, n_explores,
+                            max_explores);
                 }
             } else {
                 // Can only add a new vertex to the graph if we have space to.
@@ -207,7 +224,8 @@ static void explore_subgraphs(subgraph_t *curr_state,
                     new_state.adjacency_matrix.n_vertices += 1;
                     subgraph_add_edge(neighbor, existing_vertex, &new_state);
                     explore_subgraphs(&new_state, known_patterns,
-                            n_known_patterns, ctx, visited);
+                            n_known_patterns, ctx, visited, n_explores,
+                            max_explores);
                 }
             }
         }
@@ -307,6 +325,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     pattern_count_t *known_patterns = NULL;
     unsigned n_known_patterns = 0;
 
+    unsigned n_explores = 0;
+    unsigned max_explores = 2048;
     for (hvr_sparse_vec_t *vertex = hvr_vertex_iter_next(iter); vertex;
             vertex = hvr_vertex_iter_next(iter)) {
         assert(vertex->id != HVR_INVALID_VERTEX_ID);
@@ -318,21 +338,38 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 MAX_SUBGRAPH_VERTICES * sizeof(unsigned char));
 
         std::set<hvr_vertex_id_t> visited;
-        explore_subgraphs(&sub, &known_patterns, &n_known_patterns, ctx, visited);
+        explore_subgraphs(&sub, &known_patterns, &n_known_patterns, ctx,
+                visited, &n_explores, max_explores);
+    }
+
+    unsigned max_score = 0;
+    pattern_count_t *best_pattern = NULL;
+    for (unsigned i = 0; i < n_known_patterns; i++) {
+        pattern_count_t *pattern = known_patterns + i;
+        unsigned score = pattern->count * adjacency_matrix_n_edges(&pattern->matrix);
+        if (best_pattern == NULL || score > max_score) {
+            max_score = score;
+            best_pattern = pattern;
+        }
     }
 
     // TODO score the patterns and pick the best
 
-    fprintf(stderr, "PE %d found %u patterns on timestep %d\n", pe,
-            n_known_patterns, hvr_current_timestep(ctx));
-
-    for (unsigned i = 0; i < n_known_patterns; i++) {
-        char buf[1024];
-        adjacency_matrix_to_string(&known_patterns[i].matrix, buf, 1024);
-        fprintf(stderr, "Pattern %d (count = %u)\n", i,
-                known_patterns[i].count);
-        fprintf(stderr, "%s\n", buf);
+    if (n_known_patterns > 0) {
+        fprintf(stderr, "PE %d found %u patterns on timestep %d using %d "
+                "visits. Best score = %u, vertex count = %u, edge count = %u\n",
+                pe, n_known_patterns, hvr_current_timestep(ctx), max_explores,
+                max_score, best_pattern->matrix.n_vertices,
+                adjacency_matrix_n_edges(&best_pattern->matrix));
     }
+
+    // for (unsigned i = 0; i < n_known_patterns; i++) {
+    //     char buf[1024];
+    //     adjacency_matrix_to_string(&known_patterns[i].matrix, buf, 1024);
+    //     fprintf(stderr, "Pattern %d (count = %u)\n", i,
+    //             known_patterns[i].count);
+    //     fprintf(stderr, "%s\n", buf);
+    // }
 }
 
 void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,

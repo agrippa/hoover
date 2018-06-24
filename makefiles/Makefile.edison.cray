@@ -5,7 +5,7 @@ SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -L$(OPENSHMEM_INSTALL)/lib64 -lsma
 all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test \
 	bin/infectious_test bin/shmem_rw_lock bin/write_lock_stress \
 	bin/test_vertex_id bin/add_vertices_test bin/multi_graph_test \
-	bin/remove_vertices_test
+	bin/remove_vertices_test bin/intrusion_detection
 
 bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c src/hvr_sparse_vec_pool.c src/hvr_vertex_iter.c
 	gcc $(CFLAGS) $^ -o $@ -shared -fPIC $(SHMEM_FLAGS)
@@ -42,6 +42,9 @@ bin/multi_graph_test: test/multi_graph_test.c
 
 bin/remove_vertices_test: test/remove_vertices_test.c
 	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+
+bin/intrusion_detection: test/intrusion_detection.cpp
+	g++ $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 clean:
 	rm -f bin/*

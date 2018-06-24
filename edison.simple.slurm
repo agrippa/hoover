@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 2
+#SBATCH -N 1
 ###SBATCH -C haswell
-#SBATCH -t 00:03:00
+#SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -46,33 +46,33 @@ export HVR_SYMM_POOL_SIZE=60000
 
 cd $SCRATCH
 
-echo ""
-echo "RUNNING GRID TEST"
-echo ""
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/init_test 50
-
-echo ""
-echo "RUNNING ADD VERTICES TEST"
-echo ""
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/add_vertices_test 40 $MAX_NUM_TIMESTEPS
-
-echo ""
-echo "RUNNING MULTI GRAPH TEST"
-echo ""
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/multi_graph_test 40 $MAX_NUM_TIMESTEPS
-
-echo ""
-echo "RUNNING REMOVE VERTICES TEST"
-echo ""
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/remove_vertices_test 40 $MAX_NUM_TIMESTEPS
+# echo ""
+# echo "RUNNING GRID TEST"
+# echo ""
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/init_test 50
+# 
+# echo ""
+# echo "RUNNING ADD VERTICES TEST"
+# echo ""
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/add_vertices_test 40 $MAX_NUM_TIMESTEPS
+# 
+# echo ""
+# echo "RUNNING MULTI GRAPH TEST"
+# echo ""
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/multi_graph_test 40 $MAX_NUM_TIMESTEPS
+# 
+# echo ""
+# echo "RUNNING REMOVE VERTICES TEST"
+# echo ""
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/remove_vertices_test 40 $MAX_NUM_TIMESTEPS
 
 # echo ""
 # echo "RUNNING LOCK STRESS TEST"
@@ -80,3 +80,9 @@ srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/write_lock_stress
+
+
+# export HVR_DISABLE_PROFILING_PRINTS=1
+srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/intrusion_detection 10 1
