@@ -222,6 +222,7 @@ static unsigned long long last_time = 0;
  * simulation.
  */
 int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_set_t *to_couple_with,
         hvr_sparse_vec_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
     size_t nset = 0;

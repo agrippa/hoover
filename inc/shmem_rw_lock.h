@@ -5,6 +5,10 @@
 
 #include <assert.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #if SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 4 || SHMEM_MAJOR_VERSION >= 2
 #define SHMEM_LONG_CSWAP shmem_long_atomic_compare_swap
 #define SHMEM_ULL_CSWAP shmem_ulonglong_atomic_compare_swap
@@ -54,5 +58,9 @@ void hvr_rwlock_rlock(long *lock, const int target_pe);
 void hvr_rwlock_runlock(long *lock, const int target_pe);
 void hvr_rwlock_wlock(long *lock, const int target_pe);
 void hvr_rwlock_wunlock(long *lock, const int target_pe);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // _SHMEM_RW_LOCK_H

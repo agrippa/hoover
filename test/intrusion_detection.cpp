@@ -13,6 +13,7 @@
 #include <set>
 
 #include <hoover.h>
+#include <shmem_rw_lock.h>
 
 #define MAX(a, b) (((a) > (b)) ? a : b)
 #define MIN(a, b) (((a) < (b)) ? a : b)
@@ -40,6 +41,7 @@ typedef struct _pattern_count_t {
 
 typedef struct _timestamped_pattern_count_t {
     hvr_time_t timestamp;
+    unsigned n_patterns;
     pattern_count_t patterns[TOP_N];
 } timestamped_pattern_count_t;
 
@@ -62,6 +64,7 @@ static double max_feat_val = 0.0;
 static double feat_range_per_partition = 0.0;
 static double range_per_pe = 100;
 static timestamped_pattern_count_t *best_patterns = NULL;
+static timestamped_pattern_count_t *best_patterns_buffer = NULL;
 static long *best_patterns_lock = NULL;
 static timestamped_pattern_count_t *neighbor_patterns_buffer = NULL;
 static pattern_count_t *sorted_best_patterns = NULL;
@@ -109,7 +112,7 @@ static unsigned pattern_distance(adjacency_matrix_t *a, adjacency_matrix_t *b) {
             }
         }
     }
-    return count_differences + abs(a->n_vertices - b->n_vertices);
+    return count_differences + abs((long int)(a->n_vertices - b->n_vertices));
 }
 
 // static void adjacency_matrix_to_string(adjacency_matrix_t *a, char *buf,
@@ -205,7 +208,7 @@ static void explore_subgraphs(subgraph_t *curr_state,
             // Increment count for this pattern
             for (unsigned v = 0; v < curr_state->adjacency_matrix.n_vertices; v++) {
                 (*known_patterns_vertices)[i]->insert(
-                        curr_state->adjacency_matrix.vertices[v]);
+                        curr_state->vertices[v]);
             }
             (*known_patterns)[i].count += 1;
             found = 1;
@@ -227,7 +230,7 @@ static void explore_subgraphs(subgraph_t *curr_state,
 
         std::set<hvr_vertex_id_t> *new_set = new std::set<hvr_vertex_id_t>();
         for (unsigned v = 0; v < curr_state->adjacency_matrix.n_vertices; v++) {
-            new_set->insert(curr_state->adjacency_matrix.vertices[v]);
+            new_set->insert(curr_state->vertices[v]);
         }
         (*known_patterns_vertices)[*n_known_patterns] = new_set;
 
@@ -264,8 +267,8 @@ static void explore_subgraphs(subgraph_t *curr_state,
                     memcpy(&new_state, curr_state, sizeof(new_state));
                     subgraph_add_edge(neighbor, existing_vertex, &new_state);
                     explore_subgraphs(&new_state, known_patterns,
-                            n_known_patterns, ctx, n_explores,
-                            max_explores);
+                            known_patterns_vertices, n_known_patterns, ctx,
+                            n_explores, max_explores);
                 }
             } else {
                 // Can only add a new vertex to the graph if we have space to.
@@ -278,8 +281,8 @@ static void explore_subgraphs(subgraph_t *curr_state,
                     new_state.adjacency_matrix.n_vertices += 1;
                     subgraph_add_edge(neighbor, existing_vertex, &new_state);
                     explore_subgraphs(&new_state, known_patterns,
-                            n_known_patterns, ctx, n_explores,
-                            max_explores);
+                            known_patterns_vertices, n_known_patterns, ctx,
+                            n_explores, max_explores);
                 }
             }
         }
@@ -303,7 +306,7 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
 }
 
 // Assumes we already hold the write lock on best_patterns_lock for the local PE
-static void update_patterns_from(int target_pe) {
+static void update_patterns_from(timestamped_pattern_count_t *tmp_buffer, int target_pe) {
     hvr_rwlock_rlock(best_patterns_lock, target_pe);
     shmem_getmem(neighbor_patterns_buffer, best_patterns,
             npes * sizeof(timestamped_pattern_count_t), target_pe);
@@ -315,8 +318,8 @@ static void update_patterns_from(int target_pe) {
      */
     for (int i = 0; i < npes; i++) {
         if (neighbor_patterns_buffer[i].timestamp >
-                best_patterns[i].timestamp) {
-            memcpy(&best_patterns[i], &neighbor_patterns_buffer[i],
+                tmp_buffer[i].timestamp) {
+            memcpy(&tmp_buffer[i], &neighbor_patterns_buffer[i],
                     sizeof(timestamped_pattern_count_t));
         }
     }
@@ -396,7 +399,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         for (unsigned i = 0; i < n_known_local_patterns; i++) {
             delete known_local_patterns_vertices[i];
         }
-        free(known_local_patterns_vertices;
+        free(known_local_patterns_vertices);
         free(known_local_patterns);
     }
     known_local_patterns = NULL;
@@ -415,8 +418,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         memset(sub.adjacency_matrix.matrix, 0x00, MAX_SUBGRAPH_VERTICES *
                 MAX_SUBGRAPH_VERTICES * sizeof(unsigned char));
 
-        explore_subgraphs(&sub, &known_local_patterns, &n_known_local_patterns,
-                ctx, &n_explores, max_explores);
+        explore_subgraphs(&sub, &known_local_patterns,
+            &known_local_patterns_vertices, &n_known_local_patterns, ctx,
+            &n_explores, max_explores);
     }
 
     // Sort known patterns by score, highest to lowest
@@ -436,26 +440,24 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * computed locally and my neighbors' patterns
      */
 
-    hvr_rwlock_wlock(best_patterns_lock, pe);
-    for (unsigned i = 0; i < MIN(TOP_N, n_known_local_patterns); i++) {
-        best_patterns[i].timestamp = hvr_current_timestep(ctx);
-        memcpy(&best_patterns[i].pattern, known_local_patterns + i,
-                sizeof(*best_patterns));
-    }
-    for (unsigned i = MIN(TOP_N, n_known_local_patterns); i < TOP_N; i++) {
-        best_patterns[i].timestamp = -1;
-    }
+    memcpy(best_patterns_buffer, best_patterns, npes * sizeof(*best_patterns));
+    best_patterns[pe].timestamp = hvr_current_timestep(ctx);
+    best_patterns[pe].n_patterns = MIN(TOP_N, n_known_local_patterns);
+    memcpy(best_patterns[pe].patterns, known_local_patterns,
+            MIN(TOP_N, n_known_local_patterns) * sizeof(pattern_count_t));
 
     if (pe > 0) {
         // Left neighbor
-        update_patterns_from(pe - 1);
+        update_patterns_from(best_patterns_buffer, pe - 1);
     }
 
     if (pe < npes - 1) {
         // Left neighbor
-        update_patterns_from(pe + 1);
+        update_patterns_from(best_patterns_buffer, pe + 1);
     }
 
+    hvr_rwlock_wlock(best_patterns_lock, pe);
+    memcpy(best_patterns, best_patterns_buffer, npes * sizeof(*best_patterns));
     hvr_rwlock_wunlock(best_patterns_lock, pe);
 
     /*
@@ -463,13 +465,13 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * PEs.
      */
     n_sorted_best_patterns = 0;
-    for (unsigned p = 0; p < npes; p++) {
+    for (int p = 0; p < npes; p++) {
         // Know that I'm the only writer, so no need to rlock best_patterns here
-        for (unsigned i = 0; i < TOP_N; i++) {
+        for (unsigned i = 0; i < best_patterns[p].n_patterns; i++) {
 
             int found = 0;
             for (unsigned j = 0; j < n_sorted_best_patterns; j++) {
-                if (pattern_distance(&sorted_best_patterns[j].pattern.matrix,
+                if (pattern_distance(&sorted_best_patterns[j].matrix,
                             &best_patterns[p].patterns[i].matrix) == 0) {
                     sorted_best_patterns[j].count +=
                         best_patterns[p].patterns[i].count;
@@ -567,7 +569,7 @@ int might_interact(const uint16_t partition, hvr_set_t *partitions,
 }
 
 int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_set_t *to_couple_with, hvr_hvr_sparse_vec_t *out_coupled_metric) {
+        hvr_set_t *to_couple_with, hvr_sparse_vec_t *out_coupled_metric) {
 
     /*
      * Find anomalies based on the patterns in sorted_best_patterns. If
@@ -583,19 +585,20 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         pattern_count_t *frequent_pattern = sorted_best_patterns + i;
         for (unsigned j = 0; j < n_known_local_patterns; j++) {
             pattern_count_t *local_pattern = known_local_patterns + j;
-            unsigned dist = pattern_distance(frequent_pattern, local_pattern);
+            unsigned dist = pattern_distance(&(frequent_pattern->matrix),
+                    &(local_pattern->matrix));
             if (dist > 0 && dist < 2) {
                 // Similar but not identical patterns
 
                 // TODO: print useful report.
                 fprintf(stderr, "PE %d found potentially anomalous pattern!\n", pe);
 
-                std::set<hvr_vertex_id_t> *known_vertices = known_local_patterns_vertices + j;
+                std::set<hvr_vertex_id_t> *known_vertices = known_local_patterns_vertices[j];
                 for (auto i = known_vertices->begin(),
                         e = known_vertices->end(); i != e; i++) {
                     int other_pe = VERTEX_ID_PE(*i);
                     if (other_pe != pe) {
-                        hvr_set_insert(other_pe, couple_with);
+                        hvr_set_insert(other_pe, to_couple_with);
                     }
                 }
             }
@@ -606,6 +609,9 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     hvr_sparse_vec_set(0, 0.0, out_coupled_metric, ctx);
 
     unsigned long long time_so_far = hvr_current_time_us() - start_time;
+    fprintf(stderr, "PE %d - check_abort - elapsed time = %f s, time limit = "
+            "%f s, aborting? %d\n", pe, (double)time_so_far / 1000000.0,
+            (double)time_limit_us / 1000000.0, (time_so_far > time_limit_us));
     return (time_so_far > time_limit_us);
 }
 
@@ -661,8 +667,11 @@ int main(int argc, char **argv) {
             hvr_ctx);
 
     best_patterns = (timestamped_pattern_count_t *)shmem_malloc(
-            npes * sizeof(*best_patterns))
+            npes * sizeof(*best_patterns));
     assert(best_patterns);
+    best_patterns_buffer = (timestamped_pattern_count_t *)malloc(
+            npes * sizeof(*best_patterns_buffer));
+    assert(best_patterns_buffer);
     neighbor_patterns_buffer = (timestamped_pattern_count_t *)malloc(
             npes * sizeof(*neighbor_patterns_buffer));
     assert(neighbor_patterns_buffer);
@@ -673,7 +682,7 @@ int main(int argc, char **argv) {
             npes * TOP_N * sizeof(*sorted_best_patterns));
     assert(sorted_best_patterns);
 
-    *best_pattern_lock = 0;
+    *best_patterns_lock = 0;
     for (int i = 0; i < npes; i++) {
         best_patterns[i].timestamp = -1;
     }
