@@ -2099,7 +2099,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 sizeof(coupled_metric));
 
         hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
-        should_abort = ctx->check_abort(&iter, ctx, &coupled_metric);
+        should_abort = ctx->check_abort(&iter, ctx, to_couple_with,
+                &coupled_metric);
         finalize_actor_for_timestep(
                 &coupled_metric, ctx->timestep);
 
