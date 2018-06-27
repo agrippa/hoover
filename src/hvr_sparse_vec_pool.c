@@ -202,6 +202,10 @@ hvr_sparse_vec_pool_t *hvr_sparse_vec_pool_create(size_t pool_size) {
 
 hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs, hvr_graph_id_t graph,
         hvr_ctx_t in_ctx) {
+    if (nvecs == 0) {
+        return NULL;
+    }
+
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     hvr_sparse_vec_pool_t *pool = ctx->pool;
 

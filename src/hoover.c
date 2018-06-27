@@ -1709,12 +1709,22 @@ void hvr_init(const uint16_t n_partitions,
     shmem_barrier_all();
 }
 
+void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex,
+        hvr_ctx_t in_ctx, hvr_vertex_id_t **neighbors_out,
+        unsigned *n_neighbors_out) {
+    unsigned remote_gets, local_gets;
+    hvr_sparse_vec_get_neighbors_with_metrics(vertex, in_ctx, neighbors_out,
+            n_neighbors_out, &local_gets, &remote_gets);
+}
+
 /*
  * Retrieve a list of vertices that have edges with the specified vertex
  * (whether remote or local).
  */
-void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex, hvr_ctx_t in_ctx,
-        hvr_vertex_id_t **neighbors_out, unsigned *n_neighbors_out) {
+void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
+        hvr_ctx_t in_ctx, hvr_vertex_id_t **neighbors_out,
+        unsigned *n_neighbors_out, unsigned *count_local_gets,
+        unsigned *count_remote_gets) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
 
     hvr_set_t *full_partition_set = hvr_create_full_set(ctx->n_partitions, ctx);
@@ -1738,10 +1748,13 @@ void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex, hvr_ctx_t in_ctx,
             *n_neighbors_out = hvr_tree_linearize(neighbors_out,
                     &capacity, vertex_edge_tree->subtree);
         }
+        *count_local_gets += 1;
     } else {
         // Must figure out the edges on a remote vertex
         hvr_sparse_vec_t remote_vec;
         get_remote_vec_blocking(vertex, &remote_vec,ctx);
+
+        *count_remote_gets += 1;
 
         // Compute partition for this vertex
         uint16_t partition = wrap_actor_to_partition(&remote_vec, ctx);

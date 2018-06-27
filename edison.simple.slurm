@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
-###SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -N 4
+#SBATCH -C haswell
+#SBATCH -t 00:20:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -85,4 +85,4 @@ cd $SCRATCH
 # export HVR_DISABLE_PROFILING_PRINTS=1
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/intrusion_detection 10 1
+    $HOME/hoover/bin/intrusion_detection 240 1

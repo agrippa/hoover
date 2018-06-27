@@ -315,6 +315,11 @@ extern hvr_graph_id_t hvr_graph_create(hvr_ctx_t ctx);
 void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex, hvr_ctx_t in_ctx,
         hvr_vertex_id_t **neighbors_out, unsigned *n_neighbors_out);
 
+void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
+        hvr_ctx_t in_ctx, hvr_vertex_id_t **neighbors_out,
+        unsigned *n_neighbors_out, unsigned *count_local_gets,
+        unsigned *count_remote_gets);
+
 // Initialize the state of the simulation/ctx
 extern void hvr_init(const uint16_t n_partitions,
         hvr_update_metadata_func update_metadata,
