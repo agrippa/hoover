@@ -384,12 +384,12 @@ int main(int argc, char **argv) {
     }
 
     shmem_init();
-    hvr_ctx_create(&hvr_ctx);
-    hvr_graph_id_t graph = hvr_graph_create(hvr_ctx);
-
     pe = shmem_my_pe();
     npes = shmem_n_pes();
     assert(npes == pe_rows * pe_cols);
+
+    hvr_ctx_create(&hvr_ctx);
+    hvr_graph_id_t graph = hvr_graph_create(hvr_ctx);
 
     srand(123 + pe);
 

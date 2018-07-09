@@ -11,6 +11,8 @@
 #include <stdlib.h>
 
 #include <set>
+#include <vector>
+#include <algorithm>
 
 #include <hoover.h>
 #include <shmem_rw_lock.h>
@@ -20,6 +22,7 @@
 
 #define MAX_SUBGRAPH_VERTICES 3
 #define TOP_N 3
+#define MAX_DISTANCE_FOR_ANOMALY 2
 
 const unsigned PARTITION_DIM = 40U;
 static double distance_threshold = 1.0;
@@ -70,9 +73,12 @@ static timestamped_pattern_count_t *neighbor_patterns_buffer = NULL;
 static pattern_count_t *sorted_best_patterns = NULL;
 static unsigned n_sorted_best_patterns = 0;
 
+#define MAX_LOCAL_PATTERNS 30
 static pattern_count_t *known_local_patterns = NULL;
-static std::set<hvr_vertex_id_t> **known_local_patterns_vertices = NULL;
+static std::vector<int> **pes_sharing_local_patterns = NULL;
 static unsigned n_known_local_patterns = 0;
+
+static unsigned n_local_vertices = 0;
 
 static FILE *pe_anomalies_fp = NULL;
 
@@ -192,8 +198,8 @@ static void subgraph_add_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
 }
 
 static void explore_subgraphs(subgraph_t *curr_state,
-        pattern_count_t **known_patterns,
-        std::set<hvr_vertex_id_t> ***known_patterns_vertices,
+        pattern_count_t *known_patterns,
+        std::vector<int> **pes_sharing_local_patterns,
         unsigned *n_known_patterns, hvr_ctx_t ctx, unsigned *n_explores,
         unsigned max_explores, unsigned *count_local_gets,
         unsigned *count_remote_gets) {
@@ -207,35 +213,38 @@ static void explore_subgraphs(subgraph_t *curr_state,
     int found = 0;
     for (unsigned i = 0; i < *n_known_patterns && !found; i++) {
         if (pattern_distance(&(curr_state->adjacency_matrix),
-                    &((*known_patterns)[i].matrix)) == 0) {
+                    &(known_patterns[i].matrix)) == 0) {
             // Increment count for this pattern
-            for (unsigned v = 0; v < curr_state->adjacency_matrix.n_vertices; v++) {
-                (*known_patterns_vertices)[i]->insert(
-                        curr_state->vertices[v]);
+            std::vector<int> *other_pes = pes_sharing_local_patterns[i];
+            for (unsigned v = 0; v < curr_state->adjacency_matrix.n_vertices;
+                    v++) {
+                int owning_pe = VERTEX_ID_PE(curr_state->vertices[v]);
+                if (owning_pe != pe && std::find(other_pes->begin(),
+                            other_pes->end(), owning_pe) == other_pes->end()) {
+                    other_pes->push_back(owning_pe);
+                }
             }
-            (*known_patterns)[i].count += 1;
+            known_patterns[i].count += 1;
             found = 1;
         }
     }
     if (!found) {
-        *known_patterns = (pattern_count_t *)realloc(*known_patterns,
-                (*n_known_patterns + 1) * sizeof(pattern_count_t));
-        assert(*known_patterns);
+        assert(*n_known_patterns < MAX_LOCAL_PATTERNS);
 
-        *known_patterns_vertices = (std::set<hvr_vertex_id_t> **)realloc(*known_patterns_vertices,
-                (*n_known_patterns + 1) * sizeof(std::set<hvr_vertex_id_t> *));
-        assert(*known_patterns_vertices);
-
-        pattern_count_t *new_pattern = (*known_patterns) + *n_known_patterns;
+        pattern_count_t *new_pattern = known_patterns + *n_known_patterns;
         memcpy(&(new_pattern->matrix), &(curr_state->adjacency_matrix),
                 sizeof(new_pattern->matrix));
         new_pattern->count = 1;
 
-        std::set<hvr_vertex_id_t> *new_set = new std::set<hvr_vertex_id_t>();
+        std::vector<int> *new_set = pes_sharing_local_patterns[*n_known_patterns];
+        new_set->clear();
         for (unsigned v = 0; v < curr_state->adjacency_matrix.n_vertices; v++) {
-            new_set->insert(curr_state->vertices[v]);
+            int owning_pe = VERTEX_ID_PE(curr_state->vertices[v]);
+            if (owning_pe != pe && std::find(new_set->begin(), new_set->end(),
+                        owning_pe) == new_set->end()) {
+                new_set->push_back(owning_pe);
+            }
         }
-        (*known_patterns_vertices)[*n_known_patterns] = new_set;
 
         *n_known_patterns += 1;
     }
@@ -270,7 +279,7 @@ static void explore_subgraphs(subgraph_t *curr_state,
                     memcpy(&new_state, curr_state, sizeof(new_state));
                     subgraph_add_edge(neighbor, existing_vertex, &new_state);
                     explore_subgraphs(&new_state, known_patterns,
-                            known_patterns_vertices, n_known_patterns, ctx,
+                            pes_sharing_local_patterns, n_known_patterns, ctx,
                             n_explores, max_explores, count_local_gets,
                             count_remote_gets);
                 }
@@ -285,7 +294,7 @@ static void explore_subgraphs(subgraph_t *curr_state,
                     new_state.adjacency_matrix.n_vertices += 1;
                     subgraph_add_edge(neighbor, existing_vertex, &new_state);
                     explore_subgraphs(&new_state, known_patterns,
-                            known_patterns_vertices, n_known_patterns, ctx,
+                            pes_sharing_local_patterns, n_known_patterns, ctx,
                             n_explores, max_explores, count_local_gets,
                             count_remote_gets);
                 }
@@ -358,13 +367,14 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * features which are designed to be most likely to just interact with
      * vertices on this node (but possibly with vertices on other nodes).
      */
-    int n_vertices_to_add = rand() % 100;
+    int n_vertices_to_add = rand() % 200;
 
     double mean = (pe * range_per_pe) + (range_per_pe / 2.0);
-    double sigma = range_per_pe / 4.0;
+    double sigma = range_per_pe / 6.0;
 
     hvr_sparse_vec_t *new_vertices = hvr_sparse_vec_create_n(n_vertices_to_add,
             graph, ctx);
+    n_local_vertices += n_vertices_to_add;
 
     for (int i = 0; i < n_vertices_to_add; i++) {
         /*
@@ -400,19 +410,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * graph as the number of edges.
      */
 
-    if (known_local_patterns) {
-        for (unsigned i = 0; i < n_known_local_patterns; i++) {
-            delete known_local_patterns_vertices[i];
-        }
-        free(known_local_patterns_vertices);
-        free(known_local_patterns);
-    }
-    known_local_patterns = NULL;
-    known_local_patterns_vertices = NULL;
     n_known_local_patterns = 0;
 
     unsigned n_explores = 0;
-    unsigned max_explores = 1024;
     unsigned n_local_gets = 0;
     unsigned n_remote_gets = 0;
     for (hvr_sparse_vec_t *vertex = hvr_vertex_iter_next(iter); vertex;
@@ -425,19 +425,23 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         memset(sub.adjacency_matrix.matrix, 0x00, MAX_SUBGRAPH_VERTICES *
                 MAX_SUBGRAPH_VERTICES * sizeof(unsigned char));
 
-        explore_subgraphs(&sub, &known_local_patterns,
-            &known_local_patterns_vertices, &n_known_local_patterns, ctx,
-            &n_explores, max_explores, &n_local_gets, &n_remote_gets);
+        unsigned n_this_explores = 0;
+        unsigned max_explores = 32;
+        explore_subgraphs(&sub, known_local_patterns,
+            pes_sharing_local_patterns, &n_known_local_patterns, ctx,
+            &n_this_explores, max_explores, &n_local_gets, &n_remote_gets);
+        n_explores += n_this_explores;
     }
 
     sort_patterns_by_score(known_local_patterns, n_known_local_patterns);
 
     if (n_known_local_patterns > 0) {
         fprintf(stderr, "PE %d found %u patterns on timestep %d using %d "
-                "visits. Best score = %u, vertex count = %u, edge count = %u. "
+                "visits, %u local vertices in total. Best score = %u, vertex "
+                "count = %u, edge count = %u. "
                 "# local gets = %u, # remote gets = %u\n",
                 pe, n_known_local_patterns, hvr_current_timestep(ctx),
-                n_explores, score_pattern(known_local_patterns + 0),
+                n_explores, n_local_vertices, score_pattern(known_local_patterns + 0),
                 known_local_patterns[0].matrix.n_vertices,
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix),
                 n_local_gets, n_remote_gets);
@@ -579,92 +583,89 @@ int might_interact(const uint16_t partition, hvr_set_t *partitions,
 int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_set_t *to_couple_with, hvr_sparse_vec_t *out_coupled_metric) {
 
-    /*
-     * Find anomalies based on the patterns in sorted_best_patterns. If
-     * those anomalies have edges with vertices in other nodes, couple with
-     * those other nodes and produce a report on the anomalies.
-     *
-     * We do this by looking for patterns known_local_patterns that have a low
-     * pattern_distance to the top common patterns but are not in the top common
-     * patterns.
-     */
-
-    for (unsigned j = 0; j < n_known_local_patterns; j++) {
-        pattern_count_t *local_pattern = known_local_patterns + j;
-
-        int is_a_frequent_pattern = 0;
-        int is_similar_to_a_frequent_pattern = -1;
-
-        for (unsigned i = 0; i < MIN(n_sorted_best_patterns, 5); i++) {
-            pattern_count_t *frequent_pattern = sorted_best_patterns + i;
-
-            unsigned dist = pattern_distance(&(frequent_pattern->matrix),
-                    &(local_pattern->matrix));
-            if (dist == 0) {
-                is_a_frequent_pattern = 1;
-                break;
-            } else if (dist > 0 && dist < 2) {
-                /*
-                 * This defines an anomaly as a local pattern that is similar
-                 * but not identical to one of the top 5 globally identified
-                 * subgraph patterns but is not itself in the top 5 patterns.
-                 */
-                if (is_similar_to_a_frequent_pattern < 0) {
-                    is_similar_to_a_frequent_pattern = i;
-                }
-            }
-        }
-
-        if (!is_a_frequent_pattern && is_similar_to_a_frequent_pattern >= 0) {
-            // TODO: print useful report.
-            char buf[1024];
-            fprintf(stderr, "PE %d found potentially anomalous pattern!\n", pe);
-
-            if (pe_anomalies_fp == NULL) {
-                sprintf(buf, "pe_%d.anomalies.txt", pe);
-                pe_anomalies_fp = fopen(buf, "w");
-                assert(pe_anomalies_fp);
-            }
-
-            fprintf(pe_anomalies_fp, "Found anomaly on timestep %d\n",
-                    hvr_current_timestep(ctx));
-            fprintf(pe_anomalies_fp, "Anomaly (count=%u):\n",
-                    local_pattern->count);
-            adjacency_matrix_to_string(&local_pattern->matrix, buf, 1024);
-            fprintf(pe_anomalies_fp, buf);
-            fprintf(pe_anomalies_fp, "Regular Pattern (count=%u):\n",
-                    sorted_best_patterns[is_similar_to_a_frequent_pattern].count);
-            adjacency_matrix_to_string(
-                    &sorted_best_patterns[is_similar_to_a_frequent_pattern].matrix, buf,
-                    1024);
-            fprintf(pe_anomalies_fp, buf);
-            fprintf(pe_anomalies_fp, "\n");
-
-            fflush(pe_anomalies_fp);
-
-            /*
-             * Become coupled with other PEs whose vertices are parts of this
-             * anomalous pattern.
-             */
-            std::set<hvr_vertex_id_t> *known_vertices =
-                known_local_patterns_vertices[j];
-            for (auto i = known_vertices->begin(), e = known_vertices->end();
-                    i != e; i++) {
-                int other_pe = VERTEX_ID_PE(*i);
-                if (other_pe != pe) {
-                    hvr_set_insert(other_pe, to_couple_with);
-                }
-            }
-        }
-    }
+//     /*
+//      * Find anomalies based on the patterns in sorted_best_patterns. If
+//      * those anomalies have edges with vertices in other nodes, couple with
+//      * those other nodes and produce a report on the anomalies.
+//      *
+//      * We do this by looking for patterns known_local_patterns that have a low
+//      * pattern_distance to the top common patterns but are not in the top common
+//      * patterns.
+//      */
+// 
+//     for (unsigned j = 0; j < n_known_local_patterns; j++) {
+//         pattern_count_t *local_pattern = known_local_patterns + j;
+// 
+//         int is_a_frequent_pattern = 0;
+//         int is_similar_to_a_frequent_pattern = -1;
+// 
+//         for (unsigned i = 0; i < MIN(n_sorted_best_patterns, 5); i++) {
+//             pattern_count_t *frequent_pattern = sorted_best_patterns + i;
+// 
+//             unsigned dist = pattern_distance(&(frequent_pattern->matrix),
+//                     &(local_pattern->matrix));
+//             if (dist == 0) {
+//                 is_a_frequent_pattern = 1;
+//                 break;
+//             } else if (dist > 0 && dist < MAX_DISTANCE_FOR_ANOMALY) {
+//                 /*
+//                  * This defines an anomaly as a local pattern that is similar
+//                  * but not identical to one of the top 5 globally identified
+//                  * subgraph patterns but is not itself in the top 5 patterns.
+//                  */
+//                 if (is_similar_to_a_frequent_pattern < 0) {
+//                     is_similar_to_a_frequent_pattern = i;
+//                 }
+//             }
+//         }
+// 
+//         if (!is_a_frequent_pattern && is_similar_to_a_frequent_pattern >= 0) {
+//             // TODO: print useful report.
+//             char buf[1024];
+//             fprintf(stderr, "PE %d found potentially anomalous pattern!\n", pe);
+// 
+//             if (pe_anomalies_fp == NULL) {
+//                 sprintf(buf, "pe_%d.anomalies.txt", pe);
+//                 pe_anomalies_fp = fopen(buf, "w");
+//                 assert(pe_anomalies_fp);
+//             }
+// 
+//             fprintf(pe_anomalies_fp, "Found anomaly on timestep %d\n",
+//                     hvr_current_timestep(ctx));
+//             fprintf(pe_anomalies_fp, "Anomaly (count=%u):\n",
+//                     local_pattern->count);
+//             adjacency_matrix_to_string(&local_pattern->matrix, buf, 1024);
+//             fprintf(pe_anomalies_fp, buf);
+//             fprintf(pe_anomalies_fp, "Regular Pattern (count=%u):\n",
+//                     sorted_best_patterns[is_similar_to_a_frequent_pattern].count);
+//             adjacency_matrix_to_string(
+//                     &sorted_best_patterns[is_similar_to_a_frequent_pattern].matrix, buf,
+//                     1024);
+//             fprintf(pe_anomalies_fp, buf);
+//             fprintf(pe_anomalies_fp, "\n");
+// 
+//             fflush(pe_anomalies_fp);
+// 
+//             /*
+//              * Become coupled with other PEs whose vertices are parts of this
+//              * anomalous pattern.
+//              */
+//             std::vector<int> *other_pes = pes_sharing_local_patterns[j];
+//             for (std::vector<int>::iterator i = other_pes->begin(),
+//                     e = other_pes->end(); i != e; i++) {
+//                 int other_pe = *i;
+//                 hvr_set_insert(other_pe, to_couple_with);
+//             }
+//         }
+//     }
 
     // TODO anything useful we'd like to use the coupled metric for?
     hvr_sparse_vec_set(0, 0.0, out_coupled_metric, ctx);
 
     unsigned long long time_so_far = hvr_current_time_us() - start_time;
     fprintf(stderr, "PE %d - check_abort - elapsed time = %f s, time limit = "
-            "%f s, aborting? %d\n", pe, (double)time_so_far / 1000000.0,
-            (double)time_limit_us / 1000000.0, (time_so_far > time_limit_us));
+            "%f s, # local vertices = %u, aborting? %d\n", pe, (double)time_so_far / 1000000.0,
+            (double)time_limit_us / 1000000.0, n_local_vertices, (time_so_far > time_limit_us));
     return (time_so_far > time_limit_us);
 }
 
@@ -698,6 +699,8 @@ int main(int argc, char **argv) {
     hvr_ctx_create(&hvr_ctx);
     graph = hvr_graph_create(hvr_ctx);
 
+    srand(123 + pe);
+
     max_feat_val = npes * range_per_pe;
     feat_range_per_partition = max_feat_val / (double)PARTITION_DIM;
 
@@ -715,7 +718,7 @@ int main(int argc, char **argv) {
             graph,
             distance_threshold, // Edge creation distance threshold
             0, // Min spatial feature inclusive
-            1, // Max spatial feature inclusive
+            2, // Max spatial feature inclusive
             MAX_TIMESTAMP,
             hvr_ctx);
 
@@ -734,6 +737,17 @@ int main(int argc, char **argv) {
     sorted_best_patterns = (pattern_count_t *)malloc(
             npes * TOP_N * sizeof(*sorted_best_patterns));
     assert(sorted_best_patterns);
+
+    known_local_patterns = (pattern_count_t *)malloc(
+            MAX_LOCAL_PATTERNS * sizeof(*known_local_patterns));
+    assert(known_local_patterns);
+    pes_sharing_local_patterns = (std::vector<int> **)malloc(
+            MAX_LOCAL_PATTERNS * sizeof(*pes_sharing_local_patterns));
+    assert(pes_sharing_local_patterns);
+    for (int i = 0; i < MAX_LOCAL_PATTERNS; i++) {
+        pes_sharing_local_patterns[i] = new std::vector<int>();
+        pes_sharing_local_patterns[i]->reserve(npes);
+    }
 
     *best_patterns_lock = 0;
     for (int i = 0; i < npes; i++) {

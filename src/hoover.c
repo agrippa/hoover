@@ -596,6 +596,15 @@ void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache) {
     } else {
         cache->hvr_cache_max_bucket_size = 1024;
     }
+
+    hvr_sparse_vec_cache_node_t *prealloc =
+        (hvr_sparse_vec_cache_node_t *)malloc(100 * sizeof(*prealloc));
+    assert(prealloc);
+    memset(prealloc, 0x00, 100 * sizeof(*prealloc));
+    for (unsigned i = 0; i < 100; i++) {
+        prealloc[i].next = cache->pool;
+        cache->pool = prealloc + i;
+    }
 }
 
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(unsigned offset,
@@ -663,49 +672,75 @@ hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_reserve(
         unsigned offset, hvr_sparse_vec_cache_t *cache) {
     // Assume that vec is not already in the cache, but don't enforce this
     const unsigned bucket = offset % HVR_CACHE_BUCKETS;
-    if (cache->bucket_size[bucket] == cache->hvr_cache_max_bucket_size) {
-        // Evict and re-use
-        hvr_sparse_vec_cache_node_t *iter = cache->buckets[bucket];
-        hvr_sparse_vec_cache_node_t *prev = NULL;
-        while (iter->next) {
-            prev = iter;
-            iter = iter->next;
-        }
-        // Re-use iter and place it at head
-        prev->next = NULL;
-        assert(iter->pending_comm == 0);
-        iter->offset = offset;
-        iter->pending_comm = 1;
-        iter->next = cache->buckets[bucket];
-        cache->buckets[bucket] = iter;
-        return iter;
-    } else {
-        // Allocate and insert
-        hvr_sparse_vec_cache_node_t *new_node;
-        if (cache->pool) {
-            new_node = cache->pool;
-            cache->pool = new_node->next;
-        } else {
-            new_node = (hvr_sparse_vec_cache_node_t *)malloc(sizeof(*new_node));
-            assert(new_node);
-            memset(new_node, 0x00, sizeof(*new_node));
-        }
-        assert(new_node->pending_comm == 0);
-        new_node->offset = offset;
-        new_node->pending_comm = 1;
-        new_node->next = cache->buckets[bucket];
-        cache->buckets[bucket] = new_node;
-        cache->bucket_size[bucket] += 1;
-        return new_node;
-    }
-}
 
-void hvr_sparse_vec_cache_insert(unsigned offset, hvr_sparse_vec_t *vec,
-        hvr_sparse_vec_cache_t *cache) {
-    hvr_sparse_vec_cache_node_t *node = hvr_sparse_vec_cache_reserve(offset,
-            cache);
-    node->pending_comm = 0;
-    memcpy(&(node->vec), vec, sizeof(*vec));
+    hvr_sparse_vec_cache_node_t *new_node = NULL;
+    hvr_sparse_vec_cache_node_t *prev = NULL;
+    hvr_sparse_vec_cache_node_t *iter = cache->buckets[bucket];
+    while (iter && iter->pending_comm) {
+        iter = iter->next;
+    }
+    if (iter) {
+        if (prev) {
+            prev->next = iter->next;
+        } else {
+            cache->buckets[bucket] = iter->next;
+        }
+        new_node = iter;
+    } else {
+        new_node = cache->pool;
+        assert(new_node);
+        cache->pool = new_node->next;
+    }
+
+    assert(new_node->pending_comm == 0);
+    new_node->offset = offset;
+    new_node->pending_comm = 1;
+    new_node->next = cache->buckets[bucket];
+    cache->buckets[bucket] = new_node;
+    cache->bucket_size[bucket] += 1;
+    return new_node;
+
+
+    // if (cache->bucket_size[bucket] == cache->hvr_cache_max_bucket_size) {
+    //     // Evict and re-use
+    //     hvr_sparse_vec_cache_node_t *iter = cache->buckets[bucket];
+    //     hvr_sparse_vec_cache_node_t *prev = NULL;
+    //     while (iter->next) {
+    //         prev = iter;
+    //         iter = iter->next;
+    //     }
+    //     // Re-use iter and place it at head
+    //     if (prev) {
+    //         prev->next = NULL;
+    //     } else {
+    //         cache->buckets[bucket] = NULL;
+    //     }
+
+    //     assert(iter->pending_comm == 0);
+    //     iter->offset = offset;
+    //     iter->pending_comm = 1;
+    //     iter->next = cache->buckets[bucket];
+    //     cache->buckets[bucket] = iter;
+    //     return iter;
+    // } else {
+    //     // Allocate and insert
+    //     hvr_sparse_vec_cache_node_t *new_node;
+    //     if (cache->pool) {
+    //         new_node = cache->pool;
+    //         cache->pool = new_node->next;
+    //     } else {
+    //         new_node = (hvr_sparse_vec_cache_node_t *)malloc(sizeof(*new_node));
+    //         assert(new_node);
+    //         memset(new_node, 0x00, sizeof(*new_node));
+    //     }
+    //     assert(new_node->pending_comm == 0);
+    //     new_node->offset = offset;
+    //     new_node->pending_comm = 1;
+    //     new_node->next = cache->buckets[bucket];
+    //     cache->buckets[bucket] = new_node;
+    //     cache->bucket_size[bucket] += 1;
+    //     return new_node;
+    // }
 }
 
 static void sum_hits_and_misses(hvr_sparse_vec_cache_t *vec_caches,
@@ -1069,19 +1104,21 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
 
 static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
         hvr_sparse_vec_t *src, const int src_pe) {
-    shmem_getmem_nbi((void *)&(dst->next_bucket),
+    shmem_getmem((void *)&(dst->next_bucket),
             (void *)&(src->next_bucket),
             sizeof(src->next_bucket), src_pe);
 
-    shmem_fence();
+    // // shmem_fence();
 
-    shmem_getmem_nbi(&(dst->finalized[0]), &(src->finalized[0]),
-            HVR_BUCKETS * sizeof(src->finalized[0]), src_pe);
+    // shmem_getmem(&(dst->finalized[0]), &(src->finalized[0]),
+    //         HVR_BUCKETS * sizeof(src->finalized[0]), src_pe);
 
-    shmem_fence();
+    // // shmem_fence();
 
-    shmem_getmem_nbi(dst, src,
-            offsetof(hvr_sparse_vec_t, finalized), src_pe);
+    // shmem_getmem(dst, src,
+    //         offsetof(hvr_sparse_vec_t, finalized), src_pe);
+
+    shmem_quiet();
 
     /*
      * No need to set next_in_partition here since we'll never use it for a
@@ -1106,6 +1143,12 @@ static hvr_sparse_vec_cache_node_t *get_remote_vec_nbi(const uint32_t offset,
         hvr_sparse_vec_cache_node_t *node = hvr_sparse_vec_cache_reserve(offset,
                 cache);
         get_remote_vec_nbi_uncached(&(node->vec), src, src_pe);
+
+        hvr_sparse_vec_init(&(node->vec), 1, ctx);
+        hvr_sparse_vec_set_internal(0, 1.0, &(node->vec), ctx->timestep - 1);
+        hvr_sparse_vec_set_internal(1, 1.0, &(node->vec), ctx->timestep - 1);
+        hvr_sparse_vec_set_internal(2, 1.0, &(node->vec), ctx->timestep - 1);
+        finalize_actor_for_timestep(&(node->vec), ctx->timestep - 1);
         return node;
     }
 }
@@ -1262,22 +1305,22 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                     shmem_quiet();
                     hvr_sparse_vec_cache_quiet(vec_caches + target_pe,
                             quiet_counter);
-#ifdef FINE_GRAIN_TIMING
-                    *getmem_time += (hvr_current_time_us() - start_time);
-                    const unsigned long long start_time = hvr_current_time_us();
-#endif
-                    for (unsigned i = 0; i < nbuffered; i++) {
-                        check_edges_to_add(&(buffered[i].node->vec),
-                                buffered[i].interacting_partitions,
-                                buffered[i].n_interacting_partitions,
-                                other_pes_timestep, ctx,
-                                &n_distance_measures);
-                        total_partition_checks +=
-                            buffered[i].n_interacting_partitions;
-                    }
-#ifdef FINE_GRAIN_TIMING
-                    *update_edge_time += (hvr_current_time_us() - start_time);
-#endif
+// #ifdef FINE_GRAIN_TIMING
+//                     *getmem_time += (hvr_current_time_us() - start_time);
+//                     const unsigned long long start_time = hvr_current_time_us();
+// #endif
+//                     for (unsigned i = 0; i < nbuffered; i++) {
+//                         check_edges_to_add(&(buffered[i].node->vec),
+//                                 buffered[i].interacting_partitions,
+//                                 buffered[i].n_interacting_partitions,
+//                                 other_pes_timestep, ctx,
+//                                 &n_distance_measures);
+//                         total_partition_checks +=
+//                             buffered[i].n_interacting_partitions;
+//                     }
+// #ifdef FINE_GRAIN_TIMING
+//                     *update_edge_time += (hvr_current_time_us() - start_time);
+// #endif
                     nbuffered = 0;
                 } else {
 #ifdef FINE_GRAIN_TIMING
@@ -1286,36 +1329,36 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                 }
 
                 n_edge_checks++;
-            }
-        }
-
-        if (nbuffered > 0) {
-            // Process buffered
-#ifdef FINE_GRAIN_TIMING
-            unsigned long long start_time = hvr_current_time_us();
-#endif
-            shmem_quiet();
-            hvr_sparse_vec_cache_quiet(vec_caches + target_pe, quiet_counter);
-#ifdef FINE_GRAIN_TIMING
-            *getmem_time += (hvr_current_time_us() - start_time);
-#endif
-
-#ifdef FINE_GRAIN_TIMING
-            start_time = hvr_current_time_us();
-#endif
-            for (unsigned i = 0; i < nbuffered; i++) {
-                check_edges_to_add(&(buffered[i].node->vec),
-                        buffered[i].interacting_partitions,
-                        buffered[i].n_interacting_partitions,
-                        other_pes_timestep, ctx,
-                        &n_distance_measures);
-                total_partition_checks +=
-                    buffered[i].n_interacting_partitions;
-            }
-#ifdef FINE_GRAIN_TIMING
-            *update_edge_time += (hvr_current_time_us() - start_time);
-#endif
-        }
+             }
+         }
+ 
+         if (nbuffered > 0) {
+             // Process buffered
+ #ifdef FINE_GRAIN_TIMING
+             unsigned long long start_time = hvr_current_time_us();
+ #endif
+             shmem_quiet();
+             hvr_sparse_vec_cache_quiet(vec_caches + target_pe, quiet_counter);
+ #ifdef FINE_GRAIN_TIMING
+             *getmem_time += (hvr_current_time_us() - start_time);
+ #endif
+ 
+ #ifdef FINE_GRAIN_TIMING
+             start_time = hvr_current_time_us();
+ #endif
+//              for (unsigned i = 0; i < nbuffered; i++) {
+//                  check_edges_to_add(&(buffered[i].node->vec),
+//                          buffered[i].interacting_partitions,
+//                          buffered[i].n_interacting_partitions,
+//                          other_pes_timestep, ctx,
+//                          &n_distance_measures);
+//                  total_partition_checks +=
+//                      buffered[i].n_interacting_partitions;
+//              }
+ #ifdef FINE_GRAIN_TIMING
+             *update_edge_time += (hvr_current_time_us() - start_time);
+ #endif
+         }
     }
 
     free(other_actor_to_partition_map);
@@ -1700,7 +1743,9 @@ void hvr_init(const uint16_t n_partitions,
             new_ctx->npes * sizeof(hvr_sparse_vec_cache_t));
     assert(new_ctx->vec_caches);
     for (int i = 0; i < new_ctx->npes; i++) {
+        fprintf(stderr, "PE %d initializing vector cache for %d.\n", new_ctx->pe, i);
         hvr_sparse_vec_cache_init(new_ctx->vec_caches + i);
+        fprintf(stderr, "PE %d done initializing vector cache for %d.\n", new_ctx->pe, i);
     }
 
     // Print the number of bytes allocated
@@ -2107,124 +2152,124 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
-        hvr_sparse_vec_t coupled_metric;
-        memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
-                sizeof(coupled_metric));
+        // hvr_sparse_vec_t coupled_metric;
+        // memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
+        //         sizeof(coupled_metric));
 
-        hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
-        should_abort = ctx->check_abort(&iter, ctx, to_couple_with,
-                &coupled_metric);
-        finalize_actor_for_timestep(
-                &coupled_metric, ctx->timestep);
+        // hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
+        // should_abort = ctx->check_abort(&iter, ctx, to_couple_with,
+        //         &coupled_metric);
+        // finalize_actor_for_timestep(
+        //         &coupled_metric, ctx->timestep);
 
-        // Update my local information on PEs I am coupled with.
-        hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
+        // // Update my local information on PEs I am coupled with.
+        // hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
 
-        // Atomically update other PEs that I am coupled with.
-        for (int p = 0; p < ctx->npes; p++) {
-            if (p != ctx->pe && hvr_set_contains(p, ctx->coupled_pes)) {
-                for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
-                    SHMEM_ULONGLONG_ATOMIC_OR(
-                            ctx->coupled_pes->bit_vector + i,
-                            (ctx->coupled_pes->bit_vector)[i], p);
-                }
-            }
-        }
+        // // Atomically update other PEs that I am coupled with.
+        // for (int p = 0; p < ctx->npes; p++) {
+        //     if (p != ctx->pe && hvr_set_contains(p, ctx->coupled_pes)) {
+        //         for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
+        //             SHMEM_ULONGLONG_ATOMIC_OR(
+        //                     ctx->coupled_pes->bit_vector + i,
+        //                     (ctx->coupled_pes->bit_vector)[i], p);
+        //         }
+        //     }
+        // }
 
         const unsigned long long finished_neighbor_updates =
             hvr_current_time_us();
 
-        hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
-        shmem_putmem(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
-                sizeof(coupled_metric), ctx->pe);
-        shmem_quiet();
-        hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
+        // hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
+        // shmem_putmem(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
+        //         sizeof(coupled_metric), ctx->pe);
+        // shmem_quiet();
+        // hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
 
         const unsigned long long finished_coupled_values = hvr_current_time_us();
 
-        /*
-         * For each PE I know I'm coupled with, lock their coupled_timesteps
-         * list and update my copy with any newer entries in my
-         * coupled_timesteps list.
-         */
+        // /*
+        //  * For each PE I know I'm coupled with, lock their coupled_timesteps
+        //  * list and update my copy with any newer entries in my
+        //  * coupled_timesteps list.
+        //  */
         unsigned n_coupled_spins = 0;
-        int ncoupled = 1; // include myself
-        for (int p = 0; p < ctx->npes; p++) {
-            if (p == ctx->pe) continue;
+        // int ncoupled = 1; // include myself
+        // for (int p = 0; p < ctx->npes; p++) {
+        //     if (p == ctx->pe) continue;
 
-            if (hvr_set_contains(p, ctx->coupled_pes)) {
-                /*
-                 * Wait until we've found an update to p's coupled value that is
-                 * for this timestep.
-                 */
-                assert(hvr_sparse_vec_has_timestamp(&coupled_metric,
-                            ctx->timestep) == HAS_TIMESTAMP);
-                int other_has_timestamp = hvr_sparse_vec_has_timestamp(
-                        ctx->coupled_pes_values + p, ctx->timestep);
-                assert(other_has_timestamp != NEVER_HAVE_TIMESTAMP);
+        //     if (hvr_set_contains(p, ctx->coupled_pes)) {
+        //         /*
+        //          * Wait until we've found an update to p's coupled value that is
+        //          * for this timestep.
+        //          */
+        //         assert(hvr_sparse_vec_has_timestamp(&coupled_metric,
+        //                     ctx->timestep) == HAS_TIMESTAMP);
+        //         int other_has_timestamp = hvr_sparse_vec_has_timestamp(
+        //                 ctx->coupled_pes_values + p, ctx->timestep);
+        //         assert(other_has_timestamp != NEVER_HAVE_TIMESTAMP);
 
-                while (other_has_timestamp != HAS_TIMESTAMP) {
-                    hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
-                    
-                    shmem_getmem(ctx->coupled_pes_values_buffer,
-                            ctx->coupled_pes_values,
-                            ctx->npes * sizeof(hvr_sparse_vec_t), p);
+        //         while (other_has_timestamp != HAS_TIMESTAMP) {
+        //             hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
+        //             
+        //             shmem_getmem(ctx->coupled_pes_values_buffer,
+        //                     ctx->coupled_pes_values,
+        //                     ctx->npes * sizeof(hvr_sparse_vec_t), p);
 
-                    hvr_rwlock_runlock((long *)ctx->coupled_lock, p);
+        //             hvr_rwlock_runlock((long *)ctx->coupled_lock, p);
 
-                    for (int i = 0; i < ctx->npes; i++) {
-                        (ctx->coupled_pes_values_buffer)[i].cached_timestamp = -1;
-                        (ctx->coupled_pes_values_buffer)[i].cached_timestamp_index = 0;
-                    }
+        //             for (int i = 0; i < ctx->npes; i++) {
+        //                 (ctx->coupled_pes_values_buffer)[i].cached_timestamp = -1;
+        //                 (ctx->coupled_pes_values_buffer)[i].cached_timestamp_index = 0;
+        //             }
 
-                    hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
-                    for (int i = 0; i < ctx->npes; i++) {
-                        hvr_sparse_vec_t *other =
-                            ctx->coupled_pes_values_buffer + i;
-                        hvr_sparse_vec_t *mine = ctx->coupled_pes_values + i;
+        //             hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
+        //             for (int i = 0; i < ctx->npes; i++) {
+        //                 hvr_sparse_vec_t *other =
+        //                     ctx->coupled_pes_values_buffer + i;
+        //                 hvr_sparse_vec_t *mine = ctx->coupled_pes_values + i;
 
-                        const hvr_time_t other_max_timestamp =
-                            hvr_sparse_vec_max_timestamp(other);
-                        const hvr_time_t mine_max_timestamp =
-                            hvr_sparse_vec_max_timestamp(mine);
+        //                 const hvr_time_t other_max_timestamp =
+        //                     hvr_sparse_vec_max_timestamp(other);
+        //                 const hvr_time_t mine_max_timestamp =
+        //                     hvr_sparse_vec_max_timestamp(mine);
 
-                        if (other_max_timestamp >= 0) {
-                            if (mine_max_timestamp < 0) {
-                                memcpy(mine, other, sizeof(*mine));
-                            } else if (other_max_timestamp > mine_max_timestamp) {
-                                memcpy(mine, other, sizeof(*mine));
-                            }
-                        }
-                    }
-                    hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
+        //                 if (other_max_timestamp >= 0) {
+        //                     if (mine_max_timestamp < 0) {
+        //                         memcpy(mine, other, sizeof(*mine));
+        //                     } else if (other_max_timestamp > mine_max_timestamp) {
+        //                         memcpy(mine, other, sizeof(*mine));
+        //                     }
+        //                 }
+        //             }
+        //             hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
 
-                    other_has_timestamp = hvr_sparse_vec_has_timestamp(
-                            ctx->coupled_pes_values + p, ctx->timestep);
-                    assert(other_has_timestamp != NEVER_HAVE_TIMESTAMP);
-                    n_coupled_spins++;
-                }
+        //             other_has_timestamp = hvr_sparse_vec_has_timestamp(
+        //                     ctx->coupled_pes_values + p, ctx->timestep);
+        //             assert(other_has_timestamp != NEVER_HAVE_TIMESTAMP);
+        //             n_coupled_spins++;
+        //         }
 
-                hvr_sparse_vec_add_internal(&coupled_metric,
-                        ctx->coupled_pes_values + p, ctx->timestep);
+        //         hvr_sparse_vec_add_internal(&coupled_metric,
+        //                 ctx->coupled_pes_values + p, ctx->timestep);
 
-                ncoupled++;
-            }
-        }
+        //         ncoupled++;
+        //     }
+        // }
 
-        /*
-         * TODO coupled_metric here contains the aggregate values over all
-         * coupled PEs, including this one. Do we want to do anything with this,
-         * other than print it?
-         */
-        if (ncoupled > 1) {
-            char buf[1024];
-            unsigned unused;
-            hvr_sparse_vec_dump_internal(&coupled_metric, buf, 1024,
-                    ctx->timestep + 1, &unused, &unused);
-            printf("PE %d - computed coupled value {%s} from %d "
-                    "coupled PEs on timestep %d\n", ctx->pe, buf, ncoupled,
-                    ctx->timestep);
-        }
+        // /*
+        //  * TODO coupled_metric here contains the aggregate values over all
+        //  * coupled PEs, including this one. Do we want to do anything with this,
+        //  * other than print it?
+        //  */
+        // if (ncoupled > 1) {
+        //     char buf[1024];
+        //     unsigned unused;
+        //     hvr_sparse_vec_dump_internal(&coupled_metric, buf, 1024,
+        //             ctx->timestep + 1, &unused, &unused);
+        //     printf("PE %d - computed coupled value {%s} from %d "
+        //             "coupled PEs on timestep %d\n", ctx->pe, buf, ncoupled,
+        //             ctx->timestep);
+        // }
 
         const unsigned long long finished_coupling = hvr_current_time_us();
 

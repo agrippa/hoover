@@ -1,8 +1,8 @@
 #!/bin/bash -l
 
-#SBATCH -p debug
+#SBATCH -p regular
 #SBATCH -N 16
-###SBATCH -C haswell
+#SBATCH -C haswell
 #SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
@@ -21,10 +21,6 @@ echo "Running with OpenSHMEM installation at $OPENSHMEM_INSTALL"
 export PMI_MAX_KVS_ENTRIES=$((1000 * $SLURM_NNODES))
 export LD_LIBRARY_PATH=$OPENSHMEM_INSTALL/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$OPENSHMEM_INSTALL/lib64:$LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=$HCLIB_ROOT/lib:$LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=$HCLIB_HOME/modules/system/lib:$LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=$HCLIB_HOME/modules/openshmem/lib:$LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=$HCLIB_HOME/modules/sos/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$OFI_HOME/lib:$LD_LIBRARY_PATH
 
 export LD_PRELOAD=/opt/intel/compilers_and_libraries_2018.2.199/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
@@ -111,4 +107,3 @@ srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
     $MAX_DELTA_VELOCITY
-

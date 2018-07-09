@@ -6,7 +6,7 @@
 #include "hvr_sparse_vec.h"
 #include "hvr_avl_tree.h"
 
-#define HVR_CACHE_BUCKETS 512
+#define HVR_CACHE_BUCKETS 128
 
 /*
  * A cache data structure used locally on each PE to store remote vertices that
@@ -77,12 +77,6 @@ void hvr_sparse_vec_cache_clear(hvr_sparse_vec_cache_t *cache);
  */
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(unsigned offset,
         hvr_sparse_vec_cache_t *cache, hvr_time_t target_timestep);
-
-/*
- * Add an entry to the given cache.
- */
-void hvr_sparse_vec_cache_insert(unsigned offset, hvr_sparse_vec_t *vec,
-        hvr_sparse_vec_cache_t *cache);
 
 /*
  * Reserve a node in the specified cache to store the contents of the specified
