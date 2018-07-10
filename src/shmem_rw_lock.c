@@ -11,7 +11,7 @@
  * remainder of the bits are used to count readers.
  */
 long *hvr_rwlock_create_n(const int n) {
-    long *lock = shmem_malloc(n * sizeof(*lock));
+    long *lock = (long *)shmem_malloc(n * sizeof(*lock));
     assert(lock);
     memset(lock, 0x00, n * sizeof(*lock));
     shmem_barrier_all();
