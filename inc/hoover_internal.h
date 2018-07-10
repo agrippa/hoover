@@ -14,8 +14,10 @@
  * itself.
  */
 typedef struct _hvr_sparse_vec_cache_node_t {
-    // Offset identifying this vector on its home PE
+    // ID of this vertex
     hvr_vertex_id_t vert;
+
+    hvr_time_t requested_on;
 
     // Contents of the vec itself
     hvr_sparse_vec_t vec;
@@ -45,6 +47,7 @@ typedef struct _hvr_sparse_vec_cache_t {
      * fixed memory footprint.
      */
     hvr_sparse_vec_cache_node_t *pool;
+    unsigned pool_size;
 
     // Performance metrics tracked per remote PE
     unsigned nhits, nmisses, nmisses_due_to_age;
@@ -58,14 +61,14 @@ typedef struct _hvr_sparse_vec_cache_t {
 void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache);
 
 /*
- * Given a vertex offset on a remote PE, look up that vertex in our local cache.
+ * Given a vertex ID on a remote PE, look up that vertex in our local cache.
  * Only returns an entry if the newest timestep stored in that entry is new
  * enough given target_timestep. If no matching entry is found, returns NULL.
  *
  * May lead to evictions of very old cache entries that we now consider unusable
  * because of their age, as judged by CACHED_TIMESTEPS_TOLERANCE.
  */
-hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(unsigned offset,
+hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(hvr_vertex_id_t vert,
         hvr_sparse_vec_cache_t *cache, hvr_time_t target_timestep);
 
 /*
@@ -75,7 +78,8 @@ hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(unsigned offset,
  * asynchronously fetch into it.
  */
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_reserve(
-        unsigned offset, hvr_sparse_vec_cache_t *cache);
+        hvr_vertex_id_t vert, hvr_sparse_vec_cache_t *cache,
+        hvr_time_t curr_timestep, int pe);
 
 /*
  * Edge set utilities.

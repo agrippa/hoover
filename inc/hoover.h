@@ -227,8 +227,6 @@ typedef struct _hvr_internal_ctx_t {
     hvr_sparse_vec_cache_node_t **neighbor_buffer;
     // Buffer of edges for a given vertex, to be passed to update_metadata
     hvr_sparse_vec_t *buffered_neighbors;
-    // PEs we are fetching each element of neighbor_buffer from
-    int *buffered_neighbors_pes;
 
     long long *p_wrk;
     int *p_wrk_int;

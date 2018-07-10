@@ -20,7 +20,7 @@
 #include "shmem_rw_lock.h"
 #include "hvr_vertex_iter.h"
 
-#define CACHED_TIMESTEPS_TOLERANCE 5
+#define CACHED_TIMESTEPS_TOLERANCE 2
 #define MAX_INTERACTING_PARTITIONS 100
 
 // #define FINE_GRAIN_TIMING
@@ -322,6 +322,11 @@ static int find_feature_in_bucket(const hvr_sparse_vec_t *vec,
     return 0;
 }
 
+/*
+ * Find the finalized bucket in vec that is closest to but less than
+ * curr_timestamp. This may also return buckets for MAX_TIMESTAMP, which were
+ * created as a PE exited the simulation.
+ */
 static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
         const hvr_time_t curr_timestamp, unsigned *nhits, unsigned *nmisses) {
     if (vec->cached_timestamp == curr_timestamp - 1 &&
@@ -560,12 +565,14 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
 
 static int get_newest_timestamp(hvr_sparse_vec_t *vec,
         hvr_time_t *out_timestamp) {
-    const unsigned newest_bucket = prev_bucket(vec->next_bucket);
+    unsigned unused;
+    int bucket = hvr_sparse_vec_find_bucket(vec, MAX_TIMESTAMP, &unused,
+            &unused);
 
-    if (vec->bucket_size[newest_bucket] == 0) {
+    if (bucket == -1) {
         return 0;
     } else {
-        *out_timestamp = vec->timestamps[newest_bucket];
+        *out_timestamp = vec->timestamps[bucket];
         return 1;
     }
 }
@@ -586,26 +593,43 @@ void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache) {
         prealloc[i].next = cache->pool;
         cache->pool = prealloc + i;
     }
+    cache->pool_size = n_preallocs;
 }
 
 void hvr_sparse_vec_cache_clear_old(hvr_sparse_vec_cache_t *cache,
-        hvr_time_t timestep) {
+        hvr_time_t timestep, int pe) {
+    unsigned nevicted = 0;
     for (unsigned bucket = 0; bucket < HVR_CACHE_BUCKETS; bucket++) {
         hvr_sparse_vec_cache_node_t *head = cache->buckets[bucket];
         hvr_sparse_vec_cache_node_t *iter = head;
         hvr_sparse_vec_cache_node_t *prev = NULL;
 
         while (iter) {
+            // Always have to keep pending nodes
+            if (iter->pending_comm) {
+                prev = iter;
+                iter = iter->next;
+                continue;
+            }
+
             hvr_time_t newest_timestamp;
             int success = get_newest_timestamp(&(iter->vec), &newest_timestamp);
 
-            if (success &&
-                    newest_timestamp <= timestep &&
-                    !iter->pending_comm &&
-                    timestep - newest_timestamp > CACHED_TIMESTEPS_TOLERANCE) {
+            if (!success || (newest_timestamp <= timestep &&
+                    timestep - newest_timestamp > CACHED_TIMESTEPS_TOLERANCE)) {
                 // Should evict
-                prev = iter;
-                iter = iter->next;
+                if (prev) {
+                    prev->next = iter->next;
+                } else {
+                    cache->buckets[bucket] = iter->next;
+                }
+
+                hvr_sparse_vec_cache_node_t *tmp = iter->next;
+                iter->next = cache->pool;
+                cache->pool = iter;
+                iter = tmp;
+
+                nevicted++;
             } else {
                 // Keep in the cache
                 prev = iter;
@@ -613,6 +637,7 @@ void hvr_sparse_vec_cache_clear_old(hvr_sparse_vec_cache_t *cache,
             }
         }
     }
+    fprintf(stderr, "PE %d evicted %u on timestep %d\n", pe, nevicted, timestep);
 }
 
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(hvr_vertex_id_t vert,
@@ -633,11 +658,6 @@ hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(hvr_vertex_id_t vert,
         return NULL;
     } else {
         // Can use, update the cache to make this most recently used
-        if (prev) {
-            prev->next = iter->next;
-            iter->next = cache->buckets[bucket];
-            cache->buckets[bucket] = iter;
-        }
         cache->nhits++;
         return iter;
     }
@@ -659,74 +679,63 @@ void hvr_sparse_vec_cache_quiet(hvr_sparse_vec_cache_t *cache,
 }
 
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_reserve(
-        hvr_vertex_id_t vert, hvr_sparse_vec_cache_t *cache) {
+        hvr_vertex_id_t vert, hvr_sparse_vec_cache_t *cache,
+        hvr_time_t curr_timestep, int pe) {
     // Assume that vec is not already in the cache, but don't enforce this
-    const unsigned bucket = vert % HVR_CACHE_BUCKETS;
-
     hvr_sparse_vec_cache_node_t *new_node = cache->pool;
-    assert(new_node);
+
+    if (!new_node) {
+        hvr_time_t max_timestep = -1;
+        hvr_time_t min_timestep = MAX_TIMESTAMP;
+        double avg_timestep = 0.0;
+        unsigned avg_timestep_count = 0;
+        unsigned count_requested_on_this_timestep = 0;
+        for (unsigned b = 0; b < HVR_CACHE_BUCKETS; b++) {
+            hvr_sparse_vec_cache_node_t *iter = cache->buckets[b];
+            while (iter) {
+                if (iter->requested_on == curr_timestep) {
+                    count_requested_on_this_timestep++;
+                } else {
+                    /*
+                     * Only get metrics on those actors requested in earlier
+                     * timesteps
+                     */
+                    assert(!iter->pending_comm);
+                    hvr_time_t newest_timestamp;
+                    int success = get_newest_timestamp(&(iter->vec),
+                            &newest_timestamp);
+                    if (success) {
+                        if (newest_timestamp > max_timestep) {
+                            max_timestep = newest_timestamp;
+                        }
+                        if (newest_timestamp < min_timestep) {
+                            min_timestep = newest_timestamp;
+                        }
+                        avg_timestep += newest_timestamp;
+                        avg_timestep_count++;
+                    }
+                }
+                iter = iter->next;
+            }
+        }
+        avg_timestep /= (double)avg_timestep_count;
+        fprintf(stderr, "ERROR: PE %d exhausted %u cache slots, curr timestep = %d, "
+            "max timestep = %d, min timestep = %d, average timestep = %f, # requested on this timestep = %u\n",
+            pe, cache->pool_size, curr_timestep, max_timestep, min_timestep,
+            avg_timestep, count_requested_on_this_timestep);
+        abort();
+    }
+
     cache->pool = new_node->next;
 
+    const unsigned bucket = vert % HVR_CACHE_BUCKETS;
     assert(new_node->pending_comm == 0);
-    new_node->vert = vert
+    new_node->vert = vert;
     new_node->pending_comm = 1;
+    new_node->requested_on = curr_timestep;
     new_node->next = cache->buckets[bucket];
     cache->buckets[bucket] = new_node;
     return new_node;
-
-
-    // if (cache->bucket_size[bucket] == cache->hvr_cache_max_bucket_size) {
-    //     // Evict and re-use
-    //     hvr_sparse_vec_cache_node_t *iter = cache->buckets[bucket];
-    //     hvr_sparse_vec_cache_node_t *prev = NULL;
-    //     while (iter->next) {
-    //         prev = iter;
-    //         iter = iter->next;
-    //     }
-    //     // Re-use iter and place it at head
-    //     if (prev) {
-    //         prev->next = NULL;
-    //     } else {
-    //         cache->buckets[bucket] = NULL;
-    //     }
-
-    //     assert(iter->pending_comm == 0);
-    //     iter->offset = offset;
-    //     iter->pending_comm = 1;
-    //     iter->next = cache->buckets[bucket];
-    //     cache->buckets[bucket] = iter;
-    //     return iter;
-    // } else {
-    //     // Allocate and insert
-    //     hvr_sparse_vec_cache_node_t *new_node;
-    //     if (cache->pool) {
-    //         new_node = cache->pool;
-    //         cache->pool = new_node->next;
-    //     } else {
-    //         new_node = (hvr_sparse_vec_cache_node_t *)malloc(sizeof(*new_node));
-    //         assert(new_node);
-    //         memset(new_node, 0x00, sizeof(*new_node));
-    //     }
-    //     assert(new_node->pending_comm == 0);
-    //     new_node->offset = offset;
-    //     new_node->pending_comm = 1;
-    //     new_node->next = cache->buckets[bucket];
-    //     cache->buckets[bucket] = new_node;
-    //     cache->bucket_size[bucket] += 1;
-    //     return new_node;
-    // }
-}
-
-static void sum_hits_and_misses(hvr_sparse_vec_cache_t *vec_caches,
-        const unsigned ncaches, unsigned *out_nhits, unsigned *out_nmisses,
-        unsigned *out_nmisses_due_to_age) {
-    *out_nhits = 0; *out_nmisses = 0; *out_nmisses_due_to_age = 0;
-
-    for (unsigned i = 0; i < ncaches; i++) {
-        *out_nhits += vec_caches[i].nhits;
-        *out_nmisses += vec_caches[i].nmisses;
-        *out_nmisses_due_to_age += vec_caches[i].nmisses_due_to_age;
-    }
 }
 
 static hvr_set_t *hvr_create_empty_set_helper(hvr_internal_ctx_t *ctx,
@@ -1084,13 +1093,13 @@ static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
 
     // // shmem_fence();
 
-    // shmem_getmem(&(dst->finalized[0]), &(src->finalized[0]),
-    //         HVR_BUCKETS * sizeof(src->finalized[0]), src_pe);
+    shmem_getmem(&(dst->finalized[0]), &(src->finalized[0]),
+            HVR_BUCKETS * sizeof(src->finalized[0]), src_pe);
 
     // // shmem_fence();
 
-    // shmem_getmem(dst, src,
-    //         offsetof(hvr_sparse_vec_t, finalized), src_pe);
+    shmem_getmem(dst, src,
+            offsetof(hvr_sparse_vec_t, finalized), src_pe);
 
     shmem_quiet();
 
@@ -1105,7 +1114,7 @@ static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
 static hvr_sparse_vec_cache_node_t *get_remote_vec_nbi(const uint32_t offset,
         const int src_pe, hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *cache) {
-    hvr_sparse_Vec_cache_node_t *cached = hvr_sparse_vec_cache_lookup(
+    hvr_sparse_vec_cache_node_t *cached = hvr_sparse_vec_cache_lookup(
             construct_vertex_id(src_pe, offset), cache, ctx->timestep - 1);
 
     if (cached) {
@@ -1113,15 +1122,10 @@ static hvr_sparse_vec_cache_node_t *get_remote_vec_nbi(const uint32_t offset,
         return cached;
     } else {
         hvr_sparse_vec_t *src = &(ctx->pool->pool[offset]);
-        hvr_sparse_vec_cache_node_t *node = hvr_sparse_vec_cache_reserve(offset,
-                cache);
+        hvr_sparse_vec_cache_node_t *node = hvr_sparse_vec_cache_reserve(
+                construct_vertex_id(src_pe, offset), cache, ctx->timestep,
+                ctx->pe);
         get_remote_vec_nbi_uncached(&(node->vec), src, src_pe);
-
-        hvr_sparse_vec_init(&(node->vec), 1, ctx);
-        hvr_sparse_vec_set_internal(0, 1.0, &(node->vec), ctx->timestep - 1);
-        hvr_sparse_vec_set_internal(1, 1.0, &(node->vec), ctx->timestep - 1);
-        hvr_sparse_vec_set_internal(2, 1.0, &(node->vec), ctx->timestep - 1);
-        finalize_actor_for_timestep(&(node->vec), ctx->timestep - 1);
         return node;
     }
 }
@@ -1131,7 +1135,7 @@ static void get_remote_vec_blocking(hvr_vertex_id_t vertex,
     hvr_sparse_vec_cache_node_t *placeholder = get_remote_vec_nbi(
             VERTEX_ID_OFFSET(vertex), VERTEX_ID_PE(vertex), ctx,
             &ctx->vec_cache);
-    hvr_sparse_vec_cache_quiet(&ctx->vec_caches,
+    hvr_sparse_vec_cache_quiet(&ctx->vec_cache,
             &(ctx->cache_perf_info.quiet_counter));
     memcpy(dst, &(placeholder->vec), sizeof(*dst));
 }
@@ -1329,6 +1333,8 @@ static void update_edges(hvr_internal_ctx_t *ctx,
  #endif
          }
     }
+
+    hvr_sparse_vec_cache_quiet(vec_cache, quiet_counter);
 
     free(other_actor_to_partition_map);
     *out_n_edge_checks = n_edge_checks;
@@ -1578,9 +1584,6 @@ void hvr_init(const uint16_t n_partitions,
     new_ctx->buffered_neighbors = (hvr_sparse_vec_t *)malloc(
             EDGE_GET_BUFFERING * sizeof(hvr_sparse_vec_t));
     assert(new_ctx->buffered_neighbors);
-    new_ctx->buffered_neighbors_pes = (int *)malloc(
-            EDGE_GET_BUFFERING * sizeof(int));
-    assert(new_ctx->buffered_neighbors_pes);
 
     new_ctx->symm_timestep = (volatile hvr_time_t *)shmem_malloc_wrapper(
             sizeof(*(new_ctx->symm_timestep)));
@@ -1708,14 +1711,7 @@ void hvr_init(const uint16_t n_partitions,
 
     new_ctx->main_graph = main_graph;
 
-    new_ctx->vec_caches = (hvr_sparse_vec_cache_t *)malloc(
-            new_ctx->npes * sizeof(hvr_sparse_vec_cache_t));
-    assert(new_ctx->vec_caches);
-    for (int i = 0; i < new_ctx->npes; i++) {
-        fprintf(stderr, "PE %d initializing vector cache for %d.\n", new_ctx->pe, i);
-        hvr_sparse_vec_cache_init(new_ctx->vec_caches + i);
-        fprintf(stderr, "PE %d done initializing vector cache for %d.\n", new_ctx->pe, i);
-    }
+    hvr_sparse_vec_cache_init(&new_ctx->vec_cache);
 
     // Print the number of bytes allocated
     // shmem_malloc_wrapper(0);
@@ -1925,7 +1921,6 @@ static unsigned update_local_actor_metadata(hvr_sparse_vec_t *vertex,
             hvr_sparse_vec_cache_node_t *cache_node = get_remote_vec_nbi(
                     local_offset, other_pe, ctx, vec_cache);
             (ctx->neighbor_buffer)[n] = cache_node;
-            (ctx->buffered_neighbors_pes)[n] = other_pe;
         }
 
         const unsigned long long finish_neighbor_fetch = hvr_current_time_us();
@@ -2264,7 +2259,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         /*
          * Remove cached remote vecs that are old relative to our next timestep.
          */
-        hvr_sparse_vec_cache_clear_old(&ctx->vec_cache, ctx->timestep);
+        hvr_sparse_vec_cache_clear_old(&ctx->vec_cache, ctx->timestep, ctx->pe);
 
         const unsigned long long finished_throttling = hvr_current_time_us();
 
@@ -2300,10 +2295,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 partition_time_window_str, 1024);
 #endif
 
-        unsigned nhits, nmisses, nmisses_due_to_age;
-        sum_hits_and_misses(ctx->vec_caches, ctx->npes, &nhits, &nmisses,
-                &nmisses_due_to_age);
-
         if (print_profiling) {
             printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f "
                     "%f) - summary %f ms (%f %f %f) - edges %f ms (%f %f %llu "
@@ -2311,7 +2302,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     "ms - coupling %f ms (%u) - throttling %f ms - %u spins - "
                     "%u / %u PE neighbors %s - partition window = %s, %d / %d "
                     "active - aborting? %d - last step? %d - remote cache "
-                    "hits=%u misses=%u age misses=%u, feature cache hits=%u "
+                    "hits=%u misses=%u, feature cache hits=%u "
                     "misses=%u quiets=%llu, avg # edges=%f\n", ctx->pe,
                     ctx->timestep,
                     (double)(finished_throttling - start_iter) / 1000.0,
@@ -2338,8 +2329,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 #endif
                     hvr_set_count(ctx->partition_time_window),
                     ctx->n_partitions, should_abort,
-                    ctx->timestep >= ctx->max_timestep, nhits, nmisses,
-                    nmisses_due_to_age, ctx->n_vector_cache_hits,
+                    ctx->timestep >= ctx->max_timestep, ctx->vec_cache.nhits,
+                    ctx->vec_cache.nmisses, ctx->n_vector_cache_hits,
                     ctx->n_vector_cache_misses, ctx->cache_perf_info.quiet_counter, avg_n_neighbors);
         }
 
