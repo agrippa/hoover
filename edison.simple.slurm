@@ -42,9 +42,6 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
 export MAX_NUM_TIMESTEPS=25
 
-export HVR_SYMM_POOL_SIZE=40000
-export HVR_CACHE_MAX_BUCKET_SIZE=100
-
 cd $SCRATCH
 
 # echo ""
@@ -83,6 +80,8 @@ cd $SCRATCH
 #     $HOME/hoover/bin/write_lock_stress
 
 
+export HVR_SYMM_POOL_SIZE=40000
+export HVR_VEC_CACHE_PREALLOCS=2048
 export HVR_DISABLE_PROFILING_PRINTS=1
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \

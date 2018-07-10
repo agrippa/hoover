@@ -15,7 +15,7 @@
  */
 typedef struct _hvr_sparse_vec_cache_node_t {
     // Offset identifying this vector on its home PE
-    unsigned offset;
+    hvr_vertex_id_t vert;
 
     // Contents of the vec itself
     hvr_sparse_vec_t vec;
@@ -36,23 +36,18 @@ typedef struct _hvr_sparse_vec_cache_node_t {
  * vertices of the remote PE and stored in separate buckets.
  */
 typedef struct _hvr_sparse_vec_cache_t {
-    // Lists of vertices, by vertex offset on the remote PE
+    // Lists of vertices by vertex hash
     hvr_sparse_vec_cache_node_t *buckets[HVR_CACHE_BUCKETS];
 
-    // # of vertices in each bucket
-    unsigned bucket_size[HVR_CACHE_BUCKETS];
-
     /*
-     * Pool of previously allocated but now unused vertex data structures. Used
-     * to reduce system memory management calls.
+     * Pool of pre-allocated but unused vertex data structures. Used
+     * to reduce system memory management calls and ensure we stay within a
+     * fixed memory footprint.
      */
     hvr_sparse_vec_cache_node_t *pool;
 
     // Performance metrics tracked per remote PE
     unsigned nhits, nmisses, nmisses_due_to_age;
-
-    // Maximum number of vertices we are willing to store in each bucket
-    int hvr_cache_max_bucket_size;
 } hvr_sparse_vec_cache_t;
 
 /*
@@ -61,11 +56,6 @@ typedef struct _hvr_sparse_vec_cache_t {
  * sizeof(hvr_sparse_vec_cache_t) bytes.
  */
 void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache);
-
-/*
- * Remove all cached vertices from the specified cache.
- */
-void hvr_sparse_vec_cache_clear(hvr_sparse_vec_cache_t *cache);
 
 /*
  * Given a vertex offset on a remote PE, look up that vertex in our local cache.

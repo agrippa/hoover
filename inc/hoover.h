@@ -286,7 +286,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_graph_id_t allocated_graphs;
     hvr_graph_id_t main_graph;
 
-    hvr_sparse_vec_cache_t *vec_caches;
+    hvr_sparse_vec_cache_t vec_cache;
 
     struct {
         unsigned long long quiet_counter;
