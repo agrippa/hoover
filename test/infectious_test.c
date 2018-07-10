@@ -401,7 +401,7 @@ int main(int argc, char **argv) {
      * "teleported" to the other end of the portal.
      */
     portals = (portal_t *)shmem_malloc(n_global_portals * sizeof(*portals));
-    assert(portals);
+    assert((n_global_portals == 0) || portals);
     if (pe == 0) {
         fprintf(stderr, "Creating %d portals\n", n_global_portals);
         fprintf(stderr, "%d actors per cell, %d actors in total\n",
