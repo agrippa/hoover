@@ -367,10 +367,10 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * features which are designed to be most likely to just interact with
      * vertices on this node (but possibly with vertices on other nodes).
      */
-    int n_vertices_to_add = rand() % 200;
+    int n_vertices_to_add = rand() % 400;
 
     double mean = (pe * range_per_pe) + (range_per_pe / 2.0);
-    double sigma = range_per_pe / 6.0;
+    double sigma = range_per_pe / 3.0;
 
     hvr_sparse_vec_t *new_vertices = hvr_sparse_vec_create_n(n_vertices_to_add,
             graph, ctx);
@@ -426,7 +426,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 MAX_SUBGRAPH_VERTICES * sizeof(unsigned char));
 
         unsigned n_this_explores = 0;
-        unsigned max_explores = 32;
+        unsigned max_explores = 256;
         explore_subgraphs(&sub, known_local_patterns,
             pes_sharing_local_patterns, &n_known_local_patterns, ctx,
             &n_this_explores, max_explores, &n_local_gets, &n_remote_gets);
@@ -583,81 +583,80 @@ int might_interact(const uint16_t partition, hvr_set_t *partitions,
 int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_set_t *to_couple_with, hvr_sparse_vec_t *out_coupled_metric) {
 
-//     /*
-//      * Find anomalies based on the patterns in sorted_best_patterns. If
-//      * those anomalies have edges with vertices in other nodes, couple with
-//      * those other nodes and produce a report on the anomalies.
-//      *
-//      * We do this by looking for patterns known_local_patterns that have a low
-//      * pattern_distance to the top common patterns but are not in the top common
-//      * patterns.
-//      */
-// 
-//     for (unsigned j = 0; j < n_known_local_patterns; j++) {
-//         pattern_count_t *local_pattern = known_local_patterns + j;
-// 
-//         int is_a_frequent_pattern = 0;
-//         int is_similar_to_a_frequent_pattern = -1;
-// 
-//         for (unsigned i = 0; i < MIN(n_sorted_best_patterns, 5); i++) {
-//             pattern_count_t *frequent_pattern = sorted_best_patterns + i;
-// 
-//             unsigned dist = pattern_distance(&(frequent_pattern->matrix),
-//                     &(local_pattern->matrix));
-//             if (dist == 0) {
-//                 is_a_frequent_pattern = 1;
-//                 break;
-//             } else if (dist > 0 && dist < MAX_DISTANCE_FOR_ANOMALY) {
-//                 /*
-//                  * This defines an anomaly as a local pattern that is similar
-//                  * but not identical to one of the top 5 globally identified
-//                  * subgraph patterns but is not itself in the top 5 patterns.
-//                  */
-//                 if (is_similar_to_a_frequent_pattern < 0) {
-//                     is_similar_to_a_frequent_pattern = i;
-//                 }
-//             }
-//         }
-// 
-//         if (!is_a_frequent_pattern && is_similar_to_a_frequent_pattern >= 0) {
-//             // TODO: print useful report.
-//             char buf[1024];
-//             fprintf(stderr, "PE %d found potentially anomalous pattern!\n", pe);
-// 
-//             if (pe_anomalies_fp == NULL) {
-//                 sprintf(buf, "pe_%d.anomalies.txt", pe);
-//                 pe_anomalies_fp = fopen(buf, "w");
-//                 assert(pe_anomalies_fp);
-//             }
-// 
-//             fprintf(pe_anomalies_fp, "Found anomaly on timestep %d\n",
-//                     hvr_current_timestep(ctx));
-//             fprintf(pe_anomalies_fp, "Anomaly (count=%u):\n",
-//                     local_pattern->count);
-//             adjacency_matrix_to_string(&local_pattern->matrix, buf, 1024);
-//             fprintf(pe_anomalies_fp, buf);
-//             fprintf(pe_anomalies_fp, "Regular Pattern (count=%u):\n",
-//                     sorted_best_patterns[is_similar_to_a_frequent_pattern].count);
-//             adjacency_matrix_to_string(
-//                     &sorted_best_patterns[is_similar_to_a_frequent_pattern].matrix, buf,
-//                     1024);
-//             fprintf(pe_anomalies_fp, buf);
-//             fprintf(pe_anomalies_fp, "\n");
-// 
-//             fflush(pe_anomalies_fp);
-// 
-//             /*
-//              * Become coupled with other PEs whose vertices are parts of this
-//              * anomalous pattern.
-//              */
-//             std::vector<int> *other_pes = pes_sharing_local_patterns[j];
-//             for (std::vector<int>::iterator i = other_pes->begin(),
-//                     e = other_pes->end(); i != e; i++) {
-//                 int other_pe = *i;
-//                 hvr_set_insert(other_pe, to_couple_with);
-//             }
-//         }
-//     }
+    /*
+     * Find anomalies based on the patterns in sorted_best_patterns. If
+     * those anomalies have edges with vertices in other nodes, couple with
+     * those other nodes and produce a report on the anomalies.
+     *
+     * We do this by looking for patterns known_local_patterns that have a low
+     * pattern_distance to the top common patterns but are not in the top common
+     * patterns.
+     */
+
+    for (unsigned j = 0; j < n_known_local_patterns; j++) {
+        pattern_count_t *local_pattern = known_local_patterns + j;
+
+        int is_a_frequent_pattern = 0;
+        int is_similar_to_a_frequent_pattern = -1;
+
+        for (unsigned i = 0; i < MIN(n_sorted_best_patterns, 5); i++) {
+            pattern_count_t *frequent_pattern = sorted_best_patterns + i;
+
+            unsigned dist = pattern_distance(&(frequent_pattern->matrix),
+                    &(local_pattern->matrix));
+            if (dist == 0) {
+                is_a_frequent_pattern = 1;
+                break;
+            } else if (dist > 0 && dist < MAX_DISTANCE_FOR_ANOMALY) {
+                /*
+                 * This defines an anomaly as a local pattern that is similar
+                 * but not identical to one of the top 5 globally identified
+                 * subgraph patterns but is not itself in the top 5 patterns.
+                 */
+                if (is_similar_to_a_frequent_pattern < 0) {
+                    is_similar_to_a_frequent_pattern = i;
+                }
+            }
+        }
+
+        if (!is_a_frequent_pattern && is_similar_to_a_frequent_pattern >= 0) {
+            char buf[1024];
+            fprintf(stderr, "PE %d found potentially anomalous pattern!\n", pe);
+
+            if (pe_anomalies_fp == NULL) {
+                sprintf(buf, "pe_%d.anomalies.txt", pe);
+                pe_anomalies_fp = fopen(buf, "w");
+                assert(pe_anomalies_fp);
+            }
+
+            fprintf(pe_anomalies_fp, "Found anomaly on timestep %d\n",
+                    hvr_current_timestep(ctx));
+            fprintf(pe_anomalies_fp, "Anomaly (count=%u):\n",
+                    local_pattern->count);
+            adjacency_matrix_to_string(&local_pattern->matrix, buf, 1024);
+            fprintf(pe_anomalies_fp, buf);
+            fprintf(pe_anomalies_fp, "Regular Pattern (count=%u):\n",
+                    sorted_best_patterns[is_similar_to_a_frequent_pattern].count);
+            adjacency_matrix_to_string(
+                    &sorted_best_patterns[is_similar_to_a_frequent_pattern].matrix, buf,
+                    1024);
+            fprintf(pe_anomalies_fp, buf);
+            fprintf(pe_anomalies_fp, "\n");
+
+            fflush(pe_anomalies_fp);
+
+            /*
+             * Become coupled with other PEs whose vertices are parts of this
+             * anomalous pattern.
+             */
+            std::vector<int> *other_pes = pes_sharing_local_patterns[j];
+            for (std::vector<int>::iterator i = other_pes->begin(),
+                    e = other_pes->end(); i != e; i++) {
+                int other_pe = *i;
+                hvr_set_insert(other_pe, to_couple_with);
+            }
+        }
+    }
 
     // TODO anything useful we'd like to use the coupled metric for?
     hvr_sparse_vec_set(0, 0.0, out_coupled_metric, ctx);

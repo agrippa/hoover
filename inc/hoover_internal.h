@@ -28,8 +28,23 @@ typedef struct _hvr_sparse_vec_cache_node_t {
      */
     int pending_comm;
 
-    // Pointer to the next cache node in the same bucket
+    /*
+     * If this node is allocated, pointers to the next and previous cache node
+     * in the same bucket.
+     *
+     * If this node is not allocated and is sitting in the free pool, pointers
+     * to the next/prev node in the pool of free nodes.
+     */
     struct _hvr_sparse_vec_cache_node_t *next;
+    struct _hvr_sparse_vec_cache_node_t *prev;
+
+    /*
+     * For allocated nodes, construct a doubly-linked list with a total ordering
+     * determined by the order in which a node was created (such that the least
+     * recently allocated is at the tail).
+     */
+    struct _hvr_sparse_vec_cache_node_t *lru_prev;
+    struct _hvr_sparse_vec_cache_node_t *lru_next;
 } hvr_sparse_vec_cache_node_t;
 
 /*
@@ -46,8 +61,15 @@ typedef struct _hvr_sparse_vec_cache_t {
      * to reduce system memory management calls and ensure we stay within a
      * fixed memory footprint.
      */
-    hvr_sparse_vec_cache_node_t *pool;
+    hvr_sparse_vec_cache_node_t *pool_head;
     unsigned pool_size;
+
+    /*
+     * LRU list of allocated vertex data structures, used to evict when we run
+     * out of free nodes in the free pool.
+     */
+    hvr_sparse_vec_cache_node_t *lru_head;
+    hvr_sparse_vec_cache_node_t *lru_tail;
 
     // Performance metrics tracked per remote PE
     unsigned nhits, nmisses, nmisses_due_to_age;

@@ -22,6 +22,7 @@
 
 #define CACHED_TIMESTEPS_TOLERANCE 2
 #define MAX_INTERACTING_PARTITIONS 100
+#define CACHE_BUCKET(vert_id) ((vert_id) % HVR_CACHE_BUCKETS)
 
 // #define FINE_GRAIN_TIMING
 
@@ -589,25 +590,65 @@ void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache) {
         (hvr_sparse_vec_cache_node_t *)malloc(n_preallocs * sizeof(*prealloc));
     assert(prealloc);
     memset(prealloc, 0x00, n_preallocs * sizeof(*prealloc));
-    for (unsigned i = 0; i < n_preallocs; i++) {
-        prealloc[i].next = cache->pool;
-        cache->pool = prealloc + i;
+
+    prealloc[0].next = prealloc + 1;
+    prealloc[0].prev = NULL;
+    prealloc[n_preallocs - 1].next = NULL;
+    prealloc[n_preallocs - 1].prev = prealloc + (n_preallocs - 2);
+    for (unsigned i = 1; i < n_preallocs - 1; i++) {
+        prealloc[i].next = prealloc + (i + 1);
+        prealloc[i].prev = prealloc + (i - 1);
     }
+    cache->pool_head = prealloc + 0;
     cache->pool_size = n_preallocs;
+}
+
+static void remove_node_from_cache(hvr_sparse_vec_cache_node_t *iter,
+        hvr_sparse_vec_cache_t *cache) {
+    const unsigned bucket = CACHE_BUCKET(iter->vert);
+    assert(iter->pending_comm == 0);
+
+    // Need to fix the prev and next elements in this
+    if (iter->prev == NULL && iter->next == NULL) {
+        assert(cache->buckets[bucket] == iter);
+        cache->buckets[bucket] = NULL;
+    } else if (iter->next == NULL) {
+        iter->prev->next = NULL;
+    } else if (iter->prev == NULL) {
+        cache->buckets[bucket] = iter->next;
+        iter->next->prev = NULL;
+    } else {
+        iter->prev->next = iter->next;
+        iter->next->prev = iter->prev;
+    }
+
+    // Then remove from the LRU list
+    if (iter->lru_prev == NULL && iter->lru_next == NULL) {
+        assert(cache->lru_head == iter && cache->lru_tail == iter);
+        cache->lru_head = NULL;
+        cache->lru_tail = NULL;
+    } else if (iter->lru_next == NULL) {
+        assert(cache->lru_tail == iter);
+        cache->lru_tail = iter->lru_prev;
+        iter->lru_prev->lru_next = NULL;
+    } else if (iter->lru_prev == NULL) {
+        assert(cache->lru_head == iter);
+        cache->lru_head = iter->lru_next;
+        iter->lru_next->lru_prev = NULL;
+    } else {
+        iter->lru_prev->lru_next = iter->lru_next;
+        iter->lru_next->lru_prev = iter->lru_prev;
+    }
 }
 
 void hvr_sparse_vec_cache_clear_old(hvr_sparse_vec_cache_t *cache,
         hvr_time_t timestep, int pe) {
-    unsigned nevicted = 0;
     for (unsigned bucket = 0; bucket < HVR_CACHE_BUCKETS; bucket++) {
-        hvr_sparse_vec_cache_node_t *head = cache->buckets[bucket];
-        hvr_sparse_vec_cache_node_t *iter = head;
-        hvr_sparse_vec_cache_node_t *prev = NULL;
+        hvr_sparse_vec_cache_node_t *iter = cache->buckets[bucket];
 
         while (iter) {
             // Always have to keep pending nodes
             if (iter->pending_comm) {
-                prev = iter;
                 iter = iter->next;
                 continue;
             }
@@ -617,50 +658,43 @@ void hvr_sparse_vec_cache_clear_old(hvr_sparse_vec_cache_t *cache,
 
             if (!success || (newest_timestamp <= timestep &&
                     timestep - newest_timestamp > CACHED_TIMESTEPS_TOLERANCE)) {
-                // Should evict
-                if (prev) {
-                    prev->next = iter->next;
-                } else {
-                    cache->buckets[bucket] = iter->next;
-                }
 
+                // Removes node from bucket and LRU lists
+                remove_node_from_cache(iter, cache);
+
+                // Finally, insert into our list of free nodes
                 hvr_sparse_vec_cache_node_t *tmp = iter->next;
-                iter->next = cache->pool;
-                cache->pool = iter;
+                iter->next = cache->pool_head;
+                iter->prev = NULL;
+                if (cache->pool_head) {
+                    cache->pool_head->prev = iter;
+                }
+                cache->pool_head = iter;
                 iter = tmp;
-
-                nevicted++;
             } else {
                 // Keep in the cache
-                prev = iter;
                 iter = iter->next;
             }
         }
     }
-    fprintf(stderr, "PE %d evicted %u on timestep %d\n", pe, nevicted, timestep);
 }
 
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(hvr_vertex_id_t vert,
         hvr_sparse_vec_cache_t *cache, hvr_time_t target_timestep) {
-    const unsigned bucket =  vert % HVR_CACHE_BUCKETS;
+    const unsigned bucket = CACHE_BUCKET(vert);
 
-    hvr_sparse_vec_cache_node_t *head = cache->buckets[bucket];
-    hvr_sparse_vec_cache_node_t *iter = head;
-    hvr_sparse_vec_cache_node_t *prev = NULL;
+    hvr_sparse_vec_cache_node_t *iter = cache->buckets[bucket];
     while (iter) {
         if (iter->vert == vert) break;
-        prev = iter;
         iter = iter->next;
     }
 
     if (iter == NULL) {
         cache->nmisses++;
-        return NULL;
     } else {
-        // Can use, update the cache to make this most recently used
         cache->nhits++;
-        return iter;
     }
+    return iter;
 }
 
 void hvr_sparse_vec_cache_quiet(hvr_sparse_vec_cache_t *cache,
@@ -678,63 +712,115 @@ void hvr_sparse_vec_cache_quiet(hvr_sparse_vec_cache_t *cache,
     *counter = *counter + 1;
 }
 
+static void get_cache_metrics(hvr_sparse_vec_cache_t *cache,
+        hvr_time_t curr_timestep,
+        hvr_time_t *max_timestep_out, hvr_time_t *min_timestep_out,
+        double *avg_timestep_out,
+        unsigned *count_requested_on_this_timestep_out) {
+    hvr_time_t max_timestep = -1;
+    hvr_time_t min_timestep = MAX_TIMESTAMP;
+    double avg_timestep = 0.0;
+    unsigned avg_timestep_count = 0;
+    unsigned count_requested_on_this_timestep = 0;
+    for (unsigned b = 0; b < HVR_CACHE_BUCKETS; b++) {
+        hvr_sparse_vec_cache_node_t *iter = cache->buckets[b];
+        while (iter) {
+            if (iter->requested_on == curr_timestep) {
+                count_requested_on_this_timestep++;
+            } else {
+                /*
+                 * Only get metrics on those actors requested in earlier
+                 * timesteps
+                 */
+                assert(!iter->pending_comm);
+                hvr_time_t newest_timestamp;
+                int success = get_newest_timestamp(&(iter->vec),
+                        &newest_timestamp);
+                if (success) {
+                    if (newest_timestamp > max_timestep) {
+                        max_timestep = newest_timestamp;
+                    }
+                    if (newest_timestamp < min_timestep) {
+                        min_timestep = newest_timestamp;
+                    }
+                    avg_timestep += newest_timestamp;
+                    avg_timestep_count++;
+                }
+            }
+            iter = iter->next;
+        }
+    }
+    avg_timestep /= (double)avg_timestep_count;
+
+    *max_timestep_out = max_timestep;
+    *min_timestep_out = min_timestep;
+    *avg_timestep_out = avg_timestep;
+    *count_requested_on_this_timestep_out = count_requested_on_this_timestep;
+}
+
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_reserve(
         hvr_vertex_id_t vert, hvr_sparse_vec_cache_t *cache,
         hvr_time_t curr_timestep, int pe) {
     // Assume that vec is not already in the cache, but don't enforce this
-    hvr_sparse_vec_cache_node_t *new_node = cache->pool;
-
-    if (!new_node) {
-        hvr_time_t max_timestep = -1;
-        hvr_time_t min_timestep = MAX_TIMESTAMP;
-        double avg_timestep = 0.0;
-        unsigned avg_timestep_count = 0;
-        unsigned count_requested_on_this_timestep = 0;
-        for (unsigned b = 0; b < HVR_CACHE_BUCKETS; b++) {
-            hvr_sparse_vec_cache_node_t *iter = cache->buckets[b];
-            while (iter) {
-                if (iter->requested_on == curr_timestep) {
-                    count_requested_on_this_timestep++;
-                } else {
-                    /*
-                     * Only get metrics on those actors requested in earlier
-                     * timesteps
-                     */
-                    assert(!iter->pending_comm);
-                    hvr_time_t newest_timestamp;
-                    int success = get_newest_timestamp(&(iter->vec),
-                            &newest_timestamp);
-                    if (success) {
-                        if (newest_timestamp > max_timestep) {
-                            max_timestep = newest_timestamp;
-                        }
-                        if (newest_timestamp < min_timestep) {
-                            min_timestep = newest_timestamp;
-                        }
-                        avg_timestep += newest_timestamp;
-                        avg_timestep_count++;
-                    }
-                }
-                iter = iter->next;
-            }
+    hvr_sparse_vec_cache_node_t *new_node = NULL;
+    if (cache->pool_head) {
+        // Look for an already free node
+        new_node = cache->pool_head;
+        cache->pool_head = new_node->next;
+        if (cache->pool_head) {
+            cache->pool_head->prev = NULL;
         }
-        avg_timestep /= (double)avg_timestep_count;
-        fprintf(stderr, "ERROR: PE %d exhausted %u cache slots, curr timestep = %d, "
-            "max timestep = %d, min timestep = %d, average timestep = %f, # requested on this timestep = %u\n",
-            pe, cache->pool_size, curr_timestep, max_timestep, min_timestep,
-            avg_timestep, count_requested_on_this_timestep);
+    } else if (cache->lru_tail && !cache->lru_tail->pending_comm) { 
+        /*
+         * Find the oldest requested node, check it isn't pending communication,
+         * and if so use it.
+         */
+        new_node = cache->lru_tail;
+
+        // Removes node from bucket and LRU lists
+        remove_node_from_cache(new_node, cache);
+    } else {
+        // No valid node found, print an error
+        hvr_time_t max_timestep, min_timestep;
+        double avg_timestep;
+        unsigned count_requested_on_this_timestep;
+
+        get_cache_metrics(cache, curr_timestep, &max_timestep, &min_timestep,
+                &avg_timestep, &count_requested_on_this_timestep);
+
+        fprintf(stderr, "ERROR: PE %d exhausted %u cache slots, curr timestep "
+                "= %d, max timestep = %d, min timestep = %d, average timestep "
+                "= %f, # requested on this timestep = %u\n", pe,
+                cache->pool_size, curr_timestep, max_timestep, min_timestep,
+                avg_timestep, count_requested_on_this_timestep);
         abort();
     }
 
-    cache->pool = new_node->next;
-
-    const unsigned bucket = vert % HVR_CACHE_BUCKETS;
+    const unsigned bucket = CACHE_BUCKET(vert);
     assert(new_node->pending_comm == 0);
     new_node->vert = vert;
     new_node->pending_comm = 1;
     new_node->requested_on = curr_timestep;
+
+    // Insert into the appropriate bucket
+    if (cache->buckets[bucket]) {
+        cache->buckets[bucket]->prev = new_node;
+    }
     new_node->next = cache->buckets[bucket];
+    new_node->prev = NULL;
     cache->buckets[bucket] = new_node;
+
+    // Insert into the LRU list
+    new_node->lru_prev = NULL;
+    new_node->lru_next = cache->lru_head;
+    if (cache->lru_head) {
+        cache->lru_head->lru_prev = new_node;
+        cache->lru_head = new_node;
+    } else {
+        assert(cache->lru_tail == NULL);
+        cache->lru_head = cache->lru_tail = new_node;
+    }
+
     return new_node;
 }
 
@@ -1087,21 +1173,19 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
 
 static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
         hvr_sparse_vec_t *src, const int src_pe) {
-    shmem_getmem((void *)&(dst->next_bucket),
+    shmem_getmem_nbi((void *)&(dst->next_bucket),
             (void *)&(src->next_bucket),
             sizeof(src->next_bucket), src_pe);
 
-    // // shmem_fence();
+    shmem_fence();
 
-    shmem_getmem(&(dst->finalized[0]), &(src->finalized[0]),
+    shmem_getmem_nbi(&(dst->finalized[0]), &(src->finalized[0]),
             HVR_BUCKETS * sizeof(src->finalized[0]), src_pe);
 
-    // // shmem_fence();
+    shmem_fence();
 
-    shmem_getmem(dst, src,
+    shmem_getmem_nbi(dst, src,
             offsetof(hvr_sparse_vec_t, finalized), src_pe);
-
-    shmem_quiet();
 
     /*
      * No need to set next_in_partition here since we'll never use it for a
@@ -1279,22 +1363,22 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                 if (nbuffered == BUFFERING) {
                     // Process buffered
                     hvr_sparse_vec_cache_quiet(vec_cache, quiet_counter);
-// #ifdef FINE_GRAIN_TIMING
-//                     *getmem_time += (hvr_current_time_us() - start_time);
-//                     const unsigned long long start_time = hvr_current_time_us();
-// #endif
-//                     for (unsigned i = 0; i < nbuffered; i++) {
-//                         check_edges_to_add(&(buffered[i].node->vec),
-//                                 buffered[i].interacting_partitions,
-//                                 buffered[i].n_interacting_partitions,
-//                                 other_pes_timestep, ctx,
-//                                 &n_distance_measures);
-//                         total_partition_checks +=
-//                             buffered[i].n_interacting_partitions;
-//                     }
-// #ifdef FINE_GRAIN_TIMING
-//                     *update_edge_time += (hvr_current_time_us() - start_time);
-// #endif
+#ifdef FINE_GRAIN_TIMING
+                    *getmem_time += (hvr_current_time_us() - start_time);
+                    const unsigned long long start_time = hvr_current_time_us();
+#endif
+                    for (unsigned i = 0; i < nbuffered; i++) {
+                        check_edges_to_add(&(buffered[i].node->vec),
+                                buffered[i].interacting_partitions,
+                                buffered[i].n_interacting_partitions,
+                                other_pes_timestep, ctx,
+                                &n_distance_measures);
+                        total_partition_checks +=
+                            buffered[i].n_interacting_partitions;
+                    }
+#ifdef FINE_GRAIN_TIMING
+                    *update_edge_time += (hvr_current_time_us() - start_time);
+#endif
                     nbuffered = 0;
                 } else {
 #ifdef FINE_GRAIN_TIMING
@@ -1319,22 +1403,20 @@ static void update_edges(hvr_internal_ctx_t *ctx,
  #ifdef FINE_GRAIN_TIMING
              start_time = hvr_current_time_us();
  #endif
-//              for (unsigned i = 0; i < nbuffered; i++) {
-//                  check_edges_to_add(&(buffered[i].node->vec),
-//                          buffered[i].interacting_partitions,
-//                          buffered[i].n_interacting_partitions,
-//                          other_pes_timestep, ctx,
-//                          &n_distance_measures);
-//                  total_partition_checks +=
-//                      buffered[i].n_interacting_partitions;
-//              }
+             for (unsigned i = 0; i < nbuffered; i++) {
+                 check_edges_to_add(&(buffered[i].node->vec),
+                         buffered[i].interacting_partitions,
+                         buffered[i].n_interacting_partitions,
+                         other_pes_timestep, ctx,
+                         &n_distance_measures);
+                 total_partition_checks +=
+                     buffered[i].n_interacting_partitions;
+             }
  #ifdef FINE_GRAIN_TIMING
              *update_edge_time += (hvr_current_time_us() - start_time);
  #endif
          }
     }
-
-    hvr_sparse_vec_cache_quiet(vec_cache, quiet_counter);
 
     free(other_actor_to_partition_map);
     *out_n_edge_checks = n_edge_checks;
@@ -2111,124 +2193,124 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
-        // hvr_sparse_vec_t coupled_metric;
-        // memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
-        //         sizeof(coupled_metric));
+        hvr_sparse_vec_t coupled_metric;
+        memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
+                sizeof(coupled_metric));
 
-        // hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
-        // should_abort = ctx->check_abort(&iter, ctx, to_couple_with,
-        //         &coupled_metric);
-        // finalize_actor_for_timestep(
-        //         &coupled_metric, ctx->timestep);
+        hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
+        should_abort = ctx->check_abort(&iter, ctx, to_couple_with,
+                &coupled_metric);
+        finalize_actor_for_timestep(
+                &coupled_metric, ctx->timestep);
 
-        // // Update my local information on PEs I am coupled with.
-        // hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
+        // Update my local information on PEs I am coupled with.
+        hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
 
-        // // Atomically update other PEs that I am coupled with.
-        // for (int p = 0; p < ctx->npes; p++) {
-        //     if (p != ctx->pe && hvr_set_contains(p, ctx->coupled_pes)) {
-        //         for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
-        //             SHMEM_ULONGLONG_ATOMIC_OR(
-        //                     ctx->coupled_pes->bit_vector + i,
-        //                     (ctx->coupled_pes->bit_vector)[i], p);
-        //         }
-        //     }
-        // }
+        // Atomically update other PEs that I am coupled with.
+        for (int p = 0; p < ctx->npes; p++) {
+            if (p != ctx->pe && hvr_set_contains(p, ctx->coupled_pes)) {
+                for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
+                    SHMEM_ULONGLONG_ATOMIC_OR(
+                            ctx->coupled_pes->bit_vector + i,
+                            (ctx->coupled_pes->bit_vector)[i], p);
+                }
+            }
+        }
 
         const unsigned long long finished_neighbor_updates =
             hvr_current_time_us();
 
-        // hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
-        // shmem_putmem(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
-        //         sizeof(coupled_metric), ctx->pe);
-        // shmem_quiet();
-        // hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
+        hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
+        shmem_putmem(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
+                sizeof(coupled_metric), ctx->pe);
+        shmem_quiet();
+        hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
 
         const unsigned long long finished_coupled_values = hvr_current_time_us();
 
-        // /*
-        //  * For each PE I know I'm coupled with, lock their coupled_timesteps
-        //  * list and update my copy with any newer entries in my
-        //  * coupled_timesteps list.
-        //  */
+        /*
+         * For each PE I know I'm coupled with, lock their coupled_timesteps
+         * list and update my copy with any newer entries in my
+         * coupled_timesteps list.
+         */
         unsigned n_coupled_spins = 0;
-        // int ncoupled = 1; // include myself
-        // for (int p = 0; p < ctx->npes; p++) {
-        //     if (p == ctx->pe) continue;
+        int ncoupled = 1; // include myself
+        for (int p = 0; p < ctx->npes; p++) {
+            if (p == ctx->pe) continue;
 
-        //     if (hvr_set_contains(p, ctx->coupled_pes)) {
-        //         /*
-        //          * Wait until we've found an update to p's coupled value that is
-        //          * for this timestep.
-        //          */
-        //         assert(hvr_sparse_vec_has_timestamp(&coupled_metric,
-        //                     ctx->timestep) == HAS_TIMESTAMP);
-        //         int other_has_timestamp = hvr_sparse_vec_has_timestamp(
-        //                 ctx->coupled_pes_values + p, ctx->timestep);
-        //         assert(other_has_timestamp != NEVER_HAVE_TIMESTAMP);
+            if (hvr_set_contains(p, ctx->coupled_pes)) {
+                /*
+                 * Wait until we've found an update to p's coupled value that is
+                 * for this timestep.
+                 */
+                assert(hvr_sparse_vec_has_timestamp(&coupled_metric,
+                            ctx->timestep) == HAS_TIMESTAMP);
+                int other_has_timestamp = hvr_sparse_vec_has_timestamp(
+                        ctx->coupled_pes_values + p, ctx->timestep);
+                assert(other_has_timestamp != NEVER_HAVE_TIMESTAMP);
 
-        //         while (other_has_timestamp != HAS_TIMESTAMP) {
-        //             hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
-        //             
-        //             shmem_getmem(ctx->coupled_pes_values_buffer,
-        //                     ctx->coupled_pes_values,
-        //                     ctx->npes * sizeof(hvr_sparse_vec_t), p);
+                while (other_has_timestamp != HAS_TIMESTAMP) {
+                    hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
+                    
+                    shmem_getmem(ctx->coupled_pes_values_buffer,
+                            ctx->coupled_pes_values,
+                            ctx->npes * sizeof(hvr_sparse_vec_t), p);
 
-        //             hvr_rwlock_runlock((long *)ctx->coupled_lock, p);
+                    hvr_rwlock_runlock((long *)ctx->coupled_lock, p);
 
-        //             for (int i = 0; i < ctx->npes; i++) {
-        //                 (ctx->coupled_pes_values_buffer)[i].cached_timestamp = -1;
-        //                 (ctx->coupled_pes_values_buffer)[i].cached_timestamp_index = 0;
-        //             }
+                    for (int i = 0; i < ctx->npes; i++) {
+                        (ctx->coupled_pes_values_buffer)[i].cached_timestamp = -1;
+                        (ctx->coupled_pes_values_buffer)[i].cached_timestamp_index = 0;
+                    }
 
-        //             hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
-        //             for (int i = 0; i < ctx->npes; i++) {
-        //                 hvr_sparse_vec_t *other =
-        //                     ctx->coupled_pes_values_buffer + i;
-        //                 hvr_sparse_vec_t *mine = ctx->coupled_pes_values + i;
+                    hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
+                    for (int i = 0; i < ctx->npes; i++) {
+                        hvr_sparse_vec_t *other =
+                            ctx->coupled_pes_values_buffer + i;
+                        hvr_sparse_vec_t *mine = ctx->coupled_pes_values + i;
 
-        //                 const hvr_time_t other_max_timestamp =
-        //                     hvr_sparse_vec_max_timestamp(other);
-        //                 const hvr_time_t mine_max_timestamp =
-        //                     hvr_sparse_vec_max_timestamp(mine);
+                        const hvr_time_t other_max_timestamp =
+                            hvr_sparse_vec_max_timestamp(other);
+                        const hvr_time_t mine_max_timestamp =
+                            hvr_sparse_vec_max_timestamp(mine);
 
-        //                 if (other_max_timestamp >= 0) {
-        //                     if (mine_max_timestamp < 0) {
-        //                         memcpy(mine, other, sizeof(*mine));
-        //                     } else if (other_max_timestamp > mine_max_timestamp) {
-        //                         memcpy(mine, other, sizeof(*mine));
-        //                     }
-        //                 }
-        //             }
-        //             hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
+                        if (other_max_timestamp >= 0) {
+                            if (mine_max_timestamp < 0) {
+                                memcpy(mine, other, sizeof(*mine));
+                            } else if (other_max_timestamp > mine_max_timestamp) {
+                                memcpy(mine, other, sizeof(*mine));
+                            }
+                        }
+                    }
+                    hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
 
-        //             other_has_timestamp = hvr_sparse_vec_has_timestamp(
-        //                     ctx->coupled_pes_values + p, ctx->timestep);
-        //             assert(other_has_timestamp != NEVER_HAVE_TIMESTAMP);
-        //             n_coupled_spins++;
-        //         }
+                    other_has_timestamp = hvr_sparse_vec_has_timestamp(
+                            ctx->coupled_pes_values + p, ctx->timestep);
+                    assert(other_has_timestamp != NEVER_HAVE_TIMESTAMP);
+                    n_coupled_spins++;
+                }
 
-        //         hvr_sparse_vec_add_internal(&coupled_metric,
-        //                 ctx->coupled_pes_values + p, ctx->timestep);
+                hvr_sparse_vec_add_internal(&coupled_metric,
+                        ctx->coupled_pes_values + p, ctx->timestep);
 
-        //         ncoupled++;
-        //     }
-        // }
+                ncoupled++;
+            }
+        }
 
-        // /*
-        //  * TODO coupled_metric here contains the aggregate values over all
-        //  * coupled PEs, including this one. Do we want to do anything with this,
-        //  * other than print it?
-        //  */
-        // if (ncoupled > 1) {
-        //     char buf[1024];
-        //     unsigned unused;
-        //     hvr_sparse_vec_dump_internal(&coupled_metric, buf, 1024,
-        //             ctx->timestep + 1, &unused, &unused);
-        //     printf("PE %d - computed coupled value {%s} from %d "
-        //             "coupled PEs on timestep %d\n", ctx->pe, buf, ncoupled,
-        //             ctx->timestep);
-        // }
+        /*
+         * TODO coupled_metric here contains the aggregate values over all
+         * coupled PEs, including this one. Do we want to do anything with this,
+         * other than print it?
+         */
+        if (ncoupled > 1) {
+            char buf[1024];
+            unsigned unused;
+            hvr_sparse_vec_dump_internal(&coupled_metric, buf, 1024,
+                    ctx->timestep + 1, &unused, &unused);
+            printf("PE %d - computed coupled value {%s} from %d "
+                    "coupled PEs on timestep %d\n", ctx->pe, buf, ncoupled,
+                    ctx->timestep);
+        }
 
         const unsigned long long finished_coupling = hvr_current_time_us();
 
