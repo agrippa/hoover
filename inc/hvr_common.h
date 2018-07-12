@@ -59,6 +59,7 @@ typedef int32_t hvr_time_t;
 typedef struct _hvr_internal_ctx_t hvr_internal_ctx_t;
 typedef hvr_internal_ctx_t *hvr_ctx_t;
 
-#define HVR_INVALID_PARTITION UINT16_MAX
+typedef uint32_t hvr_partition_t;
+#define HVR_INVALID_PARTITION UINT32_MAX
 
 #endif

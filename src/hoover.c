@@ -29,6 +29,7 @@
 // #define TRACK_VECTOR_GET_CACHE
 
 static int print_profiling = 1;
+static volatile int this_pe_has_exited = 0;
 
 #define USE_CSWAP_BITWISE_ATOMICS
 
@@ -1099,7 +1100,7 @@ hvr_graph_id_t hvr_graph_create(hvr_ctx_t in_ctx) {
  * in locally. If so, add that PE as a neighbor.
  */
 static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx) {
-    uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
+    hvr_partition_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
     unsigned n_interacting_partitions;
     hvr_set_wipe(ctx->my_neighbors);
 
@@ -1225,7 +1226,8 @@ static void get_remote_vec_blocking(hvr_vertex_id_t vertex,
 }
 
 static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
-        uint16_t *interacting_partitions, unsigned n_interacting_partitions,
+        hvr_partition_t *interacting_partitions,
+        unsigned n_interacting_partitions,
         hvr_time_t other_pes_timestep, hvr_internal_ctx_t *ctx,
         unsigned long long *n_distance_measures) {
     unsigned long long local_n_distance_measures = 0;
@@ -1288,16 +1290,13 @@ static void update_edges(hvr_internal_ctx_t *ctx,
         unsigned long long *out_partition_checks,
         unsigned long long *quiet_counter,
         unsigned long long *out_n_distance_measures) {
-    uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
+    hvr_partition_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
     unsigned n_interacting_partitions;
 
     unsigned long long n_distance_measures = 0;
     unsigned long long total_partition_checks = 0;
 
     unsigned long long n_edge_checks = 0;
-    uint16_t *other_actor_to_partition_map = (uint16_t *)malloc(
-            ctx->pool->pool_size * sizeof(uint16_t));
-    assert(other_actor_to_partition_map);
 
     // For each PE
     for (unsigned p = 0; p < ctx->npes; p++) {
@@ -1314,8 +1313,9 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 
         // Grab the target PEs mapping from actors to partitions
         rlock_actor_to_partition(target_pe, ctx);
-        shmem_getmem(other_actor_to_partition_map, ctx->actor_to_partition_map,
-                ctx->pool->pool_size * sizeof(uint16_t), target_pe);
+        shmem_getmem(ctx->other_actor_to_partition_map,
+                ctx->actor_to_partition_map,
+                ctx->pool->pool_size * sizeof(hvr_partition_t), target_pe);
         runlock_actor_to_partition(target_pe, ctx);
 
         // Check what timestep the remote PE is on currently.
@@ -1333,7 +1333,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 #define BUFFERING 512
         struct {
             hvr_sparse_vec_cache_node_t *node;
-            uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
+            hvr_partition_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
             unsigned n_interacting_partitions;
         } buffered[BUFFERING];
         unsigned nbuffered = 0;
@@ -1343,7 +1343,8 @@ static void update_edges(hvr_internal_ctx_t *ctx,
 #ifdef FINE_GRAIN_TIMING
             const unsigned long long start_time = hvr_current_time_us();
 #endif
-            const uint16_t actor_partition = other_actor_to_partition_map[j];
+            const hvr_partition_t actor_partition =
+                (ctx->other_actor_to_partition_map)[j];
 
             // If remote actor j might interact with anything in our local PE.
             if (actor_partition != HVR_INVALID_PARTITION &&
@@ -1355,7 +1356,7 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                         vec_cache);
                 memcpy(buffered[nbuffered].interacting_partitions,
                         interacting_partitions,
-                        MAX_INTERACTING_PARTITIONS * sizeof(uint16_t));
+                        MAX_INTERACTING_PARTITIONS * sizeof(hvr_partition_t));
                 buffered[nbuffered].n_interacting_partitions =
                     n_interacting_partitions;
                 nbuffered++;
@@ -1418,15 +1419,14 @@ static void update_edges(hvr_internal_ctx_t *ctx,
          }
     }
 
-    free(other_actor_to_partition_map);
     *out_n_edge_checks = n_edge_checks;
     *out_partition_checks = total_partition_checks;
     *out_n_distance_measures = n_distance_measures;
 }
 
-static uint16_t wrap_actor_to_partition(hvr_sparse_vec_t *vec,
+static hvr_partition_t wrap_actor_to_partition(hvr_sparse_vec_t *vec,
         hvr_internal_ctx_t *ctx) {
-    uint16_t partition = ctx->actor_to_partition(vec, ctx);
+    hvr_partition_t partition = ctx->actor_to_partition(vec, ctx);
     if (partition >= ctx->n_partitions) {
         char buf[1024];
         hvr_sparse_vec_dump(vec, buf, 1024, ctx);
@@ -1458,7 +1458,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
             curr = hvr_vertex_iter_next(&iter)) {
         assert(curr->id != HVR_INVALID_VERTEX_ID);
 
-        uint16_t partition = wrap_actor_to_partition(curr, ctx);
+        hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
 
         // Update a mapping from local actor to the partition it belongs to
         (ctx->actor_to_partition_map)[VERTEX_ID_OFFSET(curr->id)] =
@@ -1633,7 +1633,7 @@ static void oldest_pe_timestep(hvr_internal_ctx_t *ctx,
     *out_oldest_pe = oldest_pe;
 }
 
-void hvr_init(const uint16_t n_partitions,
+void hvr_init(const hvr_partition_t n_partitions,
         hvr_update_metadata_func update_metadata,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort,
@@ -1709,12 +1709,15 @@ void hvr_init(const uint16_t n_partitions,
     assert(n_partitions <= HVR_INVALID_PARTITION);
     new_ctx->n_partitions = n_partitions;
 
-    new_ctx->actor_to_partition_map = (uint16_t *)shmem_malloc_wrapper(
-            new_ctx->pool->pool_size * sizeof(uint16_t));
+    new_ctx->actor_to_partition_map = (hvr_partition_t *)shmem_malloc_wrapper(
+            new_ctx->pool->pool_size * sizeof(hvr_partition_t));
     assert(new_ctx->actor_to_partition_map);
     for (unsigned i = 0; i < new_ctx->pool->pool_size; i++) {
         (new_ctx->actor_to_partition_map)[i] = HVR_INVALID_PARTITION;
     }
+    new_ctx->other_actor_to_partition_map = (hvr_partition_t *)malloc(
+            new_ctx->pool->pool_size * sizeof(hvr_partition_t));
+    assert(new_ctx->other_actor_to_partition_map);
 
     new_ctx->update_metadata = update_metadata;
     new_ctx->might_interact = might_interact;
@@ -1821,10 +1824,6 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
 
     hvr_set_t *full_partition_set = hvr_create_full_set(ctx->n_partitions, ctx);
 
-    uint16_t *other_actor_to_partition_map = (uint16_t *)malloc(
-            ctx->pool->pool_size * sizeof(uint16_t));
-    assert(other_actor_to_partition_map);
-  
     int owning_pe = VERTEX_ID_PE(vertex);
     *neighbors_out = NULL;
     *n_neighbors_out = 0;
@@ -1849,9 +1848,9 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         *count_remote_gets += 1;
 
         // Compute partition for this vertex
-        uint16_t partition = wrap_actor_to_partition(&remote_vec, ctx);
+        hvr_partition_t partition = wrap_actor_to_partition(&remote_vec, ctx);
 
-        uint16_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
+        hvr_partition_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
         unsigned n_interacting_partitions;
         // Figure out all partitions it might interact with
         if (ctx->might_interact(partition, full_partition_set,
@@ -1861,7 +1860,7 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
             for (int interacting_part_index = 0;
                     interacting_part_index < n_interacting_partitions;
                     interacting_part_index++) {
-                uint16_t interacting_partition =
+                hvr_partition_t interacting_partition =
                     interacting_partitions[interacting_part_index];
 
                 const int partition_owner_pe = interacting_partition /
@@ -1888,9 +1887,10 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
 
                         // Grab the target PEs mapping from actors to partitions
                         rlock_actor_to_partition(p, ctx);
-                        shmem_getmem(other_actor_to_partition_map,
+                        shmem_getmem(ctx->other_actor_to_partition_map,
                                 ctx->actor_to_partition_map,
-                                ctx->pool->pool_size * sizeof(uint16_t), p);
+                                ctx->pool->pool_size * sizeof(hvr_partition_t),
+                                p);
                         runlock_actor_to_partition(p, ctx);
 
                         /*
@@ -1899,8 +1899,8 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
                          */
                         for (hvr_vertex_id_t j = 0; j < ctx->pool->pool_size;
                                 j++) {
-                            const uint16_t remote_actor_partition =
-                                other_actor_to_partition_map[j];
+                            const hvr_partition_t remote_actor_partition =
+                                (ctx->other_actor_to_partition_map)[j];
 
                             int is_interacting = 0;
                             for (unsigned k = 0; k < n_interacting_partitions;
@@ -1951,7 +1951,6 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         }
     }
 
-    free(other_actor_to_partition_map);
     hvr_set_destroy(full_partition_set);
 }
 
@@ -2065,11 +2064,20 @@ static void finalize_actors_for_timestep(hvr_internal_ctx_t *ctx,
 }
 
 static void *aborting_thread(void *user_data) {
+    int nseconds = atoi(getenv("HVR_HANG_ABORT"));
+    assert(nseconds > 0);
+
     const unsigned long long start = hvr_current_time_us();
-    while (hvr_current_time_us() - start < 120 * 1000000) {
+    while (hvr_current_time_us() - start < nseconds * 1000000) {
         sleep(10);
     }
-    abort(); // Get a core dump
+
+    if (!this_pe_has_exited) {
+        fprintf(stderr, "ERROR: HOOVER forcibly aborting because "
+                "HVR_HANG_ABORT was set.\n");
+        abort(); // Get a core dump
+    }
+    return NULL;
 }
 
 hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
@@ -2469,6 +2477,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
             }
         }
     }
+
+    this_pe_has_exited = 1;
 
     hvr_exec_info info;
     info.executed_timesteps = ctx->timestep;

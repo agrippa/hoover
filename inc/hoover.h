@@ -142,8 +142,8 @@ typedef int (*hvr_check_abort_func)(hvr_vertex_iter_t *iter,
  * API for checking if this PE might have any vertices that interact with
  * vertices on another PE.
  */
-typedef int (*hvr_might_interact_func)(const uint16_t partition,
-        hvr_set_t *partitions, uint16_t *interacting_partitions,
+typedef int (*hvr_might_interact_func)(const hvr_partition_t partition,
+        hvr_set_t *partitions, hvr_partition_t *interacting_partitions,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity, hvr_ctx_t ctx);
 
@@ -151,7 +151,7 @@ typedef int (*hvr_might_interact_func)(const uint16_t partition,
  * API for calculating the problem space partition that a given vertex belongs
  * to.
  */
-typedef uint16_t (*hvr_actor_to_partition)(hvr_sparse_vec_t *actor,
+typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_sparse_vec_t *actor,
         hvr_ctx_t ctx);
 
 /*
@@ -170,7 +170,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_sparse_vec_pool_t *pool;
 
     // Number of partitions passed in by the user
-    uint16_t n_partitions;
+    hvr_partition_t n_partitions;
 
     // Set of edges for our local vertices
     hvr_edge_set_t *edges;
@@ -204,7 +204,8 @@ typedef struct _hvr_internal_ctx_t {
      * concurrently accessible using the R/W lock actor_to_partition_lock.
      */
     long *actor_to_partition_lock;
-    uint16_t *actor_to_partition_map;
+    hvr_partition_t *actor_to_partition_map;
+    hvr_partition_t *other_actor_to_partition_map;
 
     // User callbacks
     hvr_update_metadata_func update_metadata;
@@ -319,7 +320,7 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         unsigned *count_remote_gets);
 
 // Initialize the state of the simulation/ctx
-extern void hvr_init(const uint16_t n_partitions,
+extern void hvr_init(const hvr_partition_t n_partitions,
         hvr_update_metadata_func update_metadata,
         hvr_might_interact_func might_interact,
         hvr_check_abort_func check_abort,

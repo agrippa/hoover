@@ -80,7 +80,7 @@ static int random_int_in_range(int max_val) {
     return (rand() % max_val);
 }
 
-uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
+hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     const double x = hvr_sparse_vec_get(PX, actor, ctx);
     const double y = hvr_sparse_vec_get(PY, actor, ctx);
 
@@ -99,7 +99,7 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     assert(x_partition < PARTITION_DIM);
     assert(y_partition < PARTITION_DIM);
 
-    const uint16_t part = y_partition * PARTITION_DIM + x_partition;
+    const hvr_partition_t part = y_partition * PARTITION_DIM + x_partition;
     assert(part < PARTITION_DIM * PARTITION_DIM);
     return part;
 }
@@ -247,8 +247,8 @@ int update_summary_data(void *_summary, hvr_sparse_vec_t *actors,
  * If partition is neighboring any partition in partitions, they might
  * interact.
  */
-int might_interact(const uint16_t partition, hvr_set_t *partitions,
-        uint16_t *interacting_partitions,
+int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
+        hvr_partition_t *interacting_partitions,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity,
         hvr_ctx_t ctx) {

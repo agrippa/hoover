@@ -20,11 +20,11 @@
 #define MAX(a, b) (((a) > (b)) ? a : b)
 #define MIN(a, b) (((a) < (b)) ? a : b)
 
-#define MAX_SUBGRAPH_VERTICES 3
-#define TOP_N 3
+#define MAX_SUBGRAPH_VERTICES 5
+#define TOP_N 5
 #define MAX_DISTANCE_FOR_ANOMALY 2
 
-const unsigned PARTITION_DIM = 40U;
+const unsigned PARTITION_DIM = 70U;
 static double distance_threshold = 1.0;
 
 typedef struct _adjacency_matrix_t {
@@ -73,7 +73,7 @@ static timestamped_pattern_count_t *neighbor_patterns_buffer = NULL;
 static pattern_count_t *sorted_best_patterns = NULL;
 static unsigned n_sorted_best_patterns = 0;
 
-#define MAX_LOCAL_PATTERNS 30
+#define MAX_LOCAL_PATTERNS 200
 static pattern_count_t *known_local_patterns = NULL;
 static std::vector<int> **pes_sharing_local_patterns = NULL;
 static unsigned n_known_local_patterns = 0;
@@ -197,13 +197,16 @@ static void subgraph_add_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
     graph->adjacency_matrix.matrix[b_index][a_index] = 1;
 }
 
-static void explore_subgraphs(subgraph_t *curr_state,
+static void explore_subgraphs(hvr_vertex_id_t last_added,
+        subgraph_t *curr_state,
         pattern_count_t *known_patterns,
         std::vector<int> **pes_sharing_local_patterns,
         unsigned *n_known_patterns, hvr_ctx_t ctx, unsigned *n_explores,
-        unsigned max_explores, unsigned *count_local_gets,
+        unsigned curr_depth, unsigned max_depth, unsigned *count_local_gets,
         unsigned *count_remote_gets) {
-    if (*n_explores >= max_explores) return;
+    if (curr_depth >= max_depth) {
+        return;
+    }
     *n_explores += 1;
 
     /*
@@ -229,7 +232,11 @@ static void explore_subgraphs(subgraph_t *curr_state,
         }
     }
     if (!found) {
-        assert(*n_known_patterns < MAX_LOCAL_PATTERNS);
+        if (*n_known_patterns >= MAX_LOCAL_PATTERNS) {
+            fprintf(stderr, "ERROR: # patterns (%d) has exceeded maximum "
+                    "(%d)\n", *n_known_patterns, MAX_LOCAL_PATTERNS);
+            abort();
+        }
 
         pattern_count_t *new_pattern = known_patterns + *n_known_patterns;
         memcpy(&(new_pattern->matrix), &(curr_state->adjacency_matrix),
@@ -249,9 +256,12 @@ static void explore_subgraphs(subgraph_t *curr_state,
         *n_known_patterns += 1;
     }
 
-    // For each of the vertices already in this subgraph
-    for (unsigned i = 0; i < curr_state->adjacency_matrix.n_vertices; i++) {
-        hvr_vertex_id_t existing_vertex = curr_state->vertices[i];
+    // For the most recently added vertex
+    hvr_vertex_id_t existing_vertex = last_added;
+
+    // // For each of the vertices already in this subgraph
+    // for (unsigned i = 0; i < curr_state->adjacency_matrix.n_vertices; i++) {
+    //     hvr_vertex_id_t existing_vertex = curr_state->vertices[i];
 
         /*
          * Find the neighbors (i.e. halo regions) of the current vertex in the
@@ -278,9 +288,9 @@ static void explore_subgraphs(subgraph_t *curr_state,
                     subgraph_t new_state;
                     memcpy(&new_state, curr_state, sizeof(new_state));
                     subgraph_add_edge(neighbor, existing_vertex, &new_state);
-                    explore_subgraphs(&new_state, known_patterns,
+                    explore_subgraphs(neighbor, &new_state, known_patterns,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
-                            n_explores, max_explores, count_local_gets,
+                            n_explores, curr_depth + 1, max_depth, count_local_gets,
                             count_remote_gets);
                 }
             } else {
@@ -293,22 +303,22 @@ static void explore_subgraphs(subgraph_t *curr_state,
                         neighbor;
                     new_state.adjacency_matrix.n_vertices += 1;
                     subgraph_add_edge(neighbor, existing_vertex, &new_state);
-                    explore_subgraphs(&new_state, known_patterns,
+                    explore_subgraphs(neighbor, &new_state, known_patterns,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
-                            n_explores, max_explores, count_local_gets,
+                            n_explores, curr_depth + 1, max_depth, count_local_gets,
                             count_remote_gets);
                 }
             }
         }
         free(neighbors);
-    }
+    // }
 }
 
 static unsigned score_pattern(pattern_count_t *pattern) {
     return pattern->count * adjacency_matrix_n_edges(&pattern->matrix);
 }
 
-uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
+hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     int feat1_partition = hvr_sparse_vec_get(0, actor, ctx) /
         feat_range_per_partition;
     int feat2_partition = hvr_sparse_vec_get(1, actor, ctx) /
@@ -320,7 +330,8 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
 }
 
 // Assumes we already hold the write lock on best_patterns_lock for the local PE
-static void update_patterns_from(timestamped_pattern_count_t *tmp_buffer, int target_pe) {
+static void update_patterns_from(timestamped_pattern_count_t *tmp_buffer,
+        int target_pe) {
     hvr_rwlock_rlock(best_patterns_lock, target_pe);
     shmem_getmem(neighbor_patterns_buffer, best_patterns,
             npes * sizeof(timestamped_pattern_count_t), target_pe);
@@ -367,10 +378,10 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * features which are designed to be most likely to just interact with
      * vertices on this node (but possibly with vertices on other nodes).
      */
-    int n_vertices_to_add = rand() % 400;
+    const int n_vertices_to_add = rand() % 100;
 
     double mean = (pe * range_per_pe) + (range_per_pe / 2.0);
-    double sigma = range_per_pe / 3.0;
+    double sigma = range_per_pe / 4.0;
 
     hvr_sparse_vec_t *new_vertices = hvr_sparse_vec_create_n(n_vertices_to_add,
             graph, ctx);
@@ -426,10 +437,10 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 MAX_SUBGRAPH_VERTICES * sizeof(unsigned char));
 
         unsigned n_this_explores = 0;
-        unsigned max_explores = 256;
-        explore_subgraphs(&sub, known_local_patterns,
+        unsigned max_depth = 5;
+        explore_subgraphs(vertex->id, &sub, known_local_patterns,
             pes_sharing_local_patterns, &n_known_local_patterns, ctx,
-            &n_this_explores, max_explores, &n_local_gets, &n_remote_gets);
+            &n_this_explores, 0, max_depth, &n_local_gets, &n_remote_gets);
         n_explores += n_this_explores;
     }
 
@@ -441,7 +452,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 "count = %u, edge count = %u. "
                 "# local gets = %u, # remote gets = %u\n",
                 pe, n_known_local_patterns, hvr_current_timestep(ctx),
-                n_explores, n_local_vertices, score_pattern(known_local_patterns + 0),
+                n_explores, n_local_vertices,
+                score_pattern(known_local_patterns + 0),
                 known_local_patterns[0].matrix.n_vertices,
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix),
                 n_local_gets, n_remote_gets);
@@ -514,8 +526,8 @@ void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
      */
 }
 
-int might_interact(const uint16_t partition, hvr_set_t *partitions,
-        uint16_t *interacting_partitions,
+int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
+        hvr_partition_t *interacting_partitions,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity,
         hvr_ctx_t ctx) {
@@ -523,9 +535,9 @@ int might_interact(const uint16_t partition, hvr_set_t *partitions,
      * If a vertex in 'partition' may create an edge with any vertices in any
      * partition in 'partitions', they might interact (so return 1).
      */
-    uint16_t feat1_partition = partition / (PARTITION_DIM * PARTITION_DIM);
-    uint16_t feat2_partition = (partition / PARTITION_DIM) % PARTITION_DIM;
-    uint16_t feat3_partition = partition % PARTITION_DIM;
+    hvr_partition_t feat1_partition = partition / (PARTITION_DIM * PARTITION_DIM);
+    hvr_partition_t feat2_partition = (partition / PARTITION_DIM) % PARTITION_DIM;
+    hvr_partition_t feat3_partition = partition % PARTITION_DIM;
 
     double feat1_min = feat1_partition * feat_range_per_partition;
     double feat1_max = (feat1_partition + 1) * feat_range_per_partition;
@@ -607,7 +619,7 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
             if (dist == 0) {
                 is_a_frequent_pattern = 1;
                 break;
-            } else if (dist > 0 && dist < MAX_DISTANCE_FOR_ANOMALY) {
+            } else if (dist > 0 && dist <= MAX_DISTANCE_FOR_ANOMALY) {
                 /*
                  * This defines an anomaly as a local pattern that is similar
                  * but not identical to one of the top 5 globally identified
@@ -623,27 +635,27 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
             char buf[1024];
             fprintf(stderr, "PE %d found potentially anomalous pattern!\n", pe);
 
-            if (pe_anomalies_fp == NULL) {
-                sprintf(buf, "pe_%d.anomalies.txt", pe);
-                pe_anomalies_fp = fopen(buf, "w");
-                assert(pe_anomalies_fp);
-            }
+            // if (pe_anomalies_fp == NULL) {
+            //     sprintf(buf, "pe_%d.anomalies.txt", pe);
+            //     pe_anomalies_fp = fopen(buf, "w");
+            //     assert(pe_anomalies_fp);
+            // }
 
-            fprintf(pe_anomalies_fp, "Found anomaly on timestep %d\n",
-                    hvr_current_timestep(ctx));
-            fprintf(pe_anomalies_fp, "Anomaly (count=%u):\n",
-                    local_pattern->count);
-            adjacency_matrix_to_string(&local_pattern->matrix, buf, 1024);
-            fprintf(pe_anomalies_fp, buf);
-            fprintf(pe_anomalies_fp, "Regular Pattern (count=%u):\n",
-                    sorted_best_patterns[is_similar_to_a_frequent_pattern].count);
-            adjacency_matrix_to_string(
-                    &sorted_best_patterns[is_similar_to_a_frequent_pattern].matrix, buf,
-                    1024);
-            fprintf(pe_anomalies_fp, buf);
-            fprintf(pe_anomalies_fp, "\n");
+            // fprintf(pe_anomalies_fp, "Found anomaly on timestep %d\n",
+            //         hvr_current_timestep(ctx));
+            // fprintf(pe_anomalies_fp, "Anomaly (count=%u):\n",
+            //         local_pattern->count);
+            // adjacency_matrix_to_string(&local_pattern->matrix, buf, 1024);
+            // fprintf(pe_anomalies_fp, buf);
+            // fprintf(pe_anomalies_fp, "Regular Pattern (count=%u):\n",
+            //         sorted_best_patterns[is_similar_to_a_frequent_pattern].count);
+            // adjacency_matrix_to_string(
+            //         &sorted_best_patterns[is_similar_to_a_frequent_pattern].matrix, buf,
+            //         1024);
+            // fprintf(pe_anomalies_fp, buf);
+            // fprintf(pe_anomalies_fp, "\n");
 
-            fflush(pe_anomalies_fp);
+            // fflush(pe_anomalies_fp);
 
             /*
              * Become coupled with other PEs whose vertices are parts of this
@@ -663,8 +675,9 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 
     unsigned long long time_so_far = hvr_current_time_us() - start_time;
     fprintf(stderr, "PE %d - check_abort - elapsed time = %f s, time limit = "
-            "%f s, # local vertices = %u, aborting? %d\n", pe, (double)time_so_far / 1000000.0,
-            (double)time_limit_us / 1000000.0, n_local_vertices, (time_so_far > time_limit_us));
+            "%f s, # local vertices = %u, aborting? %d\n", pe,
+            (double)time_so_far / 1000000.0, (double)time_limit_us / 1000000.0,
+            n_local_vertices, (time_so_far > time_limit_us));
     return (time_so_far > time_limit_us);
 }
 

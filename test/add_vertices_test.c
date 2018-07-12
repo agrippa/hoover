@@ -44,7 +44,7 @@ long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 
 static unsigned grid_cells_this_pe;
 
-uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
+hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     const double row = hvr_sparse_vec_get(0, actor, ctx);
     const double col = hvr_sparse_vec_get(1, actor, ctx);
 
@@ -52,7 +52,7 @@ uint16_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
 
     const int row_partition = (int)(row / partition_size);
     const int col_partition = (int)(col / partition_size);
-    const uint16_t partition = row_partition * PARTITION_DIM + col_partition;
+    const hvr_partition_t partition = row_partition * PARTITION_DIM + col_partition;
     return partition;
 }
 
@@ -152,8 +152,8 @@ int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
  * Callback used to check if this PE might interact with another PE based on the
  * maximums and minimums of all vertices owned by each PE.
  */
-int might_interact(const uint16_t partition, hvr_set_t *partitions,
-        uint16_t *interacting_partitions,
+int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
+        hvr_partition_t *interacting_partitions,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity,
         hvr_ctx_t ctx) {
