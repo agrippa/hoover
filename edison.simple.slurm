@@ -85,4 +85,4 @@ export HVR_VEC_CACHE_PREALLOCS=60000
 export HVR_DISABLE_PROFILING_PRINTS=1
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/intrusion_detection 300 1.0
+    $HOME/hoover/bin/intrusion_detection 200 2.0
