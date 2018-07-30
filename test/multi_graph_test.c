@@ -378,7 +378,7 @@ int main(int argc, char **argv) {
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
-            actor_to_partition, start_time_step, graph, CONNECTIVITY_THRESHOLD,
+            actor_to_partition, start_time_step, &graph, 1, CONNECTIVITY_THRESHOLD,
             0, 1, num_timesteps, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();

@@ -8,7 +8,7 @@
 
 #include <hoover.h>
 
-#define VERT_MULTIPLIER 5
+#define VERT_MULTIPLIER 20
 
 /*
  * This simple example of the HOOVER framework creates a 2D grid of statically
@@ -260,11 +260,6 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     hvr_sparse_vec_set(1, (double)ntotal, out_coupled_metric, ctx);
 
     return 0;
-    // if (nset == grid_cells_this_pe + VERT_MULTIPLIER) {
-    //     return 1;
-    // } else {
-    //     return 0;
-    // }
 }
 
 int main(int argc, char **argv) {
@@ -352,8 +347,8 @@ int main(int argc, char **argv) {
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
-            actor_to_partition, start_time_step, graph, CONNECTIVITY_THRESHOLD,
-            0, 1, num_timesteps, hvr_ctx);
+            actor_to_partition, start_time_step, &graph, 1,
+            CONNECTIVITY_THRESHOLD, 0, 1, num_timesteps, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);

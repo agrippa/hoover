@@ -756,7 +756,7 @@ int main(int argc, char **argv) {
             check_abort,
             actor_to_partition,
             start_time_step,
-            graph,
+            &graph, 1,
             distance_threshold, // Edge creation distance threshold
             0, // Min spatial feature inclusive
             2, // Max spatial feature inclusive

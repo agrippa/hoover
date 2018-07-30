@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 16
 #SBATCH -C haswell
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
@@ -44,6 +44,9 @@ export MAX_NUM_TIMESTEPS=25
 
 cd $SCRATCH
 
+export HVR_SYMM_POOL_SIZE=40000
+export HVR_VEC_CACHE_PREALLOCS=60000
+export HVR_DISABLE_PROFILING_PRINTS=1
 # echo ""
 # echo "RUNNING GRID TEST"
 # echo ""
@@ -64,13 +67,13 @@ cd $SCRATCH
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/multi_graph_test 40 $MAX_NUM_TIMESTEPS
-# 
-# echo ""
-# echo "RUNNING REMOVE VERTICES TEST"
-# echo ""
-# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/remove_vertices_test 40 $MAX_NUM_TIMESTEPS
+
+echo ""
+echo "RUNNING REMOVE VERTICES TEST"
+echo ""
+srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/remove_vertices_test 40 $MAX_NUM_TIMESTEPS
 
 # echo ""
 # echo "RUNNING LOCK STRESS TEST"
@@ -87,9 +90,9 @@ cd $SCRATCH
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/intrusion_detection 200 2.0
 
-export HVR_SYMM_POOL_SIZE=40000
-export HVR_VEC_CACHE_PREALLOCS=60000
-export HVR_DISABLE_PROFILING_PRINTS=1
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/const_attr_test 20
+# export HVR_SYMM_POOL_SIZE=40000
+# export HVR_VEC_CACHE_PREALLOCS=60000
+# export HVR_DISABLE_PROFILING_PRINTS=1
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/const_attr_test 20

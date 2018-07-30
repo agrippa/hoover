@@ -32,6 +32,7 @@ typedef hvr_vertex_id_t hvr_vertex_index_t;
 typedef uint32_t hvr_graph_id_t;
 
 #define HVR_INVALID_GRAPH 0
+#define HVR_ALL_GRAPHS 0xFFFFFFFF
 
 /*
  * Vertex ID for any local vertices. For remotely accessible vertices, the top

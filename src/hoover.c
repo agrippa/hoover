@@ -1481,7 +1481,8 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
     wlock_actor_to_partition(ctx->pe, ctx);
 
     hvr_vertex_iter_t iter;
-    hvr_vertex_iter_init_with_dead_vertices(&iter, ctx->main_graph, ctx);
+    hvr_vertex_iter_init_with_dead_vertices(&iter, ctx->interacting_graphs_mask,
+            ctx);
     for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
             curr = hvr_vertex_iter_next(&iter)) {
         assert(curr->id != HVR_INVALID_VERTEX_ID);
@@ -1522,7 +1523,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
 
 static void free_old_actors(hvr_time_t timestep, hvr_internal_ctx_t *ctx) {
     hvr_vertex_iter_t iter;
-    hvr_vertex_iter_init_with_dead_vertices(&iter, ctx->main_graph, ctx);
+    hvr_vertex_iter_init_with_dead_vertices(&iter, HVR_ALL_GRAPHS, ctx);
     for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
             curr = hvr_vertex_iter_next(&iter)) {
         if (curr->deleted_timestamp != MAX_TIMESTAMP &&
@@ -1667,7 +1668,7 @@ void hvr_init(const hvr_partition_t n_partitions,
         hvr_check_abort_func check_abort,
         hvr_actor_to_partition actor_to_partition,
         hvr_start_time_step start_time_step,
-        hvr_graph_id_t main_graph,
+        hvr_graph_id_t *interacting_graphs, unsigned n_interacting_graphs,
         const double connectivity_threshold, const unsigned min_spatial_feature,
         const unsigned max_spatial_feature, const hvr_time_t max_timestep,
         hvr_ctx_t in_ctx) {
@@ -1822,7 +1823,17 @@ void hvr_init(const hvr_partition_t n_partitions,
             sizeof(hvr_sparse_vec_t *) * new_ctx->n_partitions);
     assert(new_ctx->partition_lists);
 
-    new_ctx->main_graph = main_graph;
+    new_ctx->interacting_graphs = (hvr_graph_id_t *)malloc(
+            n_interacting_graphs * sizeof(hvr_graph_id_t));
+    assert(new_ctx->interacting_graphs);
+    memcpy(new_ctx->interacting_graphs, interacting_graphs,
+            n_interacting_graphs * sizeof(hvr_graph_id_t));
+    new_ctx->n_interacting_graphs = n_interacting_graphs;
+    new_ctx->interacting_graphs_mask = 0;
+    for (unsigned i = 0; i < n_interacting_graphs; i++) {
+        new_ctx->interacting_graphs_mask = (new_ctx->interacting_graphs_mask |
+                interacting_graphs[i]);
+    }
 
     hvr_sparse_vec_cache_init(&new_ctx->vec_cache);
 
@@ -2082,9 +2093,9 @@ void finalize_actor_for_timestep(hvr_sparse_vec_t *actor,
 }
 
 static void finalize_actors_for_timestep(hvr_internal_ctx_t *ctx,
-        const hvr_time_t timestep) {
+        hvr_graph_id_t target_graph, const hvr_time_t timestep) {
     hvr_vertex_iter_t iter;
-    hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
+    hvr_vertex_iter_init(&iter, target_graph, ctx);
     for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
             curr = hvr_vertex_iter_next(&iter)) {
         finalize_actor_for_timestep(curr, timestep);
@@ -2118,7 +2129,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     *(ctx->symm_timestep) = 0;
     ctx->timestep = 1;
 
-    finalize_actors_for_timestep(ctx, 0);
+    finalize_actors_for_timestep(ctx, HVR_ALL_GRAPHS, 0);
 
     update_actor_partitions(ctx);
     update_partition_time_window(ctx);
@@ -2160,7 +2171,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         if (ctx->start_time_step) {
             hvr_vertex_iter_t iter;
-            hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
+            hvr_vertex_iter_init(&iter, ctx->interacting_graphs_mask, ctx);
             ctx->start_time_step(&iter, ctx);
         }
 
@@ -2170,17 +2181,21 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         // Update each actor's metadata
         size_t count_vertices = 0;
-        hvr_vertex_iter_t iter;
-        hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
-        for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
-                curr = hvr_vertex_iter_next(&iter)) {
-            sum_n_neighbors += update_local_actor_metadata(curr,
-                    to_couple_with,
-                    &ctx->cache_perf_info.fetch_neighbors_time,
-                    &ctx->cache_perf_info.quiet_neighbors_time,
-                    &ctx->cache_perf_info.update_metadata_time, ctx,
-                    &ctx->vec_cache, &ctx->cache_perf_info.quiet_counter);
-            count_vertices++;
+        for (unsigned g = 0; g < ctx->n_interacting_graphs; g++) {
+            hvr_graph_id_t target_graph = ctx->interacting_graphs[g];
+
+            hvr_vertex_iter_t iter;
+            hvr_vertex_iter_init(&iter, target_graph, ctx);
+            for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
+                    curr = hvr_vertex_iter_next(&iter)) {
+                sum_n_neighbors += update_local_actor_metadata(curr,
+                        to_couple_with,
+                        &ctx->cache_perf_info.fetch_neighbors_time,
+                        &ctx->cache_perf_info.quiet_neighbors_time,
+                        &ctx->cache_perf_info.update_metadata_time, ctx,
+                        &ctx->vec_cache, &ctx->cache_perf_info.quiet_counter);
+                count_vertices++;
+            }
         }
         const double avg_n_neighbors = (double)sum_n_neighbors /
             (double)count_vertices;
@@ -2193,7 +2208,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         __sync_synchronize();
 
         // Finalize the updates we just made
-        finalize_actors_for_timestep(ctx, ctx->timestep - 1);
+        finalize_actors_for_timestep(ctx, HVR_ALL_GRAPHS, ctx->timestep - 1);
 
         __sync_synchronize();
 
@@ -2233,7 +2248,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
                 sizeof(coupled_metric));
 
-        hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
+        hvr_vertex_iter_t iter;
+        hvr_vertex_iter_init(&iter, ctx->interacting_graphs_mask, ctx);
         should_abort = ctx->check_abort(&iter, ctx, to_couple_with,
                 &coupled_metric);
         finalize_actor_for_timestep(
@@ -2390,7 +2406,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     ctx->timestep, features, &nfeatures);
 
             hvr_vertex_iter_t iter;
-            hvr_vertex_iter_init(&iter, ctx->main_graph, ctx);
+            hvr_vertex_iter_init(&iter, ctx->interacting_graphs_mask, ctx);
             for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
                     curr = hvr_vertex_iter_next(&iter)) {
                 fprintf(ctx->dump_file, "%lu,%u,%ld,%d", curr->id,

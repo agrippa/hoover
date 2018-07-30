@@ -283,7 +283,10 @@ typedef struct _hvr_internal_ctx_t {
 
     // Counter for which graph IDs have already been allocated
     hvr_graph_id_t allocated_graphs;
-    hvr_graph_id_t main_graph;
+
+    hvr_graph_id_t *interacting_graphs;
+    unsigned n_interacting_graphs;
+    hvr_graph_id_t interacting_graphs_mask;
 
     hvr_sparse_vec_cache_t vec_cache;
 
@@ -326,7 +329,7 @@ extern void hvr_init(const hvr_partition_t n_partitions,
         hvr_check_abort_func check_abort,
         hvr_actor_to_partition actor_to_partition,
         hvr_start_time_step start_time_step,
-        hvr_graph_id_t main_graph,
+        hvr_graph_id_t *interacting_graphs, unsigned n_interacting_graphs,
         const double connectivity_threshold,
         const unsigned min_spatial_feature_inclusive,
         const unsigned max_spatial_feature_inclusive,

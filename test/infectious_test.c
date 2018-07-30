@@ -495,7 +495,7 @@ int main(int argc, char **argv) {
 
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
-            actor_to_partition, NULL, graph, infection_radius /* threshold */,
+            actor_to_partition, NULL, &graph, 1, infection_radius /* threshold */,
             0, 1, max_num_timesteps, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
