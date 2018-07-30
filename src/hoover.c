@@ -141,11 +141,18 @@ static void wunlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
     hvr_rwlock_wunlock(ctx->actor_to_partition_lock, pe);
 }
 
+hvr_sparse_vec_t *hvr_sparse_vec_create_n_with_const_attrs(const size_t nvecs,
+        hvr_graph_id_t graph, unsigned *const_features, double *const_vals, 
+        unsigned n_consts, hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    return hvr_alloc_sparse_vecs(nvecs, graph, const_features, const_vals,
+            n_consts, ctx);
+}
+
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs,
         hvr_graph_id_t graph, hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-
-    return hvr_alloc_sparse_vecs(nvecs, graph, ctx);
+    return hvr_sparse_vec_create_n_with_const_attrs(nvecs, graph, NULL, NULL, 0,
+            in_ctx);
 }
 
 void hvr_sparse_vec_delete_n(hvr_sparse_vec_t *vecs,
@@ -410,7 +417,8 @@ static int hvr_sparse_vec_get_internal(const unsigned feature,
     // First check to see if this is a constant feature.
     for (unsigned i = 0; i < vec->n_const_features; i++) {
         if ((vec->const_features)[i] == feature) {
-            return (vec->const_values)[i];
+            *out_val = (vec->const_values)[i];
+            return 1;
         }
     }
 

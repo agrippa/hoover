@@ -71,10 +71,14 @@ typedef struct _hvr_sparse_vec_t {
 } hvr_sparse_vec_t;
 
 /*
- * Create nvecs new, empty vectors. Collective call.
+ * Create nvecs new, empty vectors.
  */
 hvr_sparse_vec_t *hvr_sparse_vec_create_n(const size_t nvecs,
         hvr_graph_id_t graph, hvr_ctx_t ctx);
+
+hvr_sparse_vec_t *hvr_sparse_vec_create_n_with_const_attrs(const size_t nvecs,
+        hvr_graph_id_t graph, unsigned *const_features, double *const_vals, 
+        unsigned n_consts, hvr_ctx_t in_ctx);
 
 /*
  * Remove these vertices from the graph.
