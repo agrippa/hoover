@@ -158,8 +158,9 @@ void hvr_sparse_vec_delete_n(hvr_sparse_vec_t *vecs,
     }
 }
 
-void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_graph_id_t graph,
-        hvr_ctx_t in_ctx) {
+void hvr_sparse_vec_init_with_const_attrs(hvr_sparse_vec_t *vec,
+        hvr_graph_id_t graph, unsigned *const_attr_features,
+        double *const_attr_values, unsigned n_const_attrs, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
 
     memset(vec, 0x00, sizeof(*vec));
@@ -172,6 +173,14 @@ void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_graph_id_t graph,
         vec->timestamps[i] = -1;
         vec->finalized[i] = -1;
     }
+
+    // Initialize constant attributes on this vertex
+    assert(n_const_attrs < HVR_MAX_CONSTANT_ATTRS);
+    vec->n_const_features = n_const_attrs;
+    memcpy(vec->const_features, const_attr_features,
+            n_const_attrs * sizeof(*const_attr_features));
+    memcpy(vec->const_values, const_attr_values,
+            n_const_attrs * sizeof(*const_attr_values));
 
     hvr_sparse_vec_pool_t *pool = ctx->pool;
     if (vec >= pool->pool && vec < pool->pool + pool->pool_size) {
@@ -188,6 +197,11 @@ void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_graph_id_t graph,
         // Some locally allocated PE, give it a non-unique ID
         vec->id = HVR_INVALID_VERTEX_ID;
     }
+}
+
+void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_graph_id_t graph,
+        hvr_ctx_t in_ctx) {
+    hvr_sparse_vec_init_with_const_attrs(vec, graph, NULL, NULL, 0, in_ctx);
 }
 
 static inline unsigned prev_bucket(const unsigned bucket) {
@@ -226,6 +240,10 @@ static void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
 
     for (unsigned i = 0; i < vec->bucket_size[bucket]; i++) {
         out_features[*n_out_features] = vec->features[bucket][i];
+        *n_out_features += 1;
+    }
+    for (unsigned i = 0; i < vec->n_const_features; i++) {
+        out_features[*n_out_features] = vec->const_features[i];
         *n_out_features += 1;
     }
 
@@ -324,6 +342,17 @@ static int find_feature_in_bucket(const hvr_sparse_vec_t *vec,
     return 0;
 }
 
+static int find_feature_in_const_attrs(const hvr_sparse_vec_t *vec,
+        const unsigned feature, double *out_val) {
+    for (unsigned i = 0; i < vec->n_const_features; i++) {
+        if ((vec->const_features)[i] == feature) {
+            *out_val = (vec->const_values)[i];
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /*
  * Find the finalized bucket in vec that is closest to but less than
  * curr_timestamp. This may also return buckets for MAX_TIMESTAMP, which were
@@ -378,6 +407,13 @@ static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
 static int hvr_sparse_vec_get_internal(const unsigned feature,
         hvr_sparse_vec_t *vec, const hvr_time_t curr_timestamp,
         double *out_val, unsigned *nhits, unsigned *nmisses) {
+    // First check to see if this is a constant feature.
+    for (unsigned i = 0; i < vec->n_const_features; i++) {
+        if ((vec->const_features)[i] == feature) {
+            return (vec->const_values)[i];
+        }
+    }
+
     int target_bucket = hvr_sparse_vec_find_bucket(vec, curr_timestamp, nhits,
             nmisses);
 
@@ -503,6 +539,10 @@ static int hvr_sparse_vec_has_timestamp(hvr_sparse_vec_t *vec,
     }
 }
 
+/*
+ * Note that this only adds together mutable attributes. Constant attributes
+ * on the dst are untouched.
+ */
 static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
         hvr_sparse_vec_t *src, const uint64_t target_timestamp) {
     unsigned unused;
@@ -516,18 +556,7 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
 
     const unsigned n_dst_features = dst->bucket_size[dst_bucket];
     const unsigned n_src_features = src->bucket_size[src_bucket];
-    if (n_dst_features != n_src_features) {
-        fprintf(stderr, "ERROR: n_dst_features=%u n_src_features=%u "
-                "dst_bucket=%d src_bucket=%d target_timestamp=%llu "
-                "dst_timestamp=%llu src_timestamp=%llu dst=[%u %u] "
-                "src=[%u %u]\n", n_dst_features, n_src_features,
-                dst_bucket, src_bucket, (unsigned long long)target_timestamp,
-                (unsigned long long)dst->timestamps[dst_bucket],
-                (unsigned long long)src->timestamps[src_bucket],
-                dst->features[dst_bucket][0], dst->features[dst_bucket][1],
-                src->features[src_bucket][0], src->features[src_bucket][1]);
-        abort();
-    }
+    assert(n_dst_features == n_src_features);
 
     for (unsigned i = 0; i < n_dst_features; i++) {
         unsigned feature = dst->features[dst_bucket][i];
@@ -540,25 +569,7 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
                 break;
             }
         }
-        if (src_feature_index < 0) {
-            fprintf(stderr, "ERROR: n_dst_features=%u n_src_features=%u "
-                    "dst_bucket=%d src_bucket=%d target_timestamp=%llu "
-                    "dst_timestamp=%llu src_timestamp=%llu dst=[%u %u] "
-                    "src=[%u %u] dst=[%f %f] src=[%f %f] dst-finalized=%u "
-                    "src-finalized=%u dst-pe=%lu src-pe=%lu\n", n_dst_features,
-                    n_src_features, dst_bucket, src_bucket,
-                    (unsigned long long)target_timestamp,
-                    (unsigned long long)dst->timestamps[dst_bucket],
-                    (unsigned long long)src->timestamps[src_bucket],
-                    dst->features[dst_bucket][0], dst->features[dst_bucket][1],
-                    src->features[src_bucket][0], src->features[src_bucket][1],
-                    dst->values[dst_bucket][0], dst->values[dst_bucket][1],
-                    src->values[src_bucket][0], src->values[src_bucket][1],
-                    dst->finalized[dst_bucket], src->finalized[src_bucket],
-                    VERTEX_ID_PE(dst->id), VERTEX_ID_PE(src->id));
-
-            abort();
-        }
+        assert(src_feature_index >= 0);
 
         dst->values[dst_bucket][dst_feature_index] +=
             src->values[src_bucket][src_feature_index];
@@ -1160,11 +1171,20 @@ static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
 
     double acc = 0.0;
     for (unsigned f = min_spatial_feature; f <= max_spatial_feature; f++) {
+        int success;
         double a_val, b_val;
-        const int a_err = find_feature_in_bucket(a, a_bucket, f, &a_val);
-        assert(a_err == 1);
-        const int b_err = find_feature_in_bucket(b, b_bucket, f, &b_val);
-        assert(b_err == 1);
+
+        success = find_feature_in_const_attrs(a, f, &a_val);
+        if (!success) {
+            success = find_feature_in_bucket(a, a_bucket, f, &a_val);
+            assert(success == 1);
+        }
+
+        success = find_feature_in_const_attrs(b, f, &b_val);
+        if (!success) {
+            success = find_feature_in_bucket(b, b_bucket, f, &b_val);
+            assert(success == 1);
+        }
 
         const double delta = b_val - a_val;
         acc += (delta * delta);

@@ -11,6 +11,8 @@
 // The maximum number of features set on a vertex at any time.
 #define HVR_BUCKET_SIZE 7
 
+#define HVR_MAX_CONSTANT_ATTRS 3
+
 /*
  * Sparse vector for representing properties on each vertex, and accompanying
  * utilities.
@@ -28,6 +30,10 @@ typedef struct _hvr_sparse_vec_t {
     hvr_time_t created_timestamp;
     hvr_time_t deleted_timestamp;
     hvr_graph_id_t graph;
+
+    double const_values[HVR_MAX_CONSTANT_ATTRS];
+    unsigned const_features[HVR_MAX_CONSTANT_ATTRS];
+    unsigned n_const_features;
 
     // Values for each feature on each timestep
     double values[HVR_BUCKETS][HVR_BUCKET_SIZE];
@@ -81,6 +87,10 @@ void hvr_sparse_vec_delete_n(hvr_sparse_vec_t *vecs,
  */
 void hvr_sparse_vec_init(hvr_sparse_vec_t *vec, hvr_graph_id_t graph,
         hvr_ctx_t ctx);
+
+void hvr_sparse_vec_init_with_const_attrs(hvr_sparse_vec_t *vec,
+        hvr_graph_id_t graph, unsigned *const_attr_features,
+        double *const_attr_values, unsigned n_const_attrs, hvr_ctx_t in_ctx);
 
 /*
  * Set the specified feature to the specified value in the provided vector.
