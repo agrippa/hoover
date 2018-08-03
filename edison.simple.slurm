@@ -46,7 +46,7 @@ cd $SCRATCH
 
 export HVR_SYMM_POOL_SIZE=40000
 export HVR_VEC_CACHE_PREALLOCS=60000
-export HVR_DISABLE_PROFILING_PRINTS=1
+# export HVR_DISABLE_PROFILING_PRINTS=1
 # echo ""
 # echo "RUNNING GRID TEST"
 # echo ""
@@ -68,12 +68,12 @@ export HVR_DISABLE_PROFILING_PRINTS=1
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/multi_graph_test 40 $MAX_NUM_TIMESTEPS
 
-echo ""
-echo "RUNNING REMOVE VERTICES TEST"
-echo ""
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/remove_vertices_test 40 $MAX_NUM_TIMESTEPS
+# echo ""
+# echo "RUNNING REMOVE VERTICES TEST"
+# echo ""
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/remove_vertices_test 40 $MAX_NUM_TIMESTEPS
 
 # echo ""
 # echo "RUNNING LOCK STRESS TEST"
@@ -82,13 +82,13 @@ srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/write_lock_stress
 
-# # export HVR_HANG_ABORT=300
-# export HVR_SYMM_POOL_SIZE=40000
-# export HVR_VEC_CACHE_PREALLOCS=60000
+# export HVR_HANG_ABORT=300
+export HVR_SYMM_POOL_SIZE=40000
+export HVR_VEC_CACHE_PREALLOCS=60000
 # export HVR_DISABLE_PROFILING_PRINTS=1
-# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/intrusion_detection 200 2.0
+srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/intrusion_detection 200 2.0
 
 # export HVR_SYMM_POOL_SIZE=40000
 # export HVR_VEC_CACHE_PREALLOCS=60000

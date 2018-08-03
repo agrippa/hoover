@@ -657,27 +657,27 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
             fprintf(stderr, "PE %d found potentially anomalous pattern on "
                     "timestep %d!\n", pe, hvr_current_timestep(ctx));
 
-            if (pe_anomalies_fp == NULL) {
-                sprintf(buf, "pe_%d.anomalies.txt", pe);
-                pe_anomalies_fp = fopen(buf, "w");
-                assert(pe_anomalies_fp);
-            }
+            // if (pe_anomalies_fp == NULL) {
+            //     sprintf(buf, "pe_%d.anomalies.txt", pe);
+            //     pe_anomalies_fp = fopen(buf, "w");
+            //     assert(pe_anomalies_fp);
+            // }
 
-            fprintf(pe_anomalies_fp, "Found anomaly on timestep %d\n",
-                    hvr_current_timestep(ctx));
-            fprintf(pe_anomalies_fp, "Anomaly (count=%u):\n",
-                    local_pattern->count);
-            adjacency_matrix_to_string(&local_pattern->matrix, buf, 1024);
-            fprintf(pe_anomalies_fp, buf);
-            fprintf(pe_anomalies_fp, "Regular Pattern (count=%u):\n",
-                    sorted_best_patterns[is_similar_to_a_frequent_pattern].count);
-            adjacency_matrix_to_string(
-                    &sorted_best_patterns[is_similar_to_a_frequent_pattern].matrix, buf,
-                    1024);
-            fprintf(pe_anomalies_fp, buf);
-            fprintf(pe_anomalies_fp, "\n");
+            // fprintf(pe_anomalies_fp, "Found anomaly on timestep %d\n",
+            //         hvr_current_timestep(ctx));
+            // fprintf(pe_anomalies_fp, "Anomaly (count=%u):\n",
+            //         local_pattern->count);
+            // adjacency_matrix_to_string(&local_pattern->matrix, buf, 1024);
+            // fprintf(pe_anomalies_fp, buf);
+            // fprintf(pe_anomalies_fp, "Regular Pattern (count=%u):\n",
+            //         sorted_best_patterns[is_similar_to_a_frequent_pattern].count);
+            // adjacency_matrix_to_string(
+            //         &sorted_best_patterns[is_similar_to_a_frequent_pattern].matrix, buf,
+            //         1024);
+            // fprintf(pe_anomalies_fp, buf);
+            // fprintf(pe_anomalies_fp, "\n");
 
-            fflush(pe_anomalies_fp);
+            // fflush(pe_anomalies_fp);
 
             /*
              * Become coupled with other PEs whose vertices are parts of this
