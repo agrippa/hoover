@@ -24,7 +24,7 @@
 #define MAX_INTERACTING_PARTITIONS 100
 #define CACHE_BUCKET(vert_id) ((vert_id) % HVR_CACHE_BUCKETS)
 
-// #define FINE_GRAIN_TIMING
+#define FINE_GRAIN_TIMING
 
 // #define TRACK_VECTOR_GET_CACHE
 
@@ -1867,7 +1867,6 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
     hvr_set_t *full_partition_set = hvr_create_full_set(ctx->n_partitions, ctx);
 
     int owning_pe = VERTEX_ID_PE(vertex);
-    *neighbors_out = NULL;
     *n_neighbors_out = 0;
 
     if (owning_pe == ctx->pe) {
@@ -2178,6 +2177,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
             ctx->start_time_step(&iter, ctx);
         }
 
+        const unsigned long long finished_start = hvr_current_time_us();
+
         hvr_set_wipe(to_couple_with);
 
         unsigned long long sum_n_neighbors = 0;
@@ -2433,17 +2434,19 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 #endif
 
         if (print_profiling) {
-            printf("PE %d - timestep %d - total %f ms - metadata %f ms (%f %f "
+            printf("PE %d - timestep %d - total %f ms - start_time_step %f ms - metadata %f ms (%f %f "
                     "%f) - summary %f ms (%f %f %f) - edges %f ms (%f %f %llu "
                     "%llu %llu) - neighbor updates %f ms - coupled values %f "
                     "ms - coupling %f ms (%u) - throttling %f ms - %u spins - "
                     "%u / %u PE neighbors %s - partition window = %s, %d / %d "
                     "active - aborting? %d - last step? %d - remote cache "
                     "hits=%u misses=%u, feature cache hits=%u "
-                    "misses=%u quiets=%llu, avg # edges=%f\n", ctx->pe,
+                    "misses=%u quiets=%llu, avg # edges=%f\n",
+                    ctx->pe,
                     ctx->timestep,
                     (double)(finished_throttling - start_iter) / 1000.0,
-                    (double)(finished_updates - start_iter) / 1000.0,
+                    (double)(finished_start - start_iter) / 1000.0,
+                    (double)(finished_updates - finished_start) / 1000.0,
                     (double)ctx->cache_perf_info.fetch_neighbors_time / 1000.0,
                     (double)ctx->cache_perf_info.quiet_neighbors_time / 1000.0,
                     (double)ctx->cache_perf_info.update_metadata_time / 1000.0,

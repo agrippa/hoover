@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 16
 #SBATCH -C haswell
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
@@ -98,4 +98,4 @@ srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     $HOME/hoover/bin/const_attr_test 20
 
 
-srun --ntasks=4 $HOME/hoover/bin/neighbor_test_cross_pe
+# srun --ntasks=4 $HOME/hoover/bin/neighbor_test_cross_pe

@@ -34,7 +34,8 @@
  */
 #define MAX_DISTANCE_FOR_ANOMALY 1
 
-const unsigned PARTITION_DIM = 70U;
+// const unsigned PARTITION_DIM = 70U;
+const unsigned PARTITION_DIM = 120U;
 static double distance_threshold = 1.0;
 
 typedef struct _adjacency_matrix_t {
@@ -214,7 +215,11 @@ static void explore_subgraphs(hvr_vertex_id_t last_added,
         std::vector<int> **pes_sharing_local_patterns,
         unsigned *n_known_patterns, hvr_ctx_t ctx, unsigned *n_explores,
         unsigned curr_depth, unsigned max_depth, unsigned *count_local_gets,
-        unsigned *count_remote_gets) {
+        unsigned *count_remote_gets,
+        unsigned long long *accum_get_neighbors_time) {
+    static hvr_vertex_id_t *neighbors = NULL;
+    static unsigned neighbors_capacity = 0;
+
     if (curr_depth >= max_depth) {
         return;
     }
@@ -270,59 +275,56 @@ static void explore_subgraphs(hvr_vertex_id_t last_added,
     // For the most recently added vertex
     hvr_vertex_id_t existing_vertex = last_added;
 
-    // // For each of the vertices already in this subgraph
-    // for (unsigned i = 0; i < curr_state->adjacency_matrix.n_vertices; i++) {
-    //     hvr_vertex_id_t existing_vertex = curr_state->vertices[i];
+    /*
+     * Find the neighbors (i.e. halo regions) of the current vertex in the
+     * subgraph. Check if adding any of them results in a change in graph
+     * structure (addition of a vertex and/or edge). If it does, make that
+     * change and explore further.
+     */
+    const unsigned long long start_get_neighbors = hvr_current_time_us();
+    unsigned n_neighbors;
+    hvr_sparse_vec_get_neighbors_with_metrics(existing_vertex, ctx,
+            &neighbors, &n_neighbors, &neighbors_capacity, count_local_gets,
+            count_remote_gets);
+    *accum_get_neighbors_time += (hvr_current_time_us() - start_get_neighbors);
 
-        /*
-         * Find the neighbors (i.e. halo regions) of the current vertex in the
-         * subgraph. Check if adding any of them results in a change in graph
-         * structure (addition of a vertex and/or edge). If it does, make that
-         * change and explore further.
-         */
-        hvr_vertex_id_t *neighbors;
-        unsigned n_neighbors;
-        hvr_sparse_vec_get_neighbors_with_metrics(existing_vertex, ctx,
-                &neighbors, &n_neighbors, count_local_gets, count_remote_gets);
+    for (unsigned j = 0; j < n_neighbors; j++) {
+        hvr_vertex_id_t neighbor = neighbors[j];
 
-        for (unsigned j = 0; j < n_neighbors; j++) {
-            hvr_vertex_id_t neighbor = neighbors[j];
-
-            if (already_in_subgraph(neighbor, curr_state)) {
-                /*
-                 * 'neighbor' is already in the subgraph (as is
-                 * 'existing_vertex'). If the edge
-                 * 'neighbor'<->'existing_vertex' is already in the subgraph, do
-                 * nothing. Otherwise, add it and iterate.
-                 */
-                if (!subgraph_has_edge(neighbor, existing_vertex, curr_state)) {
-                    subgraph_t new_state;
-                    memcpy(&new_state, curr_state, sizeof(new_state));
-                    subgraph_add_edge(neighbor, existing_vertex, &new_state);
-                    explore_subgraphs(neighbor, &new_state, known_patterns,
-                            pes_sharing_local_patterns, n_known_patterns, ctx,
-                            n_explores, curr_depth + 1, max_depth, count_local_gets,
-                            count_remote_gets);
-                }
-            } else {
-                // Can only add a new vertex to the graph if we have space to.
-                if (curr_state->adjacency_matrix.n_vertices < MAX_SUBGRAPH_VERTICES) {
-                    // Add the new vertex and an edge to it.
-                    subgraph_t new_state;
-                    memcpy(&new_state, curr_state, sizeof(new_state));
-                    new_state.vertices[new_state.adjacency_matrix.n_vertices] =
-                        neighbor;
-                    new_state.adjacency_matrix.n_vertices += 1;
-                    subgraph_add_edge(neighbor, existing_vertex, &new_state);
-                    explore_subgraphs(neighbor, &new_state, known_patterns,
-                            pes_sharing_local_patterns, n_known_patterns, ctx,
-                            n_explores, curr_depth + 1, max_depth, count_local_gets,
-                            count_remote_gets);
-                }
+        if (already_in_subgraph(neighbor, curr_state)) {
+            /*
+             * 'neighbor' is already in the subgraph (as is
+             * 'existing_vertex'). If the edge
+             * 'neighbor'<->'existing_vertex' is already in the subgraph, do
+             * nothing. Otherwise, add it and iterate.
+             */
+            if (!subgraph_has_edge(neighbor, existing_vertex, curr_state)) {
+                subgraph_t new_state;
+                memcpy(&new_state, curr_state, sizeof(new_state));
+                subgraph_add_edge(neighbor, existing_vertex, &new_state);
+                explore_subgraphs(neighbor, &new_state, known_patterns,
+                        pes_sharing_local_patterns, n_known_patterns, ctx,
+                        n_explores, curr_depth + 1, max_depth, count_local_gets,
+                        count_remote_gets, accum_get_neighbors_time);
+            }
+        } else {
+            // Can only add a new vertex to the graph if we have space to.
+            if (curr_state->adjacency_matrix.n_vertices < MAX_SUBGRAPH_VERTICES) {
+                // Add the new vertex and an edge to it.
+                subgraph_t new_state;
+                memcpy(&new_state, curr_state, sizeof(new_state));
+                new_state.vertices[new_state.adjacency_matrix.n_vertices] =
+                    neighbor;
+                new_state.adjacency_matrix.n_vertices += 1;
+                subgraph_add_edge(neighbor, existing_vertex, &new_state);
+                explore_subgraphs(neighbor, &new_state, known_patterns,
+                        pes_sharing_local_patterns, n_known_patterns, ctx,
+                        n_explores, curr_depth + 1, max_depth, count_local_gets,
+                        count_remote_gets, accum_get_neighbors_time);
             }
         }
-        free(neighbors);
-    // }
+    }
+    free(neighbors);
 }
 
 static unsigned score_pattern(pattern_count_t *pattern) {
@@ -434,6 +436,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     unsigned n_explores = 0;
     unsigned n_local_gets = 0;
     unsigned n_remote_gets = 0;
+    const unsigned long long start_search = hvr_current_time_us();
+    unsigned long long accum_get_neighbors_time = 0;
     for (hvr_sparse_vec_t *vertex = hvr_vertex_iter_next(iter); vertex;
             vertex = hvr_vertex_iter_next(iter)) {
         assert(vertex->id != HVR_INVALID_VERTEX_ID);
@@ -448,19 +452,24 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         unsigned max_depth = 5;
         explore_subgraphs(vertex->id, &sub, known_local_patterns,
             pes_sharing_local_patterns, &n_known_local_patterns, ctx,
-            &n_this_explores, 0, max_depth, &n_local_gets, &n_remote_gets);
+            &n_this_explores, 0, max_depth, &n_local_gets, &n_remote_gets,
+            &accum_get_neighbors_time);
         n_explores += n_this_explores;
     }
 
     sort_patterns_by_score(known_local_patterns, n_known_local_patterns);
+    const unsigned long long end_search = hvr_current_time_us();
 
     if (n_known_local_patterns > 0) {
         fprintf(stderr, "PE %d found %u patterns on timestep %d using %d "
-                "visits, %u local vertices in total. Best score = %u, vertex "
-                "count = %u, edge count = %u. # local gets = %u, "
-                "# remote gets = %u\n",
+                "visits, %f ms to search (%f ms spent on neighbor fetching), "
+                "%u local vertices in total. Best "
+                "score = %u, vertex count = %u, edge count = %u. # local gets "
+                "= %u, # remote gets = %u\n",
                 pe, n_known_local_patterns, hvr_current_timestep(ctx),
-                n_explores, n_local_vertices,
+                n_explores, (double)(end_search - start_search) / 1000.0,
+                (double)accum_get_neighbors_time / 1000.0,
+                n_local_vertices,
                 score_pattern(known_local_patterns + 0),
                 known_local_patterns[0].matrix.n_vertices,
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix),
