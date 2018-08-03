@@ -342,14 +342,6 @@ int main(int argc, char **argv) {
         }
     }
 
-#ifdef VERBOSE
-    for (unsigned i = 0; i < n_local_grid_rows * grid_dim; i++) {
-        char buf[1024];
-        hvr_sparse_vec_dump(&vertices[i], buf, 1024);
-        printf("%u - %s\n", i, buf);
-    }
-#endif
-
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,

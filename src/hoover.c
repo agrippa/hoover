@@ -1160,20 +1160,23 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx) {
     }
 
 #ifdef VERBOSE
-    printf("PE %d is talking to %d other PEs\n", ctx->pe,
-            hvr_set_count(ctx->my_neighbors));
+    printf("PE %d is talking to %d other PEs on timestep %d\n", ctx->pe,
+            hvr_set_count(ctx->my_neighbors), ctx->timestep);
 #endif
 }
 
 static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
-        hvr_sparse_vec_t *b, const hvr_time_t a_max_timestep,
-        const hvr_time_t b_max_timestep, const unsigned min_spatial_feature,
-        const unsigned max_spatial_feature, unsigned *nhits,
+        hvr_sparse_vec_t *b,
+        const hvr_time_t a_max_timestep,
+        const hvr_time_t b_max_timestep,
+        const unsigned min_spatial_feature,
+        const unsigned max_spatial_feature,
+        unsigned *nhits,
         unsigned *nmisses) {
-    const int a_bucket = hvr_sparse_vec_find_bucket(a, a_max_timestep + 1,
+    const int a_bucket = hvr_sparse_vec_find_bucket(a, a_max_timestep,
             nhits, nmisses);
     assert(a_bucket >= 0);
-    const int b_bucket = hvr_sparse_vec_find_bucket(b, b_max_timestep + 1,
+    const int b_bucket = hvr_sparse_vec_find_bucket(b, b_max_timestep,
             nhits, nmisses);
     assert(b_bucket >= 0);
 
@@ -1288,7 +1291,7 @@ static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
             if (partition_list->id != remote_vec->id) {
                 const double distance = sparse_vec_distance_measure(
                         partition_list, remote_vec, 
-                        ctx->timestep - 1, other_pes_timestep,
+                        ctx->timestep, other_pes_timestep,
                         ctx->min_spatial_feature,
                         ctx->max_spatial_feature,
                         &ctx->n_vector_cache_hits,
@@ -1354,8 +1357,8 @@ static void update_edges(hvr_internal_ctx_t *ctx,
          * Prevent this PE from seeing into the future, if the other PE is ahead
          * of us.
          */
-        if (other_pes_timestep > ctx->timestep - 1) {
-            other_pes_timestep = ctx->timestep - 1;
+        if (other_pes_timestep > ctx->timestep) {
+            other_pes_timestep = ctx->timestep;
         }
 
 #define BUFFERING 512
@@ -1965,7 +1968,7 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
                                         remote_remote_vec.deleted_timestamp >= ctx->timestep) {
                                     const double distance = sparse_vec_distance_measure(
                                             &remote_vec, &remote_remote_vec,
-                                            ctx->timestep - 1, ctx->timestep - 1,
+                                            ctx->timestep, ctx->timestep,
                                             ctx->min_spatial_feature,
                                             ctx->max_spatial_feature,
                                             &ctx->n_vector_cache_hits,
@@ -2126,8 +2129,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     ctx->other_pe_partition_time_window = hvr_create_empty_set(
             ctx->n_partitions, ctx);
 
-    *(ctx->symm_timestep) = 0;
     ctx->timestep = 1;
+    *(ctx->symm_timestep) = ctx->timestep;
 
     finalize_actors_for_timestep(ctx, HVR_ALL_GRAPHS, 0);
 
@@ -2202,8 +2205,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_updates = hvr_current_time_us();
 
-        *(ctx->symm_timestep) = ctx->timestep;
         ctx->timestep += 1;
+        *(ctx->symm_timestep) = ctx->timestep;
 
         __sync_synchronize();
 
@@ -2214,6 +2217,11 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         // Update mapping from actors to partitions
         update_actor_partitions(ctx);
+
+        /*
+         * Remove cached remote vecs that are old relative to our next timestep.
+         */
+        hvr_sparse_vec_cache_clear_old(&ctx->vec_cache, ctx->timestep, ctx->pe);
 
         const unsigned long long finished_actor_partitions = hvr_current_time_us();
 
@@ -2389,11 +2397,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
          * no PE will access them.
          */
         free_old_actors(oldest_timestep, ctx);
-
-        /*
-         * Remove cached remote vecs that are old relative to our next timestep.
-         */
-        hvr_sparse_vec_cache_clear_old(&ctx->vec_cache, ctx->timestep, ctx->pe);
 
         const unsigned long long finished_throttling = hvr_current_time_us();
 
