@@ -35,7 +35,7 @@
 #define MAX_DISTANCE_FOR_ANOMALY 1
 
 // const unsigned PARTITION_DIM = 70U;
-const unsigned PARTITION_DIM = 120U;
+const unsigned PARTITION_DIM = 200U;
 static double distance_threshold = 1.0;
 
 typedef struct _adjacency_matrix_t {
@@ -94,7 +94,7 @@ static unsigned n_local_vertices = 0;
 static FILE *pe_anomalies_fp = NULL;
 
 // Taken from https://phoxis.org/2013/05/04/generating-random-numbers-from-normal-distribution-in-c/
-double randn(double mu, double sigma) {
+static double randn(double mu, double sigma) {
     double U1, U2, W, mult;
     static double X1, X2;
     static int call = 0;
@@ -120,6 +120,22 @@ double randn(double mu, double sigma) {
     call = !call;
 
     return (mu + sigma * (double) X1);
+}
+
+#define UNIFORM_DIST
+
+static double rand_value() {
+#ifdef GAUSSIAN_DIST
+    double mean = (pe * range_per_pe) + (range_per_pe / 2.0);
+    double sigma = range_per_pe / 4.0;
+
+    return randn(mean, sigma);
+#elif defined(UNIFORM_DIST)
+    double min_val = pe * range_per_pe;
+    return min_val + ((double)rand() / (double)RAND_MAX) * range_per_pe;
+#else
+#error No distributed specified
+#endif
 }
 
 static unsigned pattern_distance(adjacency_matrix_t *a, adjacency_matrix_t *b) {
@@ -218,7 +234,7 @@ static void explore_subgraphs(hvr_vertex_id_t last_added,
         unsigned *count_remote_gets,
         unsigned long long *accum_get_neighbors_time) {
     static hvr_vertex_id_t *neighbors = NULL;
-    static unsigned neighbors_capacity = 0;
+    static size_t neighbors_capacity = 0;
 
     if (curr_depth >= max_depth) {
         return;
@@ -324,7 +340,6 @@ static void explore_subgraphs(hvr_vertex_id_t last_added,
             }
         }
     }
-    free(neighbors);
 }
 
 static unsigned score_pattern(pattern_count_t *pattern) {
@@ -393,9 +408,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      */
     const int n_vertices_to_add = rand() % 300;
 
-    double mean = (pe * range_per_pe) + (range_per_pe / 2.0);
-    double sigma = range_per_pe / 4.0;
-
     hvr_sparse_vec_t *new_vertices = hvr_sparse_vec_create_n(n_vertices_to_add,
             graph, ctx);
     n_local_vertices += n_vertices_to_add;
@@ -405,9 +417,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
          * For each PE, have each feature have a gaussian distribution with a
          * mean of 'pe + 1' and a standard deviation of 0.5.
          */
-        double feat1 = floor(randn(mean, sigma));
-        double feat2 = floor(randn(mean, sigma));
-        double feat3 = floor(randn(mean, sigma));
+        double feat1 = floor(rand_value());
+        double feat2 = floor(rand_value());
+        double feat3 = floor(rand_value());
 
         feat1 = MAX(feat1, 0);
         feat2 = MAX(feat2, 0);
@@ -416,8 +428,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         feat1 = MIN(feat1, max_feat_val - 1);
         feat2 = MIN(feat2, max_feat_val - 1);
         feat3 = MIN(feat3, max_feat_val - 1);
-
-        assert(feat1 >= 0 && feat2 >= 0 && feat3 >= 0);
 
         hvr_sparse_vec_set(0, feat1, &new_vertices[i], ctx);
         hvr_sparse_vec_set(1, feat2, &new_vertices[i], ctx);
@@ -438,6 +448,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     unsigned n_remote_gets = 0;
     const unsigned long long start_search = hvr_current_time_us();
     unsigned long long accum_get_neighbors_time = 0;
+    double min_feat_vals[3] = {DBL_MAX, DBL_MAX, DBL_MAX};
+    double max_feat_vals[3] = {-DBL_MAX, -DBL_MAX, -DBL_MAX};
     for (hvr_sparse_vec_t *vertex = hvr_vertex_iter_next(iter); vertex;
             vertex = hvr_vertex_iter_next(iter)) {
         assert(vertex->id != HVR_INVALID_VERTEX_ID);
@@ -455,6 +467,16 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
             &n_this_explores, 0, max_depth, &n_local_gets, &n_remote_gets,
             &accum_get_neighbors_time);
         n_explores += n_this_explores;
+
+        for (unsigned i = 0; i < 3; i++) {
+            double val = hvr_sparse_vec_get(i, vertex, ctx);
+            if (val < min_feat_vals[i]) {
+                min_feat_vals[i] = val;
+            }
+            if (val > max_feat_vals[i]) {
+                max_feat_vals[i] = val;
+            }
+        }
     }
 
     sort_patterns_by_score(known_local_patterns, n_known_local_patterns);
@@ -465,7 +487,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 "visits, %f ms to search (%f ms spent on neighbor fetching), "
                 "%u local vertices in total. Best "
                 "score = %u, vertex count = %u, edge count = %u. # local gets "
-                "= %u, # remote gets = %u\n",
+                "= %u, # remote gets = %u. min vals = [%f, %f, %f], max vals = "
+                "[%f, %f, %f]\n",
                 pe, n_known_local_patterns, hvr_current_timestep(ctx),
                 n_explores, (double)(end_search - start_search) / 1000.0,
                 (double)accum_get_neighbors_time / 1000.0,
@@ -473,7 +496,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 score_pattern(known_local_patterns + 0),
                 known_local_patterns[0].matrix.n_vertices,
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix),
-                n_local_gets, n_remote_gets);
+                n_local_gets, n_remote_gets, min_feat_vals[0], min_feat_vals[1],
+                min_feat_vals[2], max_feat_vals[0], max_feat_vals[1],
+                max_feat_vals[2]);
     }
 
     /*

@@ -103,7 +103,8 @@ extern void hvr_set_destroy(hvr_set_t *set);
 /*
  * Create a human-readable string from the provided set.
  */
-extern void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen);
+extern void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen,
+        unsigned *values);
 
 /*
  * Return an array containing all values in the provided set.
@@ -198,6 +199,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_set_t *other_pe_partition_time_window;
     hvr_set_t *tmp_partition_time_window;
     long *partition_time_window_lock;
+    hvr_partition_list_node_t *active_partitions_list;
+    hvr_partition_list_node_t *partitions_list_pool;
 
     /*
      * Mapping from each local vertex to its partition. Globally visible and
@@ -280,6 +283,7 @@ typedef struct _hvr_internal_ctx_t {
 
     // List of local vertices in each partition
     hvr_sparse_vec_t **partition_lists;
+    unsigned *partition_lists_lengths;
 
     // Counter for which graph IDs have already been allocated
     hvr_graph_id_t allocated_graphs;
@@ -315,12 +319,13 @@ extern hvr_graph_id_t hvr_graph_create(hvr_ctx_t ctx);
 
 // Find the vertex IDs of the vertices that are neighbors of the provided vertex
 void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex, hvr_ctx_t in_ctx,
-        hvr_vertex_id_t **neighbors_out, unsigned *n_neighbors_out);
+        hvr_vertex_id_t **neighbors_out, unsigned *n_neighbors_out,
+        size_t *neighbors_capacity);
 
 void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         hvr_ctx_t in_ctx, hvr_vertex_id_t **neighbors_out,
-        unsigned *n_neighbors_out, unsigned *count_local_gets,
-        unsigned *count_remote_gets);
+        unsigned *n_neighbors_out, size_t *neighbors_capacity,
+        unsigned *count_local_gets, unsigned *count_remote_gets);
 
 // Initialize the state of the simulation/ctx
 extern void hvr_init(const hvr_partition_t n_partitions,

@@ -130,4 +130,9 @@ extern void hvr_clear_edge_set(hvr_edge_set_t *set);
 extern void hvr_release_edge_set(hvr_edge_set_t *set);
 extern void hvr_print_edge_set(hvr_edge_set_t *set);
 
+typedef struct _hvr_partition_list_node_t {
+    hvr_partition_t part;
+    struct _hvr_partition_list_node_t *next;
+} hvr_partition_list_node_t;
+
 #endif // _HOOVER_INTERNAL_H

@@ -14,7 +14,7 @@ const int delay = 1;
 hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     // One partition per PE, and vertices are placed at the center of the partitions.
     const double x = hvr_sparse_vec_get(0, actor, ctx);
-    for (hvr_partition_t p = 0; p < ctx->npes; p++)
+    for (hvr_partition_t p = 0; p < (unsigned)ctx->npes; p++)
         if (double(p + 1) > x)
             return p;
     assert(0);
