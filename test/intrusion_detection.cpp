@@ -86,7 +86,7 @@ static unsigned n_sorted_best_patterns = 0;
 
 #define MAX_LOCAL_PATTERNS 200
 static pattern_count_t *known_local_patterns = NULL;
-static std::vector<int> **pes_sharing_local_patterns = NULL;
+static std::set<int> **pes_sharing_local_patterns = NULL;
 static unsigned n_known_local_patterns = 0;
 
 static unsigned n_local_vertices = 0;
@@ -149,6 +149,20 @@ static unsigned pattern_distance(adjacency_matrix_t *a, adjacency_matrix_t *b) {
         }
     }
     return count_differences + abs((long int)(a->n_vertices - b->n_vertices));
+}
+
+static unsigned patterns_identical(adjacency_matrix_t *a, adjacency_matrix_t *b) {
+    if (a->n_vertices != b->n_vertices) {
+        return 0;
+    }
+    for (unsigned i = 0; i < a->n_vertices; i++) {
+        for (unsigned j = 0; j <= i; j++) {
+            if (a->matrix[i][j] != b->matrix[i][j]) {
+                return 0;
+            }
+        }
+    }
+    return 1;
 }
 
 static void adjacency_matrix_to_string(adjacency_matrix_t *a, char *buf,
@@ -225,42 +239,44 @@ static void subgraph_add_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
     graph->adjacency_matrix.matrix[b_index][a_index] = 1;
 }
 
-static void explore_subgraphs(hvr_vertex_id_t last_added,
+static inline void explore_subgraphs(hvr_vertex_id_t last_added,
         subgraph_t *curr_state,
         pattern_count_t *known_patterns,
-        std::vector<int> **pes_sharing_local_patterns,
-        unsigned *n_known_patterns, hvr_ctx_t ctx, unsigned *n_explores,
-        unsigned curr_depth, unsigned max_depth, unsigned *count_local_gets,
+        std::set<int> **pes_sharing_local_patterns,
+        unsigned *n_known_patterns,
+        hvr_ctx_t ctx,
+        unsigned *n_explores,
+        unsigned curr_depth,
+        unsigned max_depth,
+        unsigned *count_local_gets,
         unsigned *count_remote_gets,
-        unsigned long long *accum_get_neighbors_time) {
-
-    if (curr_depth >= max_depth) {
-        return;
-    }
+        unsigned long long *accum_get_neighbors_time,
+        unsigned long long *accum_tracking_time) {
     *n_explores += 1;
 
     /*
      * Track the existence of this state so we can find the most common
      * states after this traversal
      */
+    const unsigned long long start_tracking_time = hvr_current_time_us();
     int found = 0;
     for (unsigned i = 0; i < *n_known_patterns && !found; i++) {
-        if (pattern_distance(&(curr_state->adjacency_matrix),
-                    &(known_patterns[i].matrix)) == 0) {
+        if (patterns_identical(&(curr_state->adjacency_matrix),
+                    &(known_patterns[i].matrix))) {
             // Increment count for this pattern
-            std::vector<int> *other_pes = pes_sharing_local_patterns[i];
+            std::set<int> *other_pes = pes_sharing_local_patterns[i];
             for (unsigned v = 0; v < curr_state->adjacency_matrix.n_vertices;
                     v++) {
                 int owning_pe = VERTEX_ID_PE(curr_state->vertices[v]);
-                if (owning_pe != pe && std::find(other_pes->begin(),
-                            other_pes->end(), owning_pe) == other_pes->end()) {
-                    other_pes->push_back(owning_pe);
+                if (owning_pe != pe) {
+                    other_pes->insert(owning_pe);
                 }
             }
             known_patterns[i].count += 1;
             found = 1;
         }
     }
+
     if (!found && curr_state->adjacency_matrix.n_vertices > 1) {
         if (*n_known_patterns >= MAX_LOCAL_PATTERNS) {
             fprintf(stderr, "ERROR: # patterns (%d) has exceeded maximum "
@@ -273,74 +289,76 @@ static void explore_subgraphs(hvr_vertex_id_t last_added,
                 sizeof(new_pattern->matrix));
         new_pattern->count = 1;
 
-        std::vector<int> *new_set = pes_sharing_local_patterns[*n_known_patterns];
+        std::set<int> *new_set = pes_sharing_local_patterns[*n_known_patterns];
         new_set->clear();
         for (unsigned v = 0; v < curr_state->adjacency_matrix.n_vertices; v++) {
             int owning_pe = VERTEX_ID_PE(curr_state->vertices[v]);
-            if (owning_pe != pe && std::find(new_set->begin(), new_set->end(),
-                        owning_pe) == new_set->end()) {
-                new_set->push_back(owning_pe);
+            if (owning_pe != pe) {
+                new_set->insert(owning_pe);
             }
         }
 
         *n_known_patterns += 1;
     }
+    *accum_tracking_time += (hvr_current_time_us() - start_tracking_time);
 
-    // For the most recently added vertex
-    hvr_vertex_id_t existing_vertex = last_added;
+    if (curr_depth + 1 < max_depth) {
+        /*
+         * Find the neighbors (i.e. halo regions) of the current vertex in the
+         * subgraph. Check if adding any of them results in a change in graph
+         * structure (addition of a vertex and/or edge). If it does, make that
+         * change and explore further.
+         */
+        const unsigned long long start_get_neighbors = hvr_current_time_us();
+        hvr_vertex_id_t *neighbors = NULL;
+        size_t neighbors_capacity = 0;
+        unsigned n_neighbors;
+        hvr_sparse_vec_get_neighbors_with_metrics(last_added, ctx,
+                &neighbors, &n_neighbors, &neighbors_capacity, count_local_gets,
+                count_remote_gets);
+        *accum_get_neighbors_time += (hvr_current_time_us() - start_get_neighbors);
 
-    /*
-     * Find the neighbors (i.e. halo regions) of the current vertex in the
-     * subgraph. Check if adding any of them results in a change in graph
-     * structure (addition of a vertex and/or edge). If it does, make that
-     * change and explore further.
-     */
-    const unsigned long long start_get_neighbors = hvr_current_time_us();
-    hvr_vertex_id_t *neighbors = NULL;
-    size_t neighbors_capacity = 0;
-    unsigned n_neighbors;
-    hvr_sparse_vec_get_neighbors_with_metrics(existing_vertex, ctx,
-            &neighbors, &n_neighbors, &neighbors_capacity, count_local_gets,
-            count_remote_gets);
-    *accum_get_neighbors_time += (hvr_current_time_us() - start_get_neighbors);
+        for (unsigned j = 0; j < n_neighbors; j++) {
+            hvr_vertex_id_t neighbor = neighbors[j];
 
-    for (unsigned j = 0; j < n_neighbors; j++) {
-        hvr_vertex_id_t neighbor = neighbors[j];
-
-        if (already_in_subgraph(neighbor, curr_state)) {
-            /*
-             * 'neighbor' is already in the subgraph (as is
-             * 'existing_vertex'). If the edge
-             * 'neighbor'<->'existing_vertex' is already in the subgraph, do
-             * nothing. Otherwise, add it and iterate.
-             */
-            if (!subgraph_has_edge(neighbor, existing_vertex, curr_state)) {
-                subgraph_t new_state;
-                memcpy(&new_state, curr_state, sizeof(new_state));
-                subgraph_add_edge(neighbor, existing_vertex, &new_state);
-                explore_subgraphs(neighbor, &new_state, known_patterns,
-                        pes_sharing_local_patterns, n_known_patterns, ctx,
-                        n_explores, curr_depth + 1, max_depth, count_local_gets,
-                        count_remote_gets, accum_get_neighbors_time);
-            }
-        } else {
-            // Can only add a new vertex to the graph if we have space to.
-            if (curr_state->adjacency_matrix.n_vertices < MAX_SUBGRAPH_VERTICES) {
-                // Add the new vertex and an edge to it.
-                subgraph_t new_state;
-                memcpy(&new_state, curr_state, sizeof(new_state));
-                new_state.vertices[new_state.adjacency_matrix.n_vertices] =
-                    neighbor;
-                new_state.adjacency_matrix.n_vertices += 1;
-                subgraph_add_edge(neighbor, existing_vertex, &new_state);
-                explore_subgraphs(neighbor, &new_state, known_patterns,
-                        pes_sharing_local_patterns, n_known_patterns, ctx,
-                        n_explores, curr_depth + 1, max_depth, count_local_gets,
-                        count_remote_gets, accum_get_neighbors_time);
+            if (already_in_subgraph(neighbor, curr_state)) {
+                /*
+                 * 'neighbor' is already in the subgraph (as is
+                 * 'existing_vertex'). If the edge
+                 * 'neighbor'<->'existing_vertex' is already in the subgraph, do
+                 * nothing. Otherwise, add it and iterate.
+                 */
+                if (!subgraph_has_edge(neighbor, last_added, curr_state)) {
+                    subgraph_t new_state;
+                    memcpy(&new_state, curr_state, sizeof(new_state));
+                    subgraph_add_edge(neighbor, last_added, &new_state);
+                    explore_subgraphs(neighbor, &new_state, known_patterns,
+                            pes_sharing_local_patterns, n_known_patterns, ctx,
+                            n_explores, curr_depth + 1, max_depth, count_local_gets,
+                            count_remote_gets, accum_get_neighbors_time,
+                            accum_tracking_time);
+                }
+            } else {
+                // Can only add a new vertex to the graph if we have space to.
+                if (curr_state->adjacency_matrix.n_vertices < MAX_SUBGRAPH_VERTICES) {
+                    // Add the new vertex and an edge to it.
+                    subgraph_t new_state;
+                    memcpy(&new_state, curr_state, sizeof(new_state));
+                    new_state.vertices[new_state.adjacency_matrix.n_vertices] =
+                        neighbor;
+                    new_state.adjacency_matrix.n_vertices += 1;
+                    subgraph_add_edge(neighbor, last_added, &new_state);
+                    explore_subgraphs(neighbor, &new_state, known_patterns,
+                            pes_sharing_local_patterns, n_known_patterns, ctx,
+                            n_explores, curr_depth + 1, max_depth, count_local_gets,
+                            count_remote_gets, accum_get_neighbors_time,
+                            accum_tracking_time);
+                }
             }
         }
+
+        free(neighbors);
     }
-    free(neighbors);
 }
 
 static unsigned score_pattern(pattern_count_t *pattern) {
@@ -408,7 +426,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * vertices on this node (but possibly with vertices on other nodes).
      */
     const unsigned min_n_vertices_to_add = 100;
-    const unsigned max_n_vertices_to_add = 300;
+    const unsigned max_n_vertices_to_add = 500;
     const unsigned n_vertices_to_add = min_n_vertices_to_add +
         (rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
 
@@ -452,6 +470,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     unsigned n_remote_gets = 0;
     const unsigned long long start_search = hvr_current_time_us();
     unsigned long long accum_get_neighbors_time = 0;
+    unsigned long long accum_tracking_time = 0;
     for (hvr_sparse_vec_t *vertex = hvr_vertex_iter_next(iter); vertex;
             vertex = hvr_vertex_iter_next(iter)) {
         assert(vertex->id != HVR_INVALID_VERTEX_ID);
@@ -463,11 +482,11 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 MAX_SUBGRAPH_VERTICES * sizeof(unsigned char));
 
         unsigned n_this_explores = 0;
-        unsigned max_depth = 5;
+        unsigned max_depth = 4;
         explore_subgraphs(vertex->id, &sub, known_local_patterns,
             pes_sharing_local_patterns, &n_known_local_patterns, ctx,
             &n_this_explores, 0, max_depth, &n_local_gets, &n_remote_gets,
-            &accum_get_neighbors_time);
+            &accum_get_neighbors_time, &accum_tracking_time);
         n_explores += n_this_explores;
     }
 
@@ -476,13 +495,14 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
 
     if (n_known_local_patterns > 0) {
         fprintf(stderr, "PE %d found %u patterns on timestep %d using %d "
-                "visits, %f ms to search (%f ms spent on neighbor fetching), "
+                "visits, %f ms to search (%f ms spent on neighbor fetching, %f counting patterns), "
                 "%u local vertices in total. Best "
                 "score = %u, vertex count = %u, edge count = %u. # local gets "
                 "= %u, # remote gets = %u.\n",
                 pe, n_known_local_patterns, hvr_current_timestep(ctx),
                 n_explores, (double)(end_search - start_search) / 1000.0,
                 (double)accum_get_neighbors_time / 1000.0,
+                (double)accum_tracking_time / 1000.0,
                 n_local_vertices,
                 score_pattern(known_local_patterns + 0),
                 known_local_patterns[0].matrix.n_vertices,
@@ -706,8 +726,8 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
              * Become coupled with other PEs whose vertices are parts of this
              * anomalous pattern.
              */
-            std::vector<int> *other_pes = pes_sharing_local_patterns[j];
-            for (std::vector<int>::iterator i = other_pes->begin(),
+            std::set<int> *other_pes = pes_sharing_local_patterns[j];
+            for (std::set<int>::iterator i = other_pes->begin(),
                     e = other_pes->end(); i != e; i++) {
                 int other_pe = *i;
                 hvr_set_insert(other_pe, to_couple_with);
@@ -764,7 +784,7 @@ int main(int argc, char **argv) {
 
     srand(123 + pe);
 
-    range_per_pe = domain_size / (double)npes;
+    // range_per_pe = domain_size / (double)npes;
     max_feat_val = npes * range_per_pe;
     feat_range_per_partition = max_feat_val / (double)PARTITION_DIM;
 
@@ -805,12 +825,12 @@ int main(int argc, char **argv) {
     known_local_patterns = (pattern_count_t *)malloc(
             MAX_LOCAL_PATTERNS * sizeof(*known_local_patterns));
     assert(known_local_patterns);
-    pes_sharing_local_patterns = (std::vector<int> **)malloc(
+    pes_sharing_local_patterns = (std::set<int> **)malloc(
             MAX_LOCAL_PATTERNS * sizeof(*pes_sharing_local_patterns));
     assert(pes_sharing_local_patterns);
     for (int i = 0; i < MAX_LOCAL_PATTERNS; i++) {
-        pes_sharing_local_patterns[i] = new std::vector<int>();
-        pes_sharing_local_patterns[i]->reserve(npes);
+        pes_sharing_local_patterns[i] = new std::set<int>();
+        // pes_sharing_local_patterns[i]->reserve(npes);
     }
 
     *best_patterns_lock = 0;
