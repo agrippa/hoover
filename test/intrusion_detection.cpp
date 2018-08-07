@@ -233,8 +233,6 @@ static void explore_subgraphs(hvr_vertex_id_t last_added,
         unsigned curr_depth, unsigned max_depth, unsigned *count_local_gets,
         unsigned *count_remote_gets,
         unsigned long long *accum_get_neighbors_time) {
-    static hvr_vertex_id_t *neighbors = NULL;
-    static size_t neighbors_capacity = 0;
 
     if (curr_depth >= max_depth) {
         return;
@@ -298,6 +296,8 @@ static void explore_subgraphs(hvr_vertex_id_t last_added,
      * change and explore further.
      */
     const unsigned long long start_get_neighbors = hvr_current_time_us();
+    hvr_vertex_id_t *neighbors = NULL;
+    size_t neighbors_capacity = 0;
     unsigned n_neighbors;
     hvr_sparse_vec_get_neighbors_with_metrics(existing_vertex, ctx,
             &neighbors, &n_neighbors, &neighbors_capacity, count_local_gets,
@@ -340,6 +340,7 @@ static void explore_subgraphs(hvr_vertex_id_t last_added,
             }
         }
     }
+    free(neighbors);
 }
 
 static unsigned score_pattern(pattern_count_t *pattern) {
@@ -406,13 +407,16 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * features which are designed to be most likely to just interact with
      * vertices on this node (but possibly with vertices on other nodes).
      */
-    const int n_vertices_to_add = rand() % 300;
+    const unsigned min_n_vertices_to_add = 100;
+    const unsigned max_n_vertices_to_add = 300;
+    const unsigned n_vertices_to_add = min_n_vertices_to_add +
+        (rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
 
     hvr_sparse_vec_t *new_vertices = hvr_sparse_vec_create_n(n_vertices_to_add,
             graph, ctx);
     n_local_vertices += n_vertices_to_add;
 
-    for (int i = 0; i < n_vertices_to_add; i++) {
+    for (unsigned i = 0; i < n_vertices_to_add; i++) {
         /*
          * For each PE, have each feature have a gaussian distribution with a
          * mean of 'pe + 1' and a standard deviation of 0.5.
@@ -448,8 +452,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     unsigned n_remote_gets = 0;
     const unsigned long long start_search = hvr_current_time_us();
     unsigned long long accum_get_neighbors_time = 0;
-    double min_feat_vals[3] = {DBL_MAX, DBL_MAX, DBL_MAX};
-    double max_feat_vals[3] = {-DBL_MAX, -DBL_MAX, -DBL_MAX};
     for (hvr_sparse_vec_t *vertex = hvr_vertex_iter_next(iter); vertex;
             vertex = hvr_vertex_iter_next(iter)) {
         assert(vertex->id != HVR_INVALID_VERTEX_ID);
@@ -467,16 +469,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
             &n_this_explores, 0, max_depth, &n_local_gets, &n_remote_gets,
             &accum_get_neighbors_time);
         n_explores += n_this_explores;
-
-        for (unsigned i = 0; i < 3; i++) {
-            double val = hvr_sparse_vec_get(i, vertex, ctx);
-            if (val < min_feat_vals[i]) {
-                min_feat_vals[i] = val;
-            }
-            if (val > max_feat_vals[i]) {
-                max_feat_vals[i] = val;
-            }
-        }
     }
 
     sort_patterns_by_score(known_local_patterns, n_known_local_patterns);
@@ -487,8 +479,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 "visits, %f ms to search (%f ms spent on neighbor fetching), "
                 "%u local vertices in total. Best "
                 "score = %u, vertex count = %u, edge count = %u. # local gets "
-                "= %u, # remote gets = %u. min vals = [%f, %f, %f], max vals = "
-                "[%f, %f, %f]\n",
+                "= %u, # remote gets = %u.\n",
                 pe, n_known_local_patterns, hvr_current_timestep(ctx),
                 n_explores, (double)(end_search - start_search) / 1000.0,
                 (double)accum_get_neighbors_time / 1000.0,
@@ -496,9 +487,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 score_pattern(known_local_patterns + 0),
                 known_local_patterns[0].matrix.n_vertices,
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix),
-                n_local_gets, n_remote_gets, min_feat_vals[0], min_feat_vals[1],
-                min_feat_vals[2], max_feat_vals[0], max_feat_vals[1],
-                max_feat_vals[2]);
+                n_local_gets, n_remote_gets);
     }
 
     /*
@@ -687,7 +676,7 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         if (is_a_frequent_pattern) {
             count_frequent_pattern_matches++;
         } else if (is_similar_to_a_frequent_pattern >= 0) {
-            char buf[1024];
+            // char buf[1024];
             fprintf(stderr, "PE %d found potentially anomalous pattern on "
                     "timestep %d!\n", pe, hvr_current_timestep(ctx));
 
@@ -747,16 +736,15 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc < 2) {
+    if (argc != 4) {
         fprintf(stderr, "usage: %s <time-limit-in-seconds> "
-                "[distance-threshold]\n", argv[0]);
+                "<distance-threshold> <domain-size>\n", argv[0]);
         return 1;
     }
 
     time_limit_us = atoi(argv[1]) * 1000 * 1000;
-    if (argc > 2) {
-        distance_threshold = atof(argv[2]);
-    }
+    distance_threshold = atof(argv[2]);
+    const double domain_size = atof(argv[3]);
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
         p_sync[i] = SHMEM_SYNC_VALUE;
@@ -776,6 +764,7 @@ int main(int argc, char **argv) {
 
     srand(123 + pe);
 
+    range_per_pe = domain_size / (double)npes;
     max_feat_val = npes * range_per_pe;
     feat_range_per_partition = max_feat_val / (double)PARTITION_DIM;
 

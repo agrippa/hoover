@@ -24,6 +24,7 @@ static hvr_avl_tree_node_t *newNode(hvr_vertex_id_t key) {
     assert(node);
     node->key = key;
     node->subtree = NULL;
+    node->linearized = NULL;
     node->left = NULL;
     node->right = NULL;
     node->height = 1;  // new node is initially added at leaf
@@ -116,6 +117,8 @@ void hvr_tree_destroy(hvr_avl_tree_node_t *curr) {
 
     hvr_tree_destroy(curr->left);
     hvr_tree_destroy(curr->right);
+    hvr_tree_destroy(curr->subtree);
+    if (curr->linearized) free(curr->linearized);
     free(curr);
 }
 
@@ -140,17 +143,29 @@ static void hvr_tree_linearize_helper(hvr_vertex_id_t *arr, unsigned *index,
 
 size_t hvr_tree_linearize(hvr_vertex_id_t **arr, size_t *arr_capacity,
         hvr_avl_tree_node_t *curr) {
-    const size_t tree_size = hvr_tree_size(curr);
-    if (*arr_capacity < tree_size) {
-        free(*arr);
-        *arr = (hvr_vertex_id_t *)malloc(tree_size * sizeof(hvr_vertex_id_t));
-        assert(*arr);
-        *arr_capacity = tree_size;
+    if (curr->linearized == NULL) {
+        const size_t tree_size = hvr_tree_size(curr);
+        hvr_vertex_id_t *linearized = (hvr_vertex_id_t *)malloc(
+                tree_size * sizeof(*linearized));
+        assert(linearized);
+
+        unsigned index = 0;
+        hvr_tree_linearize_helper(linearized, &index, curr);
+        assert(index == tree_size);
+
+        curr->linearized = linearized;
+        curr->linearized_length = tree_size;
     }
 
-    unsigned index = 0;
-    hvr_tree_linearize_helper(*arr, &index, curr);
-    assert(index == tree_size);
-    
-    return tree_size;
+    if (*arr_capacity < curr->linearized_length) {
+        *arr = (hvr_vertex_id_t *)realloc(*arr,
+                curr->linearized_length * sizeof(hvr_vertex_id_t));
+        assert(*arr);
+        *arr_capacity = curr->linearized_length;
+    }
+
+    memcpy(*arr, curr->linearized,
+            curr->linearized_length * sizeof(hvr_vertex_id_t));
+
+    return curr->linearized_length;
 }

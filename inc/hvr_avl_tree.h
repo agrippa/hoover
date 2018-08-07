@@ -10,6 +10,9 @@ typedef struct _hvr_avl_tree_node_t {
     hvr_vertex_id_t key;
     struct _hvr_avl_tree_node_t *subtree;
 
+    hvr_vertex_id_t *linearized;
+    unsigned linearized_length;
+
     struct _hvr_avl_tree_node_t *left;
     struct _hvr_avl_tree_node_t *right;
     int height;

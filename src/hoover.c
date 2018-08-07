@@ -1017,6 +1017,10 @@ hvr_edge_set_t *hvr_create_empty_edge_set() {
     return new_set;
 }
 
+/*
+ * Add an edge from a local vertex local_vertex_id to another vertex (possibly
+ * local or remote) global_vertex_id.
+ */
 void hvr_add_edge(const hvr_vertex_id_t local_vertex_id,
         const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
     // If it already exists, just returns existing node in tree
@@ -1138,8 +1142,6 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx) {
     hvr_partition_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
     unsigned n_interacting_partitions;
     hvr_set_wipe(ctx->my_neighbors);
-
-    unsigned long long getmem_time = 0;
 
     for (hvr_partition_list_node_t *curr = ctx->active_partitions_list; curr;
             curr = curr->next) {
