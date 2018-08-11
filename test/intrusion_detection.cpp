@@ -34,10 +34,6 @@
  */
 #define MAX_DISTANCE_FOR_ANOMALY 1
 
-// const unsigned PARTITION_DIM = 70U;
-const unsigned PARTITION_DIM = 200U;
-static double distance_threshold = 1.0;
-
 typedef struct _adjacency_matrix_t {
     unsigned n_vertices;
     unsigned char matrix[MAX_SUBGRAPH_VERTICES][MAX_SUBGRAPH_VERTICES];
@@ -74,9 +70,20 @@ long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 static hvr_graph_id_t graph = HVR_INVALID_GRAPH;
 
 // Application variables
-static double max_feat_val = 0.0;
-static double feat_range_per_partition = 0.0;
-static double range_per_pe = 100;
+static double distance_threshold = 1.0;
+static unsigned domain_dim[3] = {0, 0, 0}; // Size of the global domain
+static unsigned pe_chunks_by_dim[3] = {0, 0, 0}; // Number of chunks per dim
+static unsigned pe_chunk_size[3] = {0, 0, 0}; // Length of each chunk in each dim
+static unsigned partitions_by_dim[3] = {0, 0, 0}; // # of partitions in each dim
+static unsigned partitions_size[3] = {0, 0, 0}; // Size of partition in each dim
+
+#define PE_COORD_0(my_pe) ((my_pe) / (pe_chunks_by_dim[1] * pe_chunks_by_dim[2]))
+#define PE_COORD_1(my_pe) (((my_pe) / pe_chunks_by_dim[2]) % pe_chunks_by_dim[1])
+#define PE_COORD_2(my_pe) ((my_pe) % pe_chunks_by_dim[2])
+
+static unsigned min_point = {0, 0, 0};
+static unsigned max_point = {0, 0, 0};
+
 static timestamped_pattern_count_t *best_patterns = NULL;
 static timestamped_pattern_count_t *best_patterns_buffer = NULL;
 static long *best_patterns_lock = NULL;
@@ -124,15 +131,18 @@ static double randn(double mu, double sigma) {
 
 #define UNIFORM_DIST
 
-static double rand_value() {
+static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
 #ifdef GAUSSIAN_DIST
-    double mean = (pe * range_per_pe) + (range_per_pe / 2.0);
-    double sigma = range_per_pe / 4.0;
-
-    return randn(mean, sigma);
+    *f0 = (int)randn((double)(min_point[0] + max_point[0]) / 2.0,
+            (max_point[0] - min_point[0]) / 3.0);
+    *f1 = (unsigned)randn((double)(min_point[1] + max_point[1]) / 2.0,
+            (max_point[1] - min_point[1]) / 3.0);
+    *f2 = (unsigned)randn((double)(min_point[2] + max_point[2]) / 2.0,
+            (max_point[2] - min_point[2]) / 3.0);
 #elif defined(UNIFORM_DIST)
-    double min_val = pe * range_per_pe;
-    return min_val + ((double)rand() / (double)RAND_MAX) * range_per_pe;
+    *f0 = min_point[0] + (rand() % (max_point[0] - min_point[0]));
+    *f1 = min_point[1] + (rand() % (max_point[1] - min_point[1]));
+    *f2 = min_point[2] + (rand() % (max_point[2] - min_point[2]));
 #else
 #error No distributed specified
 #endif
@@ -151,7 +161,8 @@ static unsigned pattern_distance(adjacency_matrix_t *a, adjacency_matrix_t *b) {
     return count_differences + abs((long int)(a->n_vertices - b->n_vertices));
 }
 
-static unsigned patterns_identical(adjacency_matrix_t *a, adjacency_matrix_t *b) {
+static unsigned patterns_identical(adjacency_matrix_t *a,
+        adjacency_matrix_t *b) {
     if (a->n_vertices != b->n_vertices) {
         return 0;
     }
@@ -334,9 +345,9 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
                     subgraph_add_edge(neighbor, last_added, &new_state);
                     explore_subgraphs(neighbor, &new_state, known_patterns,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
-                            n_explores, curr_depth + 1, max_depth, count_local_gets,
-                            count_remote_gets, accum_get_neighbors_time,
-                            accum_tracking_time);
+                            n_explores, curr_depth + 1, max_depth,
+                            count_local_gets, count_remote_gets,
+                            accum_get_neighbors_time, accum_tracking_time);
                 }
             } else {
                 // Can only add a new vertex to the graph if we have space to.
@@ -350,9 +361,9 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
                     subgraph_add_edge(neighbor, last_added, &new_state);
                     explore_subgraphs(neighbor, &new_state, known_patterns,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
-                            n_explores, curr_depth + 1, max_depth, count_local_gets,
-                            count_remote_gets, accum_get_neighbors_time,
-                            accum_tracking_time);
+                            n_explores, curr_depth + 1, max_depth,
+                            count_local_gets, count_remote_gets,
+                            accum_get_neighbors_time, accum_tracking_time);
                 }
             }
         }
@@ -366,14 +377,14 @@ static unsigned score_pattern(pattern_count_t *pattern) {
 }
 
 hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
-    int feat1_partition = hvr_sparse_vec_get(0, actor, ctx) /
-        feat_range_per_partition;
-    int feat2_partition = hvr_sparse_vec_get(1, actor, ctx) /
-        feat_range_per_partition;
-    int feat3_partition = hvr_sparse_vec_get(2, actor, ctx) /
-        feat_range_per_partition;
-    return feat1_partition * PARTITION_DIM * PARTITION_DIM +
-        feat2_partition * PARTITION_DIM + feat3_partition;
+    unsigned feat1_partition = (unsigned)hvr_sparse_vec_get(0, actor, ctx) /
+        partitions_size[0];
+    unsigned feat2_partition = (unsigned)hvr_sparse_vec_get(1, actor, ctx) /
+        partitions_size[1];
+    unsigned feat3_partition = (unsigned)hvr_sparse_vec_get(2, actor, ctx) /
+        partitions_size[2];
+    return feat1_partition * partitions_by_dim[1] * partitions_by_dim[2] +
+        feat2_partition * partitions_by_dim[2] + feat3_partition;
 }
 
 // Assumes we already hold the write lock on best_patterns_lock for the local PE
@@ -439,17 +450,16 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
          * For each PE, have each feature have a gaussian distribution with a
          * mean of 'pe + 1' and a standard deviation of 0.5.
          */
-        double feat1 = floor(rand_value());
-        double feat2 = floor(rand_value());
-        double feat3 = floor(rand_value());
+        unsigned feat1, feat2, feat3;
+        rand_point(&feat1, &feat2, &feat3);
 
         feat1 = MAX(feat1, 0);
         feat2 = MAX(feat2, 0);
         feat3 = MAX(feat3, 0);
 
-        feat1 = MIN(feat1, max_feat_val - 1);
-        feat2 = MIN(feat2, max_feat_val - 1);
-        feat3 = MIN(feat3, max_feat_val - 1);
+        feat1 = MIN(feat1, domain_dim[0] - 1);
+        feat2 = MIN(feat2, domain_dim[1] - 1);
+        feat3 = MIN(feat3, domain_dim[2] - 1);
 
         hvr_sparse_vec_set(0, feat1, &new_vertices[i], ctx);
         hvr_sparse_vec_set(1, feat2, &new_vertices[i], ctx);
@@ -586,18 +596,20 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
      * If a vertex in 'partition' may create an edge with any vertices in any
      * partition in 'partitions', they might interact (so return 1).
      */
-    hvr_partition_t feat1_partition = partition / (PARTITION_DIM * PARTITION_DIM);
-    hvr_partition_t feat2_partition = (partition / PARTITION_DIM) % PARTITION_DIM;
-    hvr_partition_t feat3_partition = partition % PARTITION_DIM;
+    hvr_partition_t feat1_partition = partition /
+        (partitions_by_dim[1] * partitions_by_dim[2]);
+    hvr_partition_t feat2_partition = (partition / partitions_by_dim[2]) %
+        partitions_by_dim[1];
+    hvr_partition_t feat3_partition = partition % partitions_by_dim[2];
 
-    double feat1_min = feat1_partition * feat_range_per_partition;
-    double feat1_max = (feat1_partition + 1) * feat_range_per_partition;
+    unsigned feat1_min = feat1_partition * partitions_size[0];
+    unsigned feat1_max = (feat1_partition + 1) * partitions_size[0];
 
-    double feat2_min = feat2_partition * feat_range_per_partition;
-    double feat2_max = (feat2_partition + 1) * feat_range_per_partition;
+    unsigned feat2_min = feat2_partition * partitions_size[1];
+    unsigned feat2_max = (feat2_partition + 1) * partitions_size[1];
 
-    double feat3_min = feat3_partition * feat_range_per_partition;
-    double feat3_max = (feat3_partition + 1) * feat_range_per_partition;
+    unsigned feat3_min = feat3_partition * partitions_size[2];
+    unsigned feat3_max = (feat3_partition + 1) * partitions_size[2];
 
     feat1_min -= distance_threshold;
     feat1_max += distance_threshold;
@@ -606,28 +618,29 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
     feat3_min -= distance_threshold;
     feat3_max += distance_threshold;
 
-    feat1_min = MAX(feat1_min, 0.0);
-    feat2_min = MAX(feat2_min, 0.0);
-    feat3_min = MAX(feat3_min, 0.0);
+    feat1_min = MAX(feat1_min, 0);
+    feat2_min = MAX(feat2_min, 0);
+    feat3_min = MAX(feat3_min, 0);
 
-    feat1_max = MIN(feat1_max, max_feat_val - 1.0);
-    feat2_max = MIN(feat2_max, max_feat_val - 1.0);
-    feat3_max = MIN(feat3_max, max_feat_val - 1.0);
+    feat1_max = MIN(feat1_max, domain_dim[0] - 1);
+    feat2_max = MIN(feat2_max, domain_dim[1] - 1);
+    feat3_max = MIN(feat3_max, domain_dim[2] - 1);
 
     *n_interacting_partitions = 0;
 
-    for (int other_feat1_partition = feat1_min / feat_range_per_partition;
-            other_feat1_partition < feat1_max / feat_range_per_partition;
+    for (int other_feat1_partition = feat1_min / partitions_size[0];
+            other_feat1_partition < feat1_max / partitions_size[0];
             other_feat1_partition++) {
-        for (int other_feat2_partition = feat2_min / feat_range_per_partition;
-                other_feat2_partition < feat2_max / feat_range_per_partition;
+        for (int other_feat2_partition = feat2_min / partitions_size[1];
+                other_feat2_partition < feat2_max / partitions_size[1];
                 other_feat2_partition++) {
-            for (int other_feat3_partition = feat3_min / feat_range_per_partition;
-                    other_feat3_partition < feat3_max / feat_range_per_partition;
+            for (int other_feat3_partition = feat3_min / partitions_size[2];
+                    other_feat3_partition < feat3_max / partitions_size[2];
                     other_feat3_partition++) {
 
-                unsigned this_part = other_feat1_partition * PARTITION_DIM *
-                    PARTITION_DIM + other_feat2_partition * PARTITION_DIM +
+                unsigned this_part = other_feat1_partition *
+                    partitions_by_dim[1] * partitions_by_dim[2] +
+                    other_feat2_partition * partitions_by_dim[2] +
                     other_feat3_partition;
                 if (hvr_set_contains(this_part, partitions)) {
                     assert(*n_interacting_partitions + 1 <=
@@ -743,28 +756,45 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 
     unsigned long long time_so_far = hvr_current_time_us() - start_time;
     fprintf(stderr, "PE %d - check_abort - elapsed time = %f s, time limit = "
-            "%f s, # local vertices = %u, # local patterns = %u, # frequent patterns = %u, # exact pattern matches = %u, # "
-            "times distance too high = %u, avg distance too high = %f, aborting? %d\n", pe,
-            (double)time_so_far / 1000000.0, (double)time_limit_us / 1000000.0,
-            n_local_vertices, n_known_local_patterns, n_sorted_best_patterns, count_frequent_pattern_matches,
+            "%f s, # local vertices = %u, # local patterns = %u, # frequent "
+            "patterns = %u, # exact pattern matches = %u, # times distance too "
+            "high = %u, avg distance too high = %f, aborting? %d\n", pe,
+            (double)time_so_far / 1000000.0,
+            (double)time_limit_us / 1000000.0,
+            n_local_vertices,
+            n_known_local_patterns,
+            n_sorted_best_patterns,
+            count_frequent_pattern_matches,
             count_distance_too_high,
             avg_distance_too_high / (double)count_distance_too_high,
             (time_so_far > time_limit_us));
+
     return (time_so_far > time_limit_us);
 }
 
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc != 4) {
+    if (argc != 12) {
         fprintf(stderr, "usage: %s <time-limit-in-seconds> "
-                "<distance-threshold> <domain-size>\n", argv[0]);
+                "<distance-threshold> <domain-size-0> <domain-size-1> "
+                "<domain-size-2> <pe-dim-0> <pe-dim-1> <pe-dim-2> "
+                "<partition-dim-0> <partition-dim-1> <partition-dim-2>\n",
+                argv[0]);
         return 1;
     }
 
     time_limit_us = atoi(argv[1]) * 1000 * 1000;
     distance_threshold = atof(argv[2]);
-    const double domain_size = atof(argv[3]);
+    domain_dim[0] = atoi(argv[3]);
+    domain_dim[1] = atoi(argv[4]);
+    domain_dim[2] = atoi(argv[5]);
+    pe_chunks_by_dim[0] = atoi(argv[6]);
+    pe_chunks_by_dim[1] = atoi(argv[7]);
+    pe_chunks_by_dim[2] = atoi(argv[8]);
+    partitions_by_dim[0] = atoi(argv[9]);
+    partitions_by_dim[1] = atoi(argv[10]);
+    partitions_by_dim[2] = atoi(argv[11]);
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
         p_sync[i] = SHMEM_SYNC_VALUE;
@@ -775,6 +805,31 @@ int main(int argc, char **argv) {
     pe = shmem_my_pe();
     npes = shmem_n_pes();
 
+    assert(pe_chunks_by_dim[0] * pe_chunks_by_dim[1] * pe_chunks_by_dim[2] ==
+            npes);
+    assert(domain_dim[0] % pe_chunks_by_dim[0] == 0);
+    assert(domain_dim[1] % pe_chunks_by_dim[1] == 0);
+    assert(domain_dim[2] % pe_chunks_by_dim[2] == 0);
+
+    pe_chunk_size[0] = domain_dim[0] / pe_chunks_by_dim[0];
+    pe_chunk_size[1] = domain_dim[1] / pe_chunks_by_dim[1];
+    pe_chunk_size[2] = domain_dim[2] / pe_chunks_by_dim[2];
+
+    min_point[0] = PE_COORD_0(pe) * pe_chunk_size[0];
+    min_point[1] = PE_COORD_1(pe) * pe_chunk_size[1];
+    min_point[2] = PE_COORD_2(pe) * pe_chunk_size[2];
+
+    max_point[0] = min_point[0] + pe_chunk_size[0];
+    max_point[1] = min_point[1] + pe_chunk_size[1];
+    max_point[2] = min_point[2] + pe_chunk_size[2];
+
+    assert(domain_dim[0] % partitions_by_dim[0] == 0);
+    assert(domain_dim[1] % partitions_by_dim[1] == 0);
+    assert(domain_dim[2] % partitions_by_dim[2] == 0);
+    partitions_size[0] = domain_dim[0] / partitions_by_dim[0];
+    partitions_size[1] = domain_dim[1] / partitions_by_dim[1];
+    partitions_size[2] = domain_dim[2] / partitions_by_dim[2];
+
     if (pe == 0) {
         fprintf(stderr, "%d PE(s) running...\n", npes);
     }
@@ -783,15 +838,6 @@ int main(int argc, char **argv) {
     graph = hvr_graph_create(hvr_ctx);
 
     srand(123 + pe);
-
-    // range_per_pe = domain_size / (double)npes;
-    max_feat_val = npes * range_per_pe;
-    feat_range_per_partition = max_feat_val / (double)PARTITION_DIM;
-
-    if (pe == 0) {
-        fprintf(stderr, "Maximum feature value = %f, feature range per "
-                "partition = %f\n", max_feat_val, feat_range_per_partition);
-    }
 
     hvr_init(PARTITION_DIM * PARTITION_DIM * PARTITION_DIM, // # partitions
             update_metadata,
