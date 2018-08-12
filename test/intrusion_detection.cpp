@@ -848,6 +848,9 @@ int main(int argc, char **argv) {
     if (pe == 0) {
         printf("%d PE(s) running...\n", npes);
     }
+    printf("PE %d responsible for (%u, %u, %u) -> (%u, %u, %u)\n", pe,
+            min_point[0], min_point[1], min_point[2], max_point[0],
+            max_point[1], max_point[2]);
 
     hvr_ctx_create(&hvr_ctx);
     graph = hvr_graph_create(hvr_ctx);
