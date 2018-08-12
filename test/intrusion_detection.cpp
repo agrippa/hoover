@@ -80,9 +80,14 @@ static unsigned partitions_size[3] = {0, 0, 0}; // Size of partition in each dim
 #define PE_COORD_0(my_pe) ((my_pe) / (pe_chunks_by_dim[1] * pe_chunks_by_dim[2]))
 #define PE_COORD_1(my_pe) (((my_pe) / pe_chunks_by_dim[2]) % pe_chunks_by_dim[1])
 #define PE_COORD_2(my_pe) ((my_pe) % pe_chunks_by_dim[2])
+#define TOTAL_PARTITIONS (partitions_by_dim[0] * partitions_by_dim[1] * \
+        partitions_by_dim[2])
 
-static unsigned min_point = {0, 0, 0};
-static unsigned max_point = {0, 0, 0};
+static unsigned min_point[3] = {0, 0, 0};
+static unsigned max_point[3] = {0, 0, 0};
+
+static unsigned min_n_vertices_to_add = 100;
+static unsigned max_n_vertices_to_add = 500;
 
 static timestamped_pattern_count_t *best_patterns = NULL;
 static timestamped_pattern_count_t *best_patterns_buffer = NULL;
@@ -436,8 +441,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * features which are designed to be most likely to just interact with
      * vertices on this node (but possibly with vertices on other nodes).
      */
-    const unsigned min_n_vertices_to_add = 100;
-    const unsigned max_n_vertices_to_add = 500;
     const unsigned n_vertices_to_add = min_n_vertices_to_add +
         (rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
 
@@ -504,9 +507,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     const unsigned long long end_search = hvr_current_time_us();
 
     if (n_known_local_patterns > 0) {
-        fprintf(stderr, "PE %d found %u patterns on timestep %d using %d "
-                "visits, %f ms to search (%f ms spent on neighbor fetching, %f counting patterns), "
-                "%u local vertices in total. Best "
+        printf("PE %d found %u patterns on timestep %d using %d "
+                "visits, %f ms to search (%f ms spent on neighbor fetching, %f "
+                "counting patterns), %u local vertices in total. Best "
                 "score = %u, vertex count = %u, edge count = %u. # local gets "
                 "= %u, # remote gets = %u.\n",
                 pe, n_known_local_patterns, hvr_current_timestep(ctx),
@@ -628,13 +631,13 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
 
     *n_interacting_partitions = 0;
 
-    for (int other_feat1_partition = feat1_min / partitions_size[0];
+    for (unsigned other_feat1_partition = feat1_min / partitions_size[0];
             other_feat1_partition < feat1_max / partitions_size[0];
             other_feat1_partition++) {
-        for (int other_feat2_partition = feat2_min / partitions_size[1];
+        for (unsigned other_feat2_partition = feat2_min / partitions_size[1];
                 other_feat2_partition < feat2_max / partitions_size[1];
                 other_feat2_partition++) {
-            for (int other_feat3_partition = feat3_min / partitions_size[2];
+            for (unsigned other_feat3_partition = feat3_min / partitions_size[2];
                     other_feat3_partition < feat3_max / partitions_size[2];
                     other_feat3_partition++) {
 
@@ -710,7 +713,7 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
             count_frequent_pattern_matches++;
         } else if (is_similar_to_a_frequent_pattern >= 0) {
             // char buf[1024];
-            fprintf(stderr, "PE %d found potentially anomalous pattern on "
+            printf("PE %d found potentially anomalous pattern on "
                     "timestep %d!\n", pe, hvr_current_timestep(ctx));
 
             // if (pe_anomalies_fp == NULL) {
@@ -755,7 +758,7 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     hvr_sparse_vec_set(0, 0.0, out_coupled_metric, ctx);
 
     unsigned long long time_so_far = hvr_current_time_us() - start_time;
-    fprintf(stderr, "PE %d - check_abort - elapsed time = %f s, time limit = "
+    printf("PE %d - check_abort - elapsed time = %f s, time limit = "
             "%f s, # local vertices = %u, # local patterns = %u, # frequent "
             "patterns = %u, # exact pattern matches = %u, # times distance too "
             "high = %u, avg distance too high = %f, aborting? %d\n", pe,
@@ -775,11 +778,12 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc != 12) {
+    if (argc != 14) {
         fprintf(stderr, "usage: %s <time-limit-in-seconds> "
                 "<distance-threshold> <domain-size-0> <domain-size-1> "
                 "<domain-size-2> <pe-dim-0> <pe-dim-1> <pe-dim-2> "
-                "<partition-dim-0> <partition-dim-1> <partition-dim-2>\n",
+                "<partition-dim-0> <partition-dim-1> <partition-dim-2>"
+                "<min-vertices-to-add> <max-vertices-to-add>\n",
                 argv[0]);
         return 1;
     }
@@ -795,6 +799,8 @@ int main(int argc, char **argv) {
     partitions_by_dim[0] = atoi(argv[9]);
     partitions_by_dim[1] = atoi(argv[10]);
     partitions_by_dim[2] = atoi(argv[11]);
+    min_n_vertices_to_add = atoi(argv[12]);
+    max_n_vertices_to_add = atoi(argv[13]);
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
         p_sync[i] = SHMEM_SYNC_VALUE;
@@ -805,8 +811,17 @@ int main(int argc, char **argv) {
     pe = shmem_my_pe();
     npes = shmem_n_pes();
 
+    if (pe == 0) {
+        printf("Domain size = %u x %u x %u\n", domain_dim[0], domain_dim[1],
+                domain_dim[2]);
+        printf("PE cube = %u x %u x %u\n", pe_chunks_by_dim[0],
+                pe_chunks_by_dim[1], pe_chunks_by_dim[2]);
+        printf("Partitions cube = %u x %u x %u\n", partitions_by_dim[0],
+                partitions_by_dim[1], partitions_by_dim[2]);
+    }
+
     assert(pe_chunks_by_dim[0] * pe_chunks_by_dim[1] * pe_chunks_by_dim[2] ==
-            npes);
+            (unsigned)npes);
     assert(domain_dim[0] % pe_chunks_by_dim[0] == 0);
     assert(domain_dim[1] % pe_chunks_by_dim[1] == 0);
     assert(domain_dim[2] % pe_chunks_by_dim[2] == 0);
@@ -831,7 +846,7 @@ int main(int argc, char **argv) {
     partitions_size[2] = domain_dim[2] / partitions_by_dim[2];
 
     if (pe == 0) {
-        fprintf(stderr, "%d PE(s) running...\n", npes);
+        printf("%d PE(s) running...\n", npes);
     }
 
     hvr_ctx_create(&hvr_ctx);
@@ -839,7 +854,7 @@ int main(int argc, char **argv) {
 
     srand(123 + pe);
 
-    hvr_init(PARTITION_DIM * PARTITION_DIM * PARTITION_DIM, // # partitions
+    hvr_init(TOTAL_PARTITIONS, // # partitions
             update_metadata,
             might_interact,
             check_abort,
@@ -901,7 +916,7 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     if (pe == 0) {
-        fprintf(stderr, "%d PEs, total CPU time = %f ms, max elapsed = %f ms, "
+        printf("%d PEs, total CPU time = %f ms, max elapsed = %f ms, "
                 "%d iterations completed on PE 0\n", npes,
                 (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
                 info.executed_timesteps);

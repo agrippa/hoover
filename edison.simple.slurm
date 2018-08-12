@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 128
+#SBATCH -N 1
 #SBATCH -C haswell
 #SBATCH -t 00:05:00
 #SBATCH -J hoover
@@ -82,13 +82,27 @@ export HVR_VEC_CACHE_PREALLOCS=60000
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/write_lock_stress
 
+
+export TIME_LIMIT_IN_SECONDS=120
+export EDGE_DISTANCE=3
+export DOMAIN_SIZE="1000 900 1000"
+export PE_CHUNKS="4 3 2"
+export PARTITIONS="10 10 10"
+export MIN_N_VERTICES_TO_ADD=200
+export MAX_N_VERTICES_TO_ADD=1000
 # export HVR_HANG_ABORT=300
 export HVR_SYMM_POOL_SIZE=30000
 export HVR_VEC_CACHE_PREALLOCS=60000
-export HVR_DISABLE_PROFILING_PRINTS=1
+# export HVR_DISABLE_PROFILING_PRINTS=1
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/intrusion_detection 120 2.0 1000
+    $HOME/hoover/bin/intrusion_detection \
+    $TIME_LIMIT_IN_SECONDS \
+    $EDGE_DISTANCE \
+    $DOMAIN_SIZE \
+    $PE_CHUNKS \
+    $PARTITIONS \
+    $MIN_N_VERTICES_TO_ADD $MAX_N_VERTICES_TO_ADD
 
 # export HVR_SYMM_POOL_SIZE=40000
 # export HVR_VEC_CACHE_PREALLOCS=60000
