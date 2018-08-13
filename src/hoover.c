@@ -1956,6 +1956,7 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         return 1;
     } else {
         // Must figure out the edges on a remote vertex
+        unsigned n_nodes_buffered = 0;
         hvr_fill_set(full_partition_set);
 
         hvr_sparse_vec_t remote_vec;
@@ -2033,10 +2034,10 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
                                  * Get this vector and check if an edge should
                                  * be added
                                  */
-                                hvr_sparse_vec_t remote_remote_vec;
-                                get_remote_vec_blocking(
-                                        construct_vertex_id(p, j),
-                                        &remote_remote_vec, ctx);
+                                hvr_sparse_vec_cache_node_t *node = get_remote_vec_nbi(
+                                        j, p, ctx, &ctx->vec_cache);
+                                assert(n_nodes_buffered < EDGE_GET_BUFFERING);
+                                (ctx->neighbor_buffer)[n_nodes_buffered++] = node;
 
                                 // if (remote_remote_vec.created_timestamp < ctx->timestep &&
                                 //         remote_remote_vec.deleted_timestamp >= ctx->timestep) {
@@ -2067,6 +2068,39 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
                         }
 
                     }
+                }
+            }
+        }
+
+        unsigned long long dummy;
+        hvr_sparse_vec_cache_quiet(&ctx->vec_cache, &dummy);
+
+        for (unsigned i = 0; i < n_nodes_buffered; i++) {
+            hvr_sparse_vec_t *remote_remote_vec =
+                &((ctx->neighbor_buffer)[n]->vec);
+            if (remote_remote_vec->created_timestamp < ctx->timestep &&
+                    remote_remote_vec->deleted_timestamp >= ctx->timestep) {
+                const double distance = sparse_vec_distance_measure(
+                        &remote_vec, remote_remote_vec,
+                        ctx->timestep, ctx->timestep,
+                        ctx->min_spatial_feature,
+                        ctx->max_spatial_feature,
+                        &ctx->n_vector_cache_hits,
+                        &ctx->n_vector_cache_misses);
+                if (distance < ctx->connectivity_threshold *
+                        ctx->connectivity_threshold) {
+                    // Add as a neighbor
+                    if (*n_neighbors_out == neighbors_buf_len) {
+                        // Resize
+                        neighbors_buf_len *= 2;
+                        neighbors_buf = (hvr_vertex_id_t *)realloc(
+                                neighbors_buf,
+                                neighbors_buf_len * sizeof(*neighbors_buf));
+                        assert(neighbors_buf);
+                    }
+                    neighbors_buf[*n_neighbors_out] = remote_remote_vec.id;
+
+                    *n_neighbors_out += 1;
                 }
             }
         }
