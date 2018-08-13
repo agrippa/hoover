@@ -1928,8 +1928,15 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         unsigned *count_remote_gets) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     static hvr_set_t *full_partition_set = NULL;
+    static hvr_vertex_id_t *neighbors_buf = NULL;
+    static unsigned neighbors_buf_len = 0;
     if (full_partition_set == NULL) {
         full_partition_set = hvr_create_empty_set(ctx->n_partitions, ctx);
+
+        neighbors_buf_len = 256;
+        neighbors_buf = (hvr_vertex_id_t *)malloc(
+                neighbors_buf_len * sizeof(*neighbors_buf));
+        assert(neighbors_buf);
     }
 
     int owning_pe = VERTEX_ID_PE(vertex);
@@ -2031,26 +2038,31 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
                                         construct_vertex_id(p, j),
                                         &remote_remote_vec, ctx);
 
-                                if (remote_remote_vec.created_timestamp < ctx->timestep &&
-                                        remote_remote_vec.deleted_timestamp >= ctx->timestep) {
-                                    const double distance = sparse_vec_distance_measure(
-                                            &remote_vec, &remote_remote_vec,
-                                            ctx->timestep, ctx->timestep,
-                                            ctx->min_spatial_feature,
-                                            ctx->max_spatial_feature,
-                                            &ctx->n_vector_cache_hits,
-                                            &ctx->n_vector_cache_misses);
-                                    if (distance < ctx->connectivity_threshold *
-                                            ctx->connectivity_threshold) {
-                                        // Add as a neighbor
-                                        *neighbors_out = (hvr_vertex_id_t *)realloc(
-                                                *neighbors_out,
-                                                (*n_neighbors_out + 1) * sizeof(hvr_vertex_id_t));
-                                        assert(*neighbors_out);
-                                        (*neighbors_out)[*n_neighbors_out] = remote_remote_vec.id;
-                                        *n_neighbors_out += 1;
-                                    }
-                                }
+                                // if (remote_remote_vec.created_timestamp < ctx->timestep &&
+                                //         remote_remote_vec.deleted_timestamp >= ctx->timestep) {
+                                //     const double distance = sparse_vec_distance_measure(
+                                //             &remote_vec, &remote_remote_vec,
+                                //             ctx->timestep, ctx->timestep,
+                                //             ctx->min_spatial_feature,
+                                //             ctx->max_spatial_feature,
+                                //             &ctx->n_vector_cache_hits,
+                                //             &ctx->n_vector_cache_misses);
+                                //     if (distance < ctx->connectivity_threshold *
+                                //             ctx->connectivity_threshold) {
+                                //         // Add as a neighbor
+                                //         if (*n_neighbors_out == neighbors_buf_len) {
+                                //             // Resize
+                                //             neighbors_buf_len *= 2;
+                                //             neighbors_buf = (hvr_vertex_id_t *)realloc(
+                                //                     neighbors_buf,
+                                //                     neighbors_buf_len * sizeof(*neighbors_buf));
+                                //             assert(neighbors_buf);
+                                //         }
+                                //         neighbors_buf[*n_neighbors_out] = remote_remote_vec.id;
+
+                                //         *n_neighbors_out += 1;
+                                //     }
+                                // }
                             }
                         }
 
@@ -2058,6 +2070,9 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
                 }
             }
         }
+
+        *neighbors_out = neighbors_buf;
+
         return 0;
     }
 }
