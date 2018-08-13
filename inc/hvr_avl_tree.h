@@ -23,7 +23,7 @@ extern hvr_avl_tree_node_t* hvr_tree_insert(hvr_avl_tree_node_t* node,
 extern hvr_avl_tree_node_t *hvr_tree_find(hvr_avl_tree_node_t *curr,
         hvr_vertex_id_t key);
 extern size_t hvr_tree_size(hvr_avl_tree_node_t *curr);
-extern size_t hvr_tree_linearize(hvr_vertex_id_t **arr, size_t *arr_capacity,
+extern size_t hvr_tree_linearize(hvr_vertex_id_t **arr,
         hvr_avl_tree_node_t *curr);
 extern void hvr_tree_destroy(hvr_avl_tree_node_t *curr);
 

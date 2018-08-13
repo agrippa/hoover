@@ -266,7 +266,8 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
         unsigned max_depth,
         unsigned *count_local_gets,
         unsigned *count_remote_gets,
-        unsigned long long *accum_get_neighbors_time,
+        unsigned long long *accum_local_get_neighbors_time,
+        unsigned long long *accum_remote_get_neighbors_time,
         unsigned long long *accum_tracking_time) {
     *n_explores += 1;
 
@@ -327,12 +328,17 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
          */
         const unsigned long long start_get_neighbors = hvr_current_time_us();
         hvr_vertex_id_t *neighbors = NULL;
-        size_t neighbors_capacity = 0;
         unsigned n_neighbors;
-        hvr_sparse_vec_get_neighbors_with_metrics(last_added, ctx,
-                &neighbors, &n_neighbors, &neighbors_capacity, count_local_gets,
+        int was_local = hvr_sparse_vec_get_neighbors_with_metrics(last_added, ctx,
+                &neighbors, &n_neighbors, count_local_gets,
                 count_remote_gets);
-        *accum_get_neighbors_time += (hvr_current_time_us() - start_get_neighbors);
+        if (was_local) {
+            *accum_local_get_neighbors_time += (hvr_current_time_us() -
+                    start_get_neighbors);
+        } else {
+            *accum_remote_get_neighbors_time += (hvr_current_time_us() -
+                    start_get_neighbors);
+        }
 
         for (unsigned j = 0; j < n_neighbors; j++) {
             hvr_vertex_id_t neighbor = neighbors[j];
@@ -352,7 +358,9 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
                             n_explores, curr_depth + 1, max_depth,
                             count_local_gets, count_remote_gets,
-                            accum_get_neighbors_time, accum_tracking_time);
+                            accum_local_get_neighbors_time,
+                            accum_remote_get_neighbors_time,
+                            accum_tracking_time);
                 }
             } else {
                 // Can only add a new vertex to the graph if we have space to.
@@ -368,12 +376,12 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
                             n_explores, curr_depth + 1, max_depth,
                             count_local_gets, count_remote_gets,
-                            accum_get_neighbors_time, accum_tracking_time);
+                            accum_local_get_neighbors_time,
+                            accum_remote_get_neighbors_time,
+                            accum_tracking_time);
                 }
             }
         }
-
-        free(neighbors);
     }
 }
 
@@ -482,7 +490,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     unsigned n_local_gets = 0;
     unsigned n_remote_gets = 0;
     const unsigned long long start_search = hvr_current_time_us();
-    unsigned long long accum_get_neighbors_time = 0;
+    unsigned long long accum_local_get_neighbors_time = 0;
+    unsigned long long accum_remote_get_neighbors_time = 0;
     unsigned long long accum_tracking_time = 0;
     for (hvr_sparse_vec_t *vertex = hvr_vertex_iter_next(iter); vertex;
             vertex = hvr_vertex_iter_next(iter)) {
@@ -499,7 +508,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         explore_subgraphs(vertex->id, &sub, known_local_patterns,
             pes_sharing_local_patterns, &n_known_local_patterns, ctx,
             &n_this_explores, 0, max_depth, &n_local_gets, &n_remote_gets,
-            &accum_get_neighbors_time, &accum_tracking_time);
+            &accum_local_get_neighbors_time,
+            &accum_remote_get_neighbors_time,
+            &accum_tracking_time);
         n_explores += n_this_explores;
     }
 
@@ -508,13 +519,14 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
 
     if (n_known_local_patterns > 0) {
         printf("PE %d found %u patterns on timestep %d using %d "
-                "visits, %f ms to search (%f ms spent on neighbor fetching, %f "
+                "visits, %f ms to search (%f ms spent on local and %f ms on remote neighbor fetching, %f "
                 "counting patterns), %u local vertices in total. Best "
                 "score = %u, vertex count = %u, edge count = %u. # local gets "
                 "= %u, # remote gets = %u.\n",
                 pe, n_known_local_patterns, hvr_current_timestep(ctx),
                 n_explores, (double)(end_search - start_search) / 1000.0,
-                (double)accum_get_neighbors_time / 1000.0,
+                (double)accum_local_get_neighbors_time / 1000.0,
+                (double)accum_remote_get_neighbors_time / 1000.0,
                 (double)accum_tracking_time / 1000.0,
                 n_local_vertices,
                 score_pattern(known_local_patterns + 0),

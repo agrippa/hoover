@@ -142,8 +142,7 @@ static void hvr_tree_linearize_helper(hvr_vertex_id_t *arr, unsigned *index,
     *index += 1;
 }
 
-size_t hvr_tree_linearize(hvr_vertex_id_t **arr, size_t *arr_capacity,
-        hvr_avl_tree_node_t *curr) {
+size_t hvr_tree_linearize(hvr_vertex_id_t **arr, hvr_avl_tree_node_t *curr) {
     if (curr->linearized == NULL) {
         const size_t tree_size = hvr_tree_size(curr);
         hvr_vertex_id_t *linearized = (hvr_vertex_id_t *)malloc(
@@ -158,15 +157,7 @@ size_t hvr_tree_linearize(hvr_vertex_id_t **arr, size_t *arr_capacity,
         curr->linearized_length = tree_size;
     }
 
-    if (*arr_capacity < curr->linearized_length) {
-        *arr = (hvr_vertex_id_t *)realloc(*arr,
-                curr->linearized_length * sizeof(hvr_vertex_id_t));
-        assert(*arr);
-        *arr_capacity = curr->linearized_length;
-    }
-
-    memcpy(*arr, curr->linearized,
-            curr->linearized_length * sizeof(hvr_vertex_id_t));
+    *arr = curr->linearized;
 
     return curr->linearized_length;
 }

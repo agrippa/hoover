@@ -1907,20 +1907,21 @@ void hvr_init(const hvr_partition_t n_partitions,
 
 void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex,
         hvr_ctx_t in_ctx, hvr_vertex_id_t **neighbors_out,
-        unsigned *n_neighbors_out, size_t *neighbors_capacity) {
+        unsigned *n_neighbors_out) {
     unsigned remote_gets, local_gets;
     hvr_sparse_vec_get_neighbors_with_metrics(vertex, in_ctx, neighbors_out,
-            n_neighbors_out, neighbors_capacity, &local_gets, &remote_gets);
+            n_neighbors_out, &local_gets, &remote_gets);
 }
 
 /*
  * Retrieve a list of vertices that have edges with the specified vertex
  * (whether remote or local).
  */
-void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
+int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         hvr_ctx_t in_ctx, hvr_vertex_id_t **neighbors_out,
-        unsigned *n_neighbors_out, size_t *neighbors_capacity,
-        unsigned *count_local_gets, unsigned *count_remote_gets) {
+        unsigned *n_neighbors_out,
+        unsigned *count_local_gets,
+        unsigned *count_remote_gets) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
 
     int owning_pe = VERTEX_ID_PE(vertex);
@@ -1934,9 +1935,10 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         // If vertex_edge_tree is NULL, this node has no edges
         if (vertex_edge_tree) {
             *n_neighbors_out = hvr_tree_linearize(neighbors_out,
-                    neighbors_capacity, vertex_edge_tree->subtree);
+                    vertex_edge_tree->subtree);
         }
         *count_local_gets += 1;
+        return 1;
     } else {
         // Must figure out the edges on a remote vertex
         hvr_set_t *full_partition_set = hvr_create_full_set(ctx->n_partitions,
@@ -2050,6 +2052,7 @@ void hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
             }
         }
         hvr_set_destroy(full_partition_set);
+        return 0;
     }
 }
 
@@ -2064,14 +2067,6 @@ static unsigned update_local_actor_metadata(hvr_sparse_vec_t *vertex,
        unsigned long long *update_metadata_time, hvr_internal_ctx_t *ctx,
        hvr_sparse_vec_cache_t *vec_cache, unsigned long long *quiet_counter) {
     // Buffer used to linearize neighbors list into
-    static size_t neighbors_capacity = 0;
-    static hvr_vertex_id_t *neighbors = NULL;
-    if (neighbors == NULL) {
-        neighbors_capacity = 256;
-        neighbors = (hvr_vertex_id_t *)malloc(neighbors_capacity *
-                sizeof(*neighbors));
-        assert(neighbors);
-    }
 
     // The list of edges for local actor i
     hvr_avl_tree_node_t *vertex_edge_tree = hvr_tree_find(
@@ -2080,8 +2075,9 @@ static unsigned update_local_actor_metadata(hvr_sparse_vec_t *vertex,
     // Update the metadata for actor i
     if (vertex_edge_tree != NULL) {
         // This vertex has edges
+        hvr_vertex_id_t *neighbors;
         const size_t n_neighbors = hvr_tree_linearize(&neighbors,
-                &neighbors_capacity, vertex_edge_tree->subtree);
+                vertex_edge_tree->subtree);
 
         // Simplifying assumption for now
         if (n_neighbors > EDGE_GET_BUFFERING) {
