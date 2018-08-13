@@ -886,6 +886,10 @@ hvr_set_t *hvr_create_empty_set(const unsigned nvals,
     return hvr_create_empty_set_helper(ctx, nelements, set, bit_vector);
 }
 
+void hvr_fill_set(hvr_set_t *s) {
+    memset(s->bit_vector, 0xff, s->nelements * sizeof(*(s->bit_vector)));
+}
+
 hvr_set_t *hvr_create_full_set(const unsigned nvals, hvr_ctx_t in_ctx) {
     hvr_set_t *empty_set = hvr_create_empty_set(nvals, in_ctx);
     for (unsigned i = 0; i < nvals; i++) {
@@ -1923,6 +1927,10 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         unsigned *count_local_gets,
         unsigned *count_remote_gets) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    static hvr_set_t *full_partition_set = NULL;
+    if (full_partition_set == NULL) {
+        full_partition_set = hvr_create_empty_set(ctx->n_partitions, ctx);
+    }
 
     int owning_pe = VERTEX_ID_PE(vertex);
     *n_neighbors_out = 0;
@@ -1941,8 +1949,7 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         return 1;
     } else {
         // Must figure out the edges on a remote vertex
-        hvr_set_t *full_partition_set = hvr_create_full_set(ctx->n_partitions,
-                ctx);
+        hvr_fill_set(full_partition_set);
 
         hvr_sparse_vec_t remote_vec;
         get_remote_vec_blocking(vertex, &remote_vec,ctx);
@@ -2051,7 +2058,6 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
                 }
             }
         }
-        hvr_set_destroy(full_partition_set);
         return 0;
     }
 }
