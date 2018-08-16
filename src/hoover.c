@@ -186,7 +186,7 @@ void hvr_sparse_vec_init_with_const_attrs(hvr_sparse_vec_t *vec,
     }
 
     // Initialize constant attributes on this vertex
-    assert(n_const_attrs < HVR_MAX_CONSTANT_ATTRS);
+    assert(n_const_attrs <= HVR_MAX_CONSTANT_ATTRS);
     vec->n_const_features = n_const_attrs;
     memcpy(vec->const_features, const_attr_features,
             n_const_attrs * sizeof(*const_attr_features));
