@@ -272,7 +272,7 @@ static void set_helper(hvr_sparse_vec_t *vec, const unsigned curr_bucket,
             return;
         }
     }
-    assert(bucket_size < HVR_BUCKET_SIZE); // Can hold all features
+    assert(bucket_size < HVR_BUCKET_SIZE); // Can hold one more feature
     vec->features[curr_bucket][bucket_size] = feature;
     vec->values[curr_bucket][bucket_size] = val;
     vec->bucket_size[curr_bucket] = bucket_size + 1;

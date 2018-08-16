@@ -9,9 +9,13 @@
 #define HVR_BUCKETS 128
 
 // The maximum number of features set on a vertex at any time.
+#ifndef HVR_BUCKET_SIZE
 #define HVR_BUCKET_SIZE 7
+#endif
 
+#ifndef HVR_MAX_CONSTANT_ATTRS
 #define HVR_MAX_CONSTANT_ATTRS 3
+#endif
 
 /*
  * Sparse vector for representing properties on each vertex, and accompanying
