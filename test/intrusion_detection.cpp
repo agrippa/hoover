@@ -135,6 +135,7 @@ static double randn(double mu, double sigma) {
 }
 
 #define UNIFORM_DIST
+// #define POINT_DIST
 
 static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
 #ifdef GAUSSIAN_DIST
@@ -148,6 +149,10 @@ static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
     *f0 = min_point[0] + (rand() % (max_point[0] - min_point[0]));
     *f1 = min_point[1] + (rand() % (max_point[1] - min_point[1]));
     *f2 = min_point[2] + (rand() % (max_point[2] - min_point[2]));
+#elif defined(POINT_DIST)
+    *f0 = min_point[0] + (max_point[0] - min_point[0]) / 2;
+    *f1 = min_point[1] + (max_point[1] - min_point[1]) / 2;
+    *f2 = min_point[2] + (max_point[2] - min_point[2]) / 2;
 #else
 #error No distributed specified
 #endif
@@ -266,6 +271,8 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
         unsigned max_depth,
         unsigned *count_local_gets,
         unsigned *count_remote_gets,
+        unsigned *count_cached_remote_fetches,
+        unsigned *count_uncached_remote_fetches,
         unsigned long long *accum_local_get_neighbors_time,
         unsigned long long *accum_remote_get_neighbors_time,
         unsigned long long *accum_tracking_time) {
@@ -329,9 +336,10 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
         const unsigned long long start_get_neighbors = hvr_current_time_us();
         hvr_vertex_id_t *neighbors = NULL;
         unsigned n_neighbors;
-        int was_local = hvr_sparse_vec_get_neighbors_with_metrics(last_added, ctx,
-                &neighbors, &n_neighbors, count_local_gets,
-                count_remote_gets);
+        int was_local = hvr_sparse_vec_get_neighbors_with_metrics(last_added,
+                ctx, &neighbors, &n_neighbors, count_local_gets,
+                count_remote_gets, count_cached_remote_fetches,
+                count_uncached_remote_fetches);
         if (was_local) {
             *accum_local_get_neighbors_time += (hvr_current_time_us() -
                     start_get_neighbors);
@@ -358,6 +366,8 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
                             n_explores, curr_depth + 1, max_depth,
                             count_local_gets, count_remote_gets,
+                            count_cached_remote_fetches,
+                            count_uncached_remote_fetches,
                             accum_local_get_neighbors_time,
                             accum_remote_get_neighbors_time,
                             accum_tracking_time);
@@ -376,6 +386,8 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
                             n_explores, curr_depth + 1, max_depth,
                             count_local_gets, count_remote_gets,
+                            count_cached_remote_fetches,
+                            count_uncached_remote_fetches,
                             accum_local_get_neighbors_time,
                             accum_remote_get_neighbors_time,
                             accum_tracking_time);
@@ -489,6 +501,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     unsigned n_explores = 0;
     unsigned n_local_gets = 0;
     unsigned n_remote_gets = 0;
+    unsigned n_cached_remote_fetches = 0;
+    unsigned n_uncached_remote_fetches = 0;
     const unsigned long long start_search = hvr_current_time_us();
     unsigned long long accum_local_get_neighbors_time = 0;
     unsigned long long accum_remote_get_neighbors_time = 0;
@@ -508,6 +522,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         explore_subgraphs(vertex->id, &sub, known_local_patterns,
             pes_sharing_local_patterns, &n_known_local_patterns, ctx,
             &n_this_explores, 0, max_depth, &n_local_gets, &n_remote_gets,
+            &n_cached_remote_fetches, &n_uncached_remote_fetches,
             &accum_local_get_neighbors_time,
             &accum_remote_get_neighbors_time,
             &accum_tracking_time);
@@ -519,10 +534,11 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
 
     if (n_known_local_patterns > 0) {
         printf("PE %d found %u patterns on timestep %d using %d "
-                "visits, %f ms to search (%f ms spent on local and %f ms on remote neighbor fetching, %f "
+                "visits, %f ms to search (%f ms spent on local and %f ms on "
+                "remote neighbor fetching, %f "
                 "counting patterns), %u local vertices in total. Best "
                 "score = %u, vertex count = %u, edge count = %u. # local gets "
-                "= %u, # remote gets = %u.\n",
+                "= %u, # remote gets = %u, (cached|uncached)remote fetches = (%u|%u).\n",
                 pe, n_known_local_patterns, hvr_current_timestep(ctx),
                 n_explores, (double)(end_search - start_search) / 1000.0,
                 (double)accum_local_get_neighbors_time / 1000.0,
@@ -532,7 +548,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 score_pattern(known_local_patterns + 0),
                 known_local_patterns[0].matrix.n_vertices,
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix),
-                n_local_gets, n_remote_gets);
+                n_local_gets, n_remote_gets, n_cached_remote_fetches,
+                n_uncached_remote_fetches);
     }
 
     /*
@@ -542,7 +559,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
 
     memcpy(best_patterns_buffer, best_patterns, npes * sizeof(*best_patterns));
     best_patterns_buffer[pe].timestamp = hvr_current_timestep(ctx);
-    best_patterns_buffer[pe].n_patterns = MIN(N_PATTERNS_SHARED, n_known_local_patterns);
+    best_patterns_buffer[pe].n_patterns = MIN(N_PATTERNS_SHARED,
+            n_known_local_patterns);
     memcpy(best_patterns_buffer[pe].patterns, known_local_patterns,
             best_patterns_buffer[pe].n_patterns * sizeof(pattern_count_t));
 
@@ -813,6 +831,13 @@ int main(int argc, char **argv) {
     partitions_by_dim[2] = atoi(argv[11]);
     min_n_vertices_to_add = atoi(argv[12]);
     max_n_vertices_to_add = atoi(argv[13]);
+
+    if (min_n_vertices_to_add >= max_n_vertices_to_add) {
+        fprintf(stderr, "Minimum # vertices to add must be less than the "
+                "maximum. Minimum = %u, maximum = %u.\n", min_n_vertices_to_add,
+                max_n_vertices_to_add);
+        return 1;
+    }
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
         p_sync[i] = SHMEM_SYNC_VALUE;

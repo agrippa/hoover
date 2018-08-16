@@ -325,7 +325,9 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         hvr_ctx_t in_ctx, hvr_vertex_id_t **neighbors_out,
         unsigned *n_neighbors_out,
         unsigned *count_local_gets,
-        unsigned *count_remote_gets);
+        unsigned *count_remote_gets,
+        unsigned *count_cached_remote_fetches,
+        unsigned *count_uncached_remote_fetches);
 
 // Initialize the state of the simulation/ctx
 extern void hvr_init(const hvr_partition_t n_partitions,

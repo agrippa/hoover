@@ -6,7 +6,7 @@
 #include "hvr_common.h"
 
 // The maximum number of timesteps we record for each vertex.
-#define HVR_BUCKETS 256
+#define HVR_BUCKETS 128
 
 // The maximum number of features set on a vertex at any time.
 #define HVR_BUCKET_SIZE 7

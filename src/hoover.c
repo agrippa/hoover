@@ -27,11 +27,12 @@
 #define N_PARTITION_NODES_PREALLOC 3000
 #define CACHE_BUCKET(vert_id) ((vert_id) % HVR_CACHE_BUCKETS)
 
-#define FINE_GRAIN_TIMING
+// #define FINE_GRAIN_TIMING
 
 // #define TRACK_VECTOR_GET_CACHE
 
 static int print_profiling = 1;
+static FILE *profiling_fp = NULL;
 static volatile int this_pe_has_exited = 0;
 
 #define USE_CSWAP_BITWISE_ATOMICS
@@ -103,7 +104,7 @@ static void inline _shmem_uint_atomic_and(unsigned int *dst, unsigned int val,
 #endif
 #endif
 
-#define EDGE_GET_BUFFERING 2048
+#define EDGE_GET_BUFFERING 4096
 
 static int have_default_sparse_vec_val = 0;
 static double default_sparse_vec_val = 0.0;
@@ -1257,14 +1258,16 @@ static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
 
 static hvr_sparse_vec_cache_node_t *get_remote_vec_nbi(const uint32_t offset,
         const int src_pe, hvr_internal_ctx_t *ctx,
-        hvr_sparse_vec_cache_t *cache) {
+        hvr_sparse_vec_cache_t *cache, int *is_cached) {
     hvr_sparse_vec_cache_node_t *cached = hvr_sparse_vec_cache_lookup(
             construct_vertex_id(src_pe, offset), cache, ctx->timestep - 1);
 
     if (cached) {
         // May still be pending
+        if (is_cached) *is_cached = 1;
         return cached;
     } else {
+        if (is_cached) *is_cached = 0;
         hvr_sparse_vec_t *src = &(ctx->pool->pool[offset]);
         hvr_sparse_vec_cache_node_t *node = hvr_sparse_vec_cache_reserve(
                 construct_vertex_id(src_pe, offset), cache, ctx->timestep,
@@ -1278,7 +1281,7 @@ static void get_remote_vec_blocking(hvr_vertex_id_t vertex,
         hvr_sparse_vec_t *dst, hvr_internal_ctx_t *ctx) {
     hvr_sparse_vec_cache_node_t *placeholder = get_remote_vec_nbi(
             VERTEX_ID_OFFSET(vertex), VERTEX_ID_PE(vertex), ctx,
-            &ctx->vec_cache);
+            &ctx->vec_cache, NULL);
     hvr_sparse_vec_cache_quiet(&ctx->vec_cache,
             &(ctx->cache_perf_info.quiet_counter));
     memcpy(dst, &(placeholder->vec), sizeof(*dst));
@@ -1344,11 +1347,14 @@ static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
  */
 static void update_edges(hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *vec_cache,
-        unsigned long long *getmem_time, unsigned long long *update_edge_time,
+        unsigned long long *getmem_time,
+        unsigned long long *update_edge_time,
         unsigned long long *out_n_edge_checks,
         unsigned long long *out_partition_checks,
         unsigned long long *quiet_counter,
-        unsigned long long *out_n_distance_measures) {
+        unsigned long long *out_n_distance_measures,
+        unsigned *n_cached_remote_fetches,
+        unsigned *n_uncached_remote_fetches) {
     hvr_partition_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
     unsigned n_interacting_partitions;
 
@@ -1397,11 +1403,11 @@ static void update_edges(hvr_internal_ctx_t *ctx,
         } buffered[BUFFERING];
         unsigned nbuffered = 0;
 
+#ifdef FINE_GRAIN_TIMING
+        unsigned long long start_time = hvr_current_time_us();
+#endif
         // For each vertex on the remote PE
         for (hvr_vertex_id_t j = 0; j < ctx->pool->pool_size; j++) {
-#ifdef FINE_GRAIN_TIMING
-            const unsigned long long start_time = hvr_current_time_us();
-#endif
             const hvr_partition_t actor_partition =
                 (ctx->other_actor_to_partition_map)[j];
 
@@ -1411,21 +1417,27 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                         ctx->partition_time_window, interacting_partitions,
                         &n_interacting_partitions, MAX_INTERACTING_PARTITIONS,
                         ctx)) {
+                int is_cached;
                 buffered[nbuffered].node = get_remote_vec_nbi(j, target_pe, ctx,
-                        vec_cache);
+                        vec_cache, &is_cached);
                 memcpy(buffered[nbuffered].interacting_partitions,
                         interacting_partitions,
                         MAX_INTERACTING_PARTITIONS * sizeof(hvr_partition_t));
                 buffered[nbuffered].n_interacting_partitions =
                     n_interacting_partitions;
                 nbuffered++;
+                if (is_cached) {
+                    *n_cached_remote_fetches += 1;
+                } else {
+                    *n_uncached_remote_fetches += 1;
+                }
 
                 if (nbuffered == BUFFERING) {
                     // Process buffered
                     hvr_sparse_vec_cache_quiet(vec_cache, quiet_counter);
 #ifdef FINE_GRAIN_TIMING
                     *getmem_time += (hvr_current_time_us() - start_time);
-                    const unsigned long long start_time = hvr_current_time_us();
+                    start_time = hvr_current_time_us();
 #endif
                     for (unsigned i = 0; i < nbuffered; i++) {
                         check_edges_to_add(&(buffered[i].node->vec),
@@ -1438,12 +1450,9 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                     }
 #ifdef FINE_GRAIN_TIMING
                     *update_edge_time += (hvr_current_time_us() - start_time);
+                    start_time = hvr_current_time_us();
 #endif
                     nbuffered = 0;
-                } else {
-#ifdef FINE_GRAIN_TIMING
-                    *getmem_time += (hvr_current_time_us() - start_time);
-#endif
                 }
 
                 n_edge_checks++;
@@ -1452,15 +1461,9 @@ static void update_edges(hvr_internal_ctx_t *ctx,
  
          if (nbuffered > 0) {
              // Process buffered
- #ifdef FINE_GRAIN_TIMING
-             unsigned long long start_time = hvr_current_time_us();
- #endif
              hvr_sparse_vec_cache_quiet(vec_cache, quiet_counter);
  #ifdef FINE_GRAIN_TIMING
              *getmem_time += (hvr_current_time_us() - start_time);
- #endif
- 
- #ifdef FINE_GRAIN_TIMING
              start_time = hvr_current_time_us();
  #endif
              for (unsigned i = 0; i < nbuffered; i++) {
@@ -1845,6 +1848,11 @@ void hvr_init(const hvr_partition_t n_partitions,
 
     if (getenv("HVR_DISABLE_PROFILING_PRINTS")) {
         print_profiling = 0;
+    } else {
+        char profiling_filename[1024];
+        sprintf(profiling_filename, "%d.prof", new_ctx->pe);
+        profiling_fp = fopen(profiling_filename, "w");
+        assert(profiling_fp);
     }
 
     new_ctx->my_neighbors = hvr_create_empty_set(new_ctx->npes, new_ctx);
@@ -1912,9 +1920,51 @@ void hvr_init(const hvr_partition_t n_partitions,
 void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex,
         hvr_ctx_t in_ctx, hvr_vertex_id_t **neighbors_out,
         unsigned *n_neighbors_out) {
-    unsigned remote_gets, local_gets;
+    unsigned remote_gets, local_gets, remote_fetches;
     hvr_sparse_vec_get_neighbors_with_metrics(vertex, in_ctx, neighbors_out,
-            n_neighbors_out, &local_gets, &remote_gets);
+            n_neighbors_out, &local_gets, &remote_gets, &remote_fetches,
+            &remote_fetches);
+}
+
+static void handle_buffered_nodes(unsigned n_nodes_buffered,
+        hvr_sparse_vec_t *remote_vec,
+        hvr_internal_ctx_t *ctx,
+        unsigned *n_neighbors_out,
+        unsigned *neighbors_buf_len,
+        hvr_vertex_id_t **neighbors_buf) {
+    unsigned long long dummy;
+    hvr_sparse_vec_cache_quiet(&ctx->vec_cache, &dummy);
+
+    for (unsigned i = 0; i < n_nodes_buffered; i++) {
+        hvr_sparse_vec_t *remote_remote_vec =
+            &((ctx->neighbor_buffer)[i]->vec);
+        if (remote_remote_vec->created_timestamp < ctx->timestep &&
+                remote_remote_vec->deleted_timestamp >= ctx->timestep) {
+            const double distance = sparse_vec_distance_measure(
+                    remote_vec, remote_remote_vec,
+                    ctx->timestep, ctx->timestep,
+                    ctx->min_spatial_feature,
+                    ctx->max_spatial_feature,
+                    &ctx->n_vector_cache_hits,
+                    &ctx->n_vector_cache_misses);
+            if (distance < ctx->connectivity_threshold *
+                    ctx->connectivity_threshold) {
+                // Add as a neighbor
+                if (*n_neighbors_out == *neighbors_buf_len) {
+                    // Resize
+                    *neighbors_buf_len *= 2;
+                    *neighbors_buf = (hvr_vertex_id_t *)realloc(
+                            *neighbors_buf,
+                            *neighbors_buf_len * sizeof(*neighbors_buf));
+                    assert(*neighbors_buf);
+                }
+                (*neighbors_buf)[*n_neighbors_out] = remote_remote_vec->id;
+
+                *n_neighbors_out += 1;
+            }
+        }
+    }
+
 }
 
 /*
@@ -1925,7 +1975,9 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
         hvr_ctx_t in_ctx, hvr_vertex_id_t **neighbors_out,
         unsigned *n_neighbors_out,
         unsigned *count_local_gets,
-        unsigned *count_remote_gets) {
+        unsigned *count_remote_gets,
+        unsigned *count_cached_remote_fetches,
+        unsigned *count_uncached_remote_fetches) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     static hvr_set_t *full_partition_set = NULL;
     static hvr_vertex_id_t *neighbors_buf = NULL;
@@ -2034,36 +2086,23 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
                                  * Get this vector and check if an edge should
                                  * be added
                                  */
+                                int is_cached;
                                 hvr_sparse_vec_cache_node_t *node = get_remote_vec_nbi(
-                                        j, p, ctx, &ctx->vec_cache);
+                                        j, p, ctx, &ctx->vec_cache, &is_cached);
+                                if (is_cached) {
+                                    *count_cached_remote_fetches += 1;
+                                } else {
+                                    *count_uncached_remote_fetches += 1;
+                                }
+                                if (n_nodes_buffered == EDGE_GET_BUFFERING) {
+                                    handle_buffered_nodes(n_nodes_buffered,
+                                            &remote_vec, ctx,
+                                            n_neighbors_out, &neighbors_buf_len,
+                                            &neighbors_buf);
+                                    n_nodes_buffered = 0;
+                                }
                                 assert(n_nodes_buffered < EDGE_GET_BUFFERING);
                                 (ctx->neighbor_buffer)[n_nodes_buffered++] = node;
-
-                                // if (remote_remote_vec.created_timestamp < ctx->timestep &&
-                                //         remote_remote_vec.deleted_timestamp >= ctx->timestep) {
-                                //     const double distance = sparse_vec_distance_measure(
-                                //             &remote_vec, &remote_remote_vec,
-                                //             ctx->timestep, ctx->timestep,
-                                //             ctx->min_spatial_feature,
-                                //             ctx->max_spatial_feature,
-                                //             &ctx->n_vector_cache_hits,
-                                //             &ctx->n_vector_cache_misses);
-                                //     if (distance < ctx->connectivity_threshold *
-                                //             ctx->connectivity_threshold) {
-                                //         // Add as a neighbor
-                                //         if (*n_neighbors_out == neighbors_buf_len) {
-                                //             // Resize
-                                //             neighbors_buf_len *= 2;
-                                //             neighbors_buf = (hvr_vertex_id_t *)realloc(
-                                //                     neighbors_buf,
-                                //                     neighbors_buf_len * sizeof(*neighbors_buf));
-                                //             assert(neighbors_buf);
-                                //         }
-                                //         neighbors_buf[*n_neighbors_out] = remote_remote_vec.id;
-
-                                //         *n_neighbors_out += 1;
-                                //     }
-                                // }
                             }
                         }
 
@@ -2072,37 +2111,9 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
             }
         }
 
-        unsigned long long dummy;
-        hvr_sparse_vec_cache_quiet(&ctx->vec_cache, &dummy);
-
-        for (unsigned i = 0; i < n_nodes_buffered; i++) {
-            hvr_sparse_vec_t *remote_remote_vec =
-                &((ctx->neighbor_buffer)[n]->vec);
-            if (remote_remote_vec->created_timestamp < ctx->timestep &&
-                    remote_remote_vec->deleted_timestamp >= ctx->timestep) {
-                const double distance = sparse_vec_distance_measure(
-                        &remote_vec, remote_remote_vec,
-                        ctx->timestep, ctx->timestep,
-                        ctx->min_spatial_feature,
-                        ctx->max_spatial_feature,
-                        &ctx->n_vector_cache_hits,
-                        &ctx->n_vector_cache_misses);
-                if (distance < ctx->connectivity_threshold *
-                        ctx->connectivity_threshold) {
-                    // Add as a neighbor
-                    if (*n_neighbors_out == neighbors_buf_len) {
-                        // Resize
-                        neighbors_buf_len *= 2;
-                        neighbors_buf = (hvr_vertex_id_t *)realloc(
-                                neighbors_buf,
-                                neighbors_buf_len * sizeof(*neighbors_buf));
-                        assert(neighbors_buf);
-                    }
-                    neighbors_buf[*n_neighbors_out] = remote_remote_vec.id;
-
-                    *n_neighbors_out += 1;
-                }
-            }
+        if (n_nodes_buffered > 0) {
+            handle_buffered_nodes(n_nodes_buffered, &remote_vec, ctx,
+                    n_neighbors_out, &neighbors_buf_len, &neighbors_buf);
         }
 
         *neighbors_out = neighbors_buf;
@@ -2150,7 +2161,7 @@ static unsigned update_local_actor_metadata(hvr_sparse_vec_t *vertex,
             uint64_t local_offset = VERTEX_ID_OFFSET(neighbor);
 
             hvr_sparse_vec_cache_node_t *cache_node = get_remote_vec_nbi(
-                    local_offset, other_pe, ctx, vec_cache);
+                    local_offset, other_pe, ctx, vec_cache, NULL);
             (ctx->neighbor_buffer)[n] = cache_node;
         }
 
@@ -2255,9 +2266,9 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
-    unsigned long long unused;
+    unsigned long long unused; unsigned u_unused;
     update_edges(ctx, &ctx->vec_cache, &unused, &unused, &unused, &unused,
-            &unused, &unused);
+            &unused, &unused, &u_unused, &u_unused);
 
     hvr_set_t *to_couple_with = hvr_create_empty_set(ctx->npes, ctx);
 
@@ -2355,10 +2366,13 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         unsigned long long n_edge_checks = 0;
         unsigned long long partition_checks = 0;
         unsigned long long n_distance_measures = 0;
+        unsigned n_cached_remote_fetches_for_update_edges = 0;
+        unsigned n_uncached_remote_fetches_for_update_edges = 0;
         update_edges(ctx, &ctx->vec_cache, &getmem_time, &update_edge_time,
                 &n_edge_checks, &partition_checks,
                 &ctx->cache_perf_info.quiet_counter,
-                &n_distance_measures);
+                &n_distance_measures, &n_cached_remote_fetches_for_update_edges,
+                &n_uncached_remote_fetches_for_update_edges);
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
@@ -2477,9 +2491,13 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
             unsigned unused;
             hvr_sparse_vec_dump_internal(&coupled_metric, buf, 1024,
                     ctx->timestep + 1, &unused, &unused);
+
+            char coupled_pes_str[1024];
+            hvr_set_to_string(ctx->coupled_pes, coupled_pes_str, 1024, NULL);
+
             printf("PE %d - computed coupled value {%s} from %d "
-                    "coupled PEs on timestep %d\n", ctx->pe, buf, ncoupled,
-                    ctx->timestep);
+                    "coupled PEs (%s) on timestep %d\n", ctx->pe, buf, ncoupled,
+                    coupled_pes_str, ctx->timestep);
         }
 
         const unsigned long long finished_coupling = hvr_current_time_us();
@@ -2533,54 +2551,71 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         }
 
 
+        char neighbors_str[1024] = {'\0'};
+        char partition_time_window_str[2048] = {'\0'};
 #ifdef DETAILED_PRINTS
-        char neighbors_str[1024];
         hvr_set_to_string(ctx->my_neighbors, neighbors_str, 1024, NULL);
 
-        char partition_time_window_str[2048];
         hvr_set_to_string(ctx->partition_time_window, partition_time_window_str,
                 2048, ctx->partition_lists_lengths);
 #endif
 
         if (print_profiling) {
-            printf("PE %d - timestep %d - total %f ms - start_time_step %f ms - metadata %f ms (%f %f "
-                    "%f) - summary %f ms (%f %f %f) - edges %f ms (%f %f %llu "
-                    "%llu %llu) - neighbor updates %f ms - coupled values %f "
-                    "ms - coupling %f ms (%u) - throttling %f ms - %u spins - "
-                    "%u / %u PE neighbors %s - partition window = %s, %d / %d "
-                    "partitions active for %u local vertices - aborting? %d - last step? %d - remote cache "
-                    "hits=%u misses=%u, feature cache hits=%u "
-                    "misses=%u quiets=%llu, avg # edges=%f\n",
-                    ctx->pe,
-                    ctx->timestep,
-                    (double)(finished_throttling - start_iter) / 1000.0,
-                    (double)(finished_start - start_iter) / 1000.0,
+            fprintf(profiling_fp, "PE %d - timestep %d - total %f ms\n",
+                    ctx->pe, ctx->timestep,
+                    (double)(finished_throttling - start_iter) / 1000.0);
+            fprintf(profiling_fp, "  start_time_step %f ms\n", 
+                    (double)(finished_start - start_iter) / 1000.0);
+            fprintf(profiling_fp, "  metadata %f ms (%f %f %f)\n",
                     (double)(finished_updates - finished_start) / 1000.0,
                     (double)ctx->cache_perf_info.fetch_neighbors_time / 1000.0,
                     (double)ctx->cache_perf_info.quiet_neighbors_time / 1000.0,
-                    (double)ctx->cache_perf_info.update_metadata_time / 1000.0,
+                    (double)ctx->cache_perf_info.update_metadata_time / 1000.0);
+            fprintf(profiling_fp, "  summary %f ms (%f %f %f)\n",
                     (double)(finished_summary_update - finished_updates) / 1000.0,
                     (double)(finished_actor_partitions - finished_updates) / 1000.0,
                     (double)(finished_time_window - finished_actor_partitions) / 1000.0,
-                    (double)(finished_summary_update - finished_time_window) / 1000.0,
+                    (double)(finished_summary_update - finished_time_window) / 1000.0);
+            fprintf(profiling_fp, "  edges %f ms (update=%f getmem=%f # edge "
+                    "checks=%llu # part checks=%llu # dist measures=%llu # "
+                    "(cached|uncached) remote fetches=(%u|%u))\n",
                     (double)(finished_edge_adds - finished_summary_update) / 1000.0,
-                    (double)update_edge_time / 1000.0, (double)getmem_time / 1000.0,
-                    n_edge_checks, partition_checks, n_distance_measures,
-                    (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0,
-                    (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0,
-                    (double)(finished_coupling - finished_coupled_values) / 1000.0, n_coupled_spins,
+                    (double)update_edge_time / 1000.0,
+                    (double)getmem_time / 1000.0,
+                    n_edge_checks,
+                    partition_checks,
+                    n_distance_measures,
+                    n_cached_remote_fetches_for_update_edges,
+                    n_uncached_remote_fetches_for_update_edges);
+            fprintf(profiling_fp, "  neighbor updates %f ms\n",
+                    (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0);
+            fprintf(profiling_fp, "  coupled values %f ms\n",
+                    (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0);
+            fprintf(profiling_fp, "  coupling %f ms (%u)\n",
+                    (double)(finished_coupling - finished_coupled_values) / 1000.0,
+                    n_coupled_spins);
+            fprintf(profiling_fp, "  throttling %f ms (%u spins)\n",
                     (double)(finished_throttling - finished_coupling) / 1000.0,
-                    nspins, hvr_set_count(ctx->my_neighbors), ctx->npes,
-#ifdef DETAILED_PRINTS
-                    neighbors_str, partition_time_window_str,
-#else
-                    "", "",
-#endif
+                    nspins);
+            fprintf(profiling_fp, "  %u / %u PE neighbors %s\n",
+                    hvr_set_count(ctx->my_neighbors), ctx->npes,
+                    neighbors_str);
+            fprintf(profiling_fp, "  partition window = %s, %d / %d partitions "
+                    "active for %u local vertices\n", partition_time_window_str,
                     hvr_set_count(ctx->partition_time_window),
-                    ctx->n_partitions, n_local_verts, should_abort,
-                    ctx->timestep >= ctx->max_timestep, ctx->vec_cache.nhits,
-                    ctx->vec_cache.nmisses, ctx->n_vector_cache_hits,
-                    ctx->n_vector_cache_misses, ctx->cache_perf_info.quiet_counter, avg_n_neighbors);
+                    ctx->n_partitions, n_local_verts);
+            fprintf(profiling_fp, "  aborting? %d - last step? %d - remote "
+                    "cache hits=%u misses=%u, feature cache hits=%u misses=%u "
+                    "quiets=%llu, avg # edges=%f\n",
+                    should_abort,
+                    ctx->timestep >= ctx->max_timestep,
+                    ctx->vec_cache.nhits,
+                    ctx->vec_cache.nmisses,
+                    ctx->n_vector_cache_hits,
+                    ctx->n_vector_cache_misses,
+                    ctx->cache_perf_info.quiet_counter,
+                    avg_n_neighbors);
+            fflush(profiling_fp);
         }
 
         if (ctx->strict_mode) {
