@@ -27,7 +27,7 @@
 #define N_PARTITION_NODES_PREALLOC 3000
 #define CACHE_BUCKET(vert_id) ((vert_id) % HVR_CACHE_BUCKETS)
 
-// #define FINE_GRAIN_TIMING
+#define FINE_GRAIN_TIMING
 
 // #define TRACK_VECTOR_GET_CACHE
 

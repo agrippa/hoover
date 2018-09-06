@@ -772,12 +772,12 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
              * Become coupled with other PEs whose vertices are parts of this
              * anomalous pattern.
              */
-            std::set<int> *other_pes = pes_sharing_local_patterns[j];
-            for (std::set<int>::iterator i = other_pes->begin(),
-                    e = other_pes->end(); i != e; i++) {
-                int other_pe = *i;
-                hvr_set_insert(other_pe, to_couple_with);
-            }
+            // std::set<int> *other_pes = pes_sharing_local_patterns[j];
+            // for (std::set<int>::iterator i = other_pes->begin(),
+            //         e = other_pes->end(); i != e; i++) {
+            //     int other_pe = *i;
+            //     hvr_set_insert(other_pe, to_couple_with);
+            // }
         } else {
             avg_distance_too_high += lowest_distance;
             count_distance_too_high++;
