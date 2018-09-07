@@ -340,7 +340,7 @@ void hvr_sparse_vec_set(const unsigned feature, const double val,
     hvr_sparse_vec_set_internal(feature, val, vec, ctx->timestep);
 }
 
-static int find_feature_in_bucket(const hvr_sparse_vec_t *vec,
+static inline int find_feature_in_bucket(const hvr_sparse_vec_t *vec,
         const unsigned curr_bucket, const unsigned feature,
         double *out_val) {
     const unsigned bucket_size = vec->bucket_size[curr_bucket];
@@ -353,7 +353,7 @@ static int find_feature_in_bucket(const hvr_sparse_vec_t *vec,
     return 0;
 }
 
-static int find_feature_in_const_attrs(const hvr_sparse_vec_t *vec,
+static inline int find_feature_in_const_attrs(const hvr_sparse_vec_t *vec,
         const unsigned feature, double *out_val) {
     for (unsigned i = 0; i < vec->n_const_features; i++) {
         if ((vec->const_features)[i] == feature) {
@@ -415,15 +415,12 @@ static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
     return -1;
 }
 
-static int hvr_sparse_vec_get_internal(const unsigned feature,
+static inline int hvr_sparse_vec_get_internal(const unsigned feature,
         hvr_sparse_vec_t *vec, const hvr_time_t curr_timestamp,
         double *out_val, unsigned *nhits, unsigned *nmisses) {
     // First check to see if this is a constant feature.
-    for (unsigned i = 0; i < vec->n_const_features; i++) {
-        if ((vec->const_features)[i] == feature) {
-            *out_val = (vec->const_values)[i];
-            return 1;
-        }
+    if (find_feature_in_const_attrs(vec, feature, out_val)) {
+        return 1;
     }
 
     int target_bucket = hvr_sparse_vec_find_bucket(vec, curr_timestamp, nhits,
@@ -1194,44 +1191,6 @@ static void update_neighbors_based_on_partitions(hvr_internal_ctx_t *ctx) {
 #endif
 }
 
-static double sparse_vec_distance_measure(hvr_sparse_vec_t *a,
-        hvr_sparse_vec_t *b,
-        const hvr_time_t a_max_timestep,
-        const hvr_time_t b_max_timestep,
-        const unsigned min_spatial_feature,
-        const unsigned max_spatial_feature,
-        unsigned *nhits,
-        unsigned *nmisses) {
-    const int a_bucket = hvr_sparse_vec_find_bucket(a, a_max_timestep,
-            nhits, nmisses);
-    assert(a_bucket >= 0);
-    const int b_bucket = hvr_sparse_vec_find_bucket(b, b_max_timestep,
-            nhits, nmisses);
-    assert(b_bucket >= 0);
-
-    double acc = 0.0;
-    for (unsigned f = min_spatial_feature; f <= max_spatial_feature; f++) {
-        int success;
-        double a_val, b_val;
-
-        success = find_feature_in_const_attrs(a, f, &a_val);
-        if (!success) {
-            success = find_feature_in_bucket(a, a_bucket, f, &a_val);
-            assert(success == 1);
-        }
-
-        success = find_feature_in_const_attrs(b, f, &b_val);
-        if (!success) {
-            success = find_feature_in_bucket(b, b_bucket, f, &b_val);
-            assert(success == 1);
-        }
-
-        const double delta = b_val - a_val;
-        acc += (delta * delta);
-    }
-    return acc;
-}
-
 static void get_remote_vec_nbi_uncached(hvr_sparse_vec_t *dst,
         hvr_sparse_vec_t *src, const int src_pe) {
     shmem_getmem_nbi((void *)&(dst->next_bucket),
@@ -1320,15 +1279,7 @@ static void check_edges_to_add(hvr_sparse_vec_t *remote_vec,
              * least, we don't have a use case for this yet).
              */
             if (partition_list->id != remote_vec->id) {
-                const double distance = sparse_vec_distance_measure(
-                        partition_list, remote_vec, 
-                        ctx->timestep, other_pes_timestep,
-                        ctx->min_spatial_feature,
-                        ctx->max_spatial_feature,
-                        &ctx->n_vector_cache_hits,
-                        &ctx->n_vector_cache_misses);
-                if (distance < ctx->connectivity_threshold *
-                        ctx->connectivity_threshold) {
+                if (ctx->should_have_edge(partition_list, remote_vec, ctx)) {
                     // Add edge
                     hvr_add_edge(partition_list->id, remote_vec->id,
                             ctx->edges);
@@ -1354,14 +1305,15 @@ static void update_edges(hvr_internal_ctx_t *ctx,
         unsigned long long *quiet_counter,
         unsigned long long *out_n_distance_measures,
         unsigned *n_cached_remote_fetches,
-        unsigned *n_uncached_remote_fetches) {
+        unsigned *n_uncached_remote_fetches,
+        double *out_mean_n_interacting_partitions) {
     hvr_partition_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
     unsigned n_interacting_partitions;
 
     unsigned long long n_distance_measures = 0;
     unsigned long long total_partition_checks = 0;
-
     unsigned long long n_edge_checks = 0;
+    double mean_n_interacting_partitions = 0.0;
 
     // For each PE
     for (unsigned p = 0; p < ctx->npes; p++) {
@@ -1425,6 +1377,8 @@ static void update_edges(hvr_internal_ctx_t *ctx,
                         MAX_INTERACTING_PARTITIONS * sizeof(hvr_partition_t));
                 buffered[nbuffered].n_interacting_partitions =
                     n_interacting_partitions;
+                mean_n_interacting_partitions += n_interacting_partitions;
+
                 nbuffered++;
                 if (is_cached) {
                     *n_cached_remote_fetches += 1;
@@ -1481,9 +1435,12 @@ static void update_edges(hvr_internal_ctx_t *ctx,
          }
     }
 
+    mean_n_interacting_partitions /= (double)n_edge_checks;
+
     *out_n_edge_checks = n_edge_checks;
     *out_partition_checks = total_partition_checks;
     *out_n_distance_measures = n_distance_measures;
+    *out_mean_n_interacting_partitions = mean_n_interacting_partitions;
 }
 
 static hvr_partition_t wrap_actor_to_partition(hvr_sparse_vec_t *vec,
@@ -1723,9 +1680,9 @@ void hvr_init(const hvr_partition_t n_partitions,
         hvr_check_abort_func check_abort,
         hvr_actor_to_partition actor_to_partition,
         hvr_start_time_step start_time_step,
+        hvr_should_have_edge should_have_edge,
         hvr_graph_id_t *interacting_graphs, unsigned n_interacting_graphs,
-        const double connectivity_threshold, const unsigned min_spatial_feature,
-        const unsigned max_spatial_feature, const hvr_time_t max_timestep,
+        const hvr_time_t max_timestep,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *new_ctx = (hvr_internal_ctx_t *)in_ctx;
 
@@ -1819,11 +1776,8 @@ void hvr_init(const hvr_partition_t n_partitions,
     new_ctx->check_abort = check_abort;
     new_ctx->actor_to_partition = actor_to_partition;
     new_ctx->start_time_step = start_time_step;
+    new_ctx->should_have_edge = should_have_edge;
 
-    new_ctx->connectivity_threshold = connectivity_threshold;
-    assert(min_spatial_feature <= max_spatial_feature);
-    new_ctx->min_spatial_feature = min_spatial_feature;
-    new_ctx->max_spatial_feature = max_spatial_feature;
     new_ctx->max_timestep = max_timestep;
 
     if (getenv("HVR_STRICT")) {
@@ -1940,15 +1894,7 @@ static void handle_buffered_nodes(unsigned n_nodes_buffered,
             &((ctx->neighbor_buffer)[i]->vec);
         if (remote_remote_vec->created_timestamp < ctx->timestep &&
                 remote_remote_vec->deleted_timestamp >= ctx->timestep) {
-            const double distance = sparse_vec_distance_measure(
-                    remote_vec, remote_remote_vec,
-                    ctx->timestep, ctx->timestep,
-                    ctx->min_spatial_feature,
-                    ctx->max_spatial_feature,
-                    &ctx->n_vector_cache_hits,
-                    &ctx->n_vector_cache_misses);
-            if (distance < ctx->connectivity_threshold *
-                    ctx->connectivity_threshold) {
+            if (ctx->should_have_edge(remote_vec, remote_remote_vec, ctx)) {
                 // Add as a neighbor
                 if (*n_neighbors_out == *neighbors_buf_len) {
                     // Resize
@@ -2266,9 +2212,9 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
-    unsigned long long unused; unsigned u_unused;
+    unsigned long long unused; unsigned u_unused; double d_unused;
     update_edges(ctx, &ctx->vec_cache, &unused, &unused, &unused, &unused,
-            &unused, &unused, &u_unused, &u_unused);
+            &unused, &unused, &u_unused, &u_unused, &d_unused);
 
     hvr_set_t *to_couple_with = hvr_create_empty_set(ctx->npes, ctx);
 
@@ -2368,11 +2314,13 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         unsigned long long n_distance_measures = 0;
         unsigned n_cached_remote_fetches_for_update_edges = 0;
         unsigned n_uncached_remote_fetches_for_update_edges = 0;
+        double mean_n_interacting_partitions = 0.0;
         update_edges(ctx, &ctx->vec_cache, &getmem_time, &update_edge_time,
                 &n_edge_checks, &partition_checks,
                 &ctx->cache_perf_info.quiet_counter,
                 &n_distance_measures, &n_cached_remote_fetches_for_update_edges,
-                &n_uncached_remote_fetches_for_update_edges);
+                &n_uncached_remote_fetches_for_update_edges,
+                &mean_n_interacting_partitions);
 
         const unsigned long long finished_edge_adds = hvr_current_time_us();
 
@@ -2578,7 +2526,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     (double)(finished_summary_update - finished_time_window) / 1000.0);
             fprintf(profiling_fp, "  edges %f ms (update=%f getmem=%f # edge "
                     "checks=%llu # part checks=%llu # dist measures=%llu # "
-                    "(cached|uncached) remote fetches=(%u|%u))\n",
+                    "(cached|uncached) remote fetches=(%u|%u)) mean # interacting parts = %f\n",
                     (double)(finished_edge_adds - finished_summary_update) / 1000.0,
                     (double)update_edge_time / 1000.0,
                     (double)getmem_time / 1000.0,
@@ -2586,7 +2534,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     partition_checks,
                     n_distance_measures,
                     n_cached_remote_fetches_for_update_edges,
-                    n_uncached_remote_fetches_for_update_edges);
+                    n_uncached_remote_fetches_for_update_edges,
+                    mean_n_interacting_partitions);
             fprintf(profiling_fp, "  neighbor updates %f ms\n",
                     (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0);
             fprintf(profiling_fp, "  coupled values %f ms\n",

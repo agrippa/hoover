@@ -156,6 +156,13 @@ typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_sparse_vec_t *actor,
         hvr_ctx_t ctx);
 
 /*
+ * API for checking if two vertices should have an edge between them, based on
+ * application-specific logic.
+ */
+typedef int (*hvr_should_have_edge)(hvr_sparse_vec_t *verta,
+        hvr_sparse_vec_t *vertb, hvr_ctx_t ctx);
+
+/*
  * Per-PE data structure for storing all information about the running problem
  * so we don't have file scope variables. Enables the possibility in the future
  * of multiple HOOVER problems running on the same PE.
@@ -215,15 +222,9 @@ typedef struct _hvr_internal_ctx_t {
     hvr_might_interact_func might_interact;
     hvr_check_abort_func check_abort;
     hvr_actor_to_partition actor_to_partition;
+    hvr_should_have_edge should_have_edge;
     hvr_start_time_step start_time_step;
 
-    /*
-     * Distance threshold below which edges are automatically added between
-     * vertices.
-     */
-    double connectivity_threshold;
-    // Feature index range for the spatial features of each vertex
-    unsigned min_spatial_feature, max_spatial_feature;
     // Limit on number of timesteps to run for current simulation
     hvr_time_t max_timestep;
 
@@ -336,10 +337,8 @@ extern void hvr_init(const hvr_partition_t n_partitions,
         hvr_check_abort_func check_abort,
         hvr_actor_to_partition actor_to_partition,
         hvr_start_time_step start_time_step,
+        hvr_should_have_edge should_have_edge,
         hvr_graph_id_t *interacting_graphs, unsigned n_interacting_graphs,
-        const double connectivity_threshold,
-        const unsigned min_spatial_feature_inclusive,
-        const unsigned max_spatial_feature_inclusive,
         const hvr_time_t max_timestep, hvr_ctx_t ctx);
 
 /*

@@ -52,6 +52,19 @@ hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     return partition;
 }
 
+int should_have_edge(hvr_sparse_vec_t *a, hvr_sparse_vec_t *b, hvr_ctx_t ctx) {
+    double delta0 = hvr_sparse_vec_get(0, b, ctx) -
+        hvr_sparse_vec_get(0, a, ctx);
+    double delta1 = hvr_sparse_vec_get(1, b, ctx) -
+        hvr_sparse_vec_get(1, a, ctx);
+    if (delta0 * delta0 + delta1 * delta1 <=
+            CONNECTIVITY_THRESHOLD * CONNECTIVITY_THRESHOLD) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 /*
  * Callback for the HOOVER runtime for updating positional or logical metadata
  * attached to each vertex based on the updated neighbors on each time step.
@@ -315,7 +328,7 @@ int main(int argc, char **argv) {
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
-            actor_to_partition, NULL, &graph, 1, CONNECTIVITY_THRESHOLD, 0, 1,
+            actor_to_partition, NULL, should_have_edge, &graph, 1,
             MAX_TIMESTAMP, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();

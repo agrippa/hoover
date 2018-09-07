@@ -85,25 +85,3 @@ srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     $PE_CHUNKS \
     $PARTITIONS \
     $MIN_N_VERTICES_TO_ADD $MAX_N_VERTICES_TO_ADD
-
-# export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
-# export TIME_LIMIT_IN_SECONDS=50
-# export EDGE_DISTANCE=10
-# export DOMAIN_SIZE="4 3 2"
-# export PE_CHUNKS="4 3 2"
-# export PARTITIONS="4 3 2"
-# export MIN_N_VERTICES_TO_ADD=1
-# export MAX_N_VERTICES_TO_ADD=2
-# # export HVR_HANG_ABORT=300
-# export HVR_SYMM_POOL_SIZE=45000
-# export HVR_VEC_CACHE_PREALLOCS=60000
-# # export HVR_DISABLE_PROFILING_PRINTS=1
-# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/intrusion_detection \
-#     $TIME_LIMIT_IN_SECONDS \
-#     $EDGE_DISTANCE \
-#     $DOMAIN_SIZE \
-#     $PE_CHUNKS \
-#     $PARTITIONS \
-#     $MIN_N_VERTICES_TO_ADD $MAX_N_VERTICES_TO_ADD

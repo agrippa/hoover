@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 32
+#SBATCH -N 4
 #SBATCH -C haswell
 #SBATCH -t 00:05:00
 #SBATCH -J hoover
@@ -44,26 +44,28 @@ export MAX_NUM_TIMESTEPS=25
 
 cd $SCRATCH
 
-export HVR_SYMM_POOL_SIZE=40000
-export HVR_VEC_CACHE_PREALLOCS=60000
-# export HVR_DISABLE_PROFILING_PRINTS=1
 # echo ""
 # echo "RUNNING GRID TEST"
 # echo ""
+# export HVR_SYMM_POOL_SIZE=40000
+# export HVR_VEC_CACHE_PREALLOCS=60000
+# export HVR_DISABLE_PROFILING_PRINTS=1
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/init_test 50
-# 
+
 # echo ""
 # echo "RUNNING ADD VERTICES TEST"
 # echo ""
+# export HVR_SYMM_POOL_SIZE=40000
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/add_vertices_test 40 $MAX_NUM_TIMESTEPS
-# 
+
 # echo ""
 # echo "RUNNING MULTI GRAPH TEST"
 # echo ""
+# export HVR_SYMM_POOL_SIZE=40000
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/multi_graph_test 40 $MAX_NUM_TIMESTEPS
@@ -71,6 +73,7 @@ export HVR_VEC_CACHE_PREALLOCS=60000
 # echo ""
 # echo "RUNNING REMOVE VERTICES TEST"
 # echo ""
+# export HVR_SYMM_POOL_SIZE=40000
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/remove_vertices_test 40 $MAX_NUM_TIMESTEPS
@@ -82,42 +85,11 @@ export HVR_VEC_CACHE_PREALLOCS=60000
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/write_lock_stress
 
-
-export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
-export TIME_LIMIT_IN_SECONDS=120
-export EDGE_DISTANCE=20
-export DOMAIN_SIZE="12000 10000 10000"
-if [[ $SLURM_NNODES -eq 4 ]]; then
-    export PE_CHUNKS="6 4 4"
-elif [[ $SLURM_NNODES -eq 32 ]]; then
-    export PE_CHUNKS="12 8 8"
-else
-    echo "Unsupported # of nodes $SLURM_NNODES"
-    exit 1
-fi
-export PARTITIONS="40 40 40"
-export MIN_N_VERTICES_TO_ADD=500
-export MAX_N_VERTICES_TO_ADD=1000
-# export HVR_HANG_ABORT=300
-export HVR_SYMM_POOL_SIZE=45000
-export HVR_VEC_CACHE_PREALLOCS=60000
-export HVR_DISABLE_PROFILING_PRINTS=1
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/intrusion_detection \
-    $TIME_LIMIT_IN_SECONDS \
-    $EDGE_DISTANCE \
-    $DOMAIN_SIZE \
-    $PE_CHUNKS \
-    $PARTITIONS \
-    $MIN_N_VERTICES_TO_ADD $MAX_N_VERTICES_TO_ADD
-
 # export HVR_SYMM_POOL_SIZE=40000
 # export HVR_VEC_CACHE_PREALLOCS=60000
 # export HVR_DISABLE_PROFILING_PRINTS=1
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/const_attr_test 20
-
 
 # srun --ntasks=4 $HOME/hoover/bin/neighbor_test_cross_pe

@@ -17,6 +17,10 @@
 #include <hoover.h>
 #include <shmem_rw_lock.h>
 
+#define UNIFORM_DIST
+// #define POINT_DIST
+// #define GAUSSIAN_DIST
+
 #define MAX(a, b) (((a) > (b)) ? a : b)
 #define MIN(a, b) (((a) < (b)) ? a : b)
 
@@ -105,6 +109,7 @@ static unsigned n_local_vertices = 0;
 
 static FILE *pe_anomalies_fp = NULL;
 
+#ifdef GAUSSIAN_DIST
 // Taken from https://phoxis.org/2013/05/04/generating-random-numbers-from-normal-distribution-in-c/
 static double randn(double mu, double sigma) {
     double U1, U2, W, mult;
@@ -133,9 +138,7 @@ static double randn(double mu, double sigma) {
 
     return (mu + sigma * (double) X1);
 }
-
-#define UNIFORM_DIST
-// #define POINT_DIST
+#endif // GAUSSIAN_DIST
 
 static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
 #ifdef GAUSSIAN_DIST
@@ -410,6 +413,21 @@ hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
         partitions_size[2];
     return feat1_partition * partitions_by_dim[1] * partitions_by_dim[2] +
         feat2_partition * partitions_by_dim[2] + feat3_partition;
+}
+
+int should_have_edge(hvr_sparse_vec_t *a, hvr_sparse_vec_t *b, hvr_ctx_t ctx) {
+    const double delta0 = hvr_sparse_vec_get(0, b, ctx) -
+        hvr_sparse_vec_get(0, a, ctx);
+    const double delta1 = hvr_sparse_vec_get(1, b, ctx) -
+        hvr_sparse_vec_get(1, a, ctx);
+    const double delta2 = hvr_sparse_vec_get(2, b, ctx) -
+        hvr_sparse_vec_get(2, a, ctx);
+    if (delta0 * delta0 + delta1 * delta1 + delta2 * delta2 <=
+            distance_threshold * distance_threshold) {
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 // Assumes we already hold the write lock on best_patterns_lock for the local PE
@@ -900,10 +918,8 @@ int main(int argc, char **argv) {
             check_abort,
             actor_to_partition,
             start_time_step,
+            should_have_edge,
             &graph, 1,
-            distance_threshold, // Edge creation distance threshold
-            0, // Min spatial feature inclusive
-            2, // Max spatial feature inclusive
             MAX_TIMESTAMP,
             hvr_ctx);
 

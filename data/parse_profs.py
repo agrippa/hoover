@@ -30,7 +30,7 @@ print('pe,timestep,total,start_time_step,metadata,metadata_fetch_neighbors,' +
       'summary_actor_partitions,summary_time_window,summary_update,edges,' +
       'edges_update,edges_getmem,edges_edge_checks,edges_part_checks,' +
       'edges_dist_measures,edges_cached_remote_fetches,' +
-      'edges_uncached_remote_fetches,neighbor_updates,coupled_values,' +
+      'edges_uncached_remote_fetches,edges_mean_interacting_parts,neighbor_updates,coupled_values,' +
       'coupling,coupling_spins,throttling,throttling_spins,n_neighbors,' +
       'n_active_partitions,n_total_partitions,n_local_vertices,aborting,' +
       'last_step,remote_cache_hits,remote_cache_misses,quiets')
@@ -77,6 +77,7 @@ for prof_file in prof_files:
         remote_fetches_str = remote_fetches_str[:-2]
         edges_cached_remote_fetches = int(remote_fetches_str.split('|')[0])
         edges_uncached_remote_fetches = int(remote_fetches_str.split('|')[1])
+        edges_mean_interacting_parts = float(tokens[23])
 
         #   neighbor updates 0.035000 ms
         tokens = prof_fp.readline().strip().split()
@@ -136,6 +137,7 @@ for prof_file in prof_files:
                     edges_dist_measures,
                     edges_cached_remote_fetches,
                     edges_uncached_remote_fetches,
+                    edges_mean_interacting_parts,
                     neighbor_updates,
                     coupled_values,
                     coupling,

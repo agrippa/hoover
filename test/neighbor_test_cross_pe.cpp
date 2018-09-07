@@ -10,6 +10,8 @@
 //   delay >= 3: correct
 const int delay = 1;
 
+// Very small threshold so only vertices at the same point will be considered neighbors
+const double connectivity_threshold = 0.0001;
 
 hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     // One partition per PE, and vertices are placed at the center of the partitions.
@@ -20,6 +22,18 @@ hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     assert(0);
 }
 
+int should_have_edge(hvr_sparse_vec_t *a, hvr_sparse_vec_t *b, hvr_ctx_t ctx) {
+    double delta0 = hvr_sparse_vec_get(0, b, ctx) -
+        hvr_sparse_vec_get(0, a, ctx);
+    double delta1 = hvr_sparse_vec_get(1, b, ctx) -
+        hvr_sparse_vec_get(1, a, ctx);
+    if (delta0 * delta0 + delta1 * delta1 <=
+            connectivity_threshold * connectivity_threshold) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
 
 void update_metadata(hvr_sparse_vec_t *vec,
                      hvr_sparse_vec_t *neighbors,
@@ -69,9 +83,6 @@ int main() {
     const int mype = shmem_my_pe();
     const int npes = shmem_n_pes();
 
-    // Very small threshold so only vertices at the same point will be considered neighbors
-    const double connectivity_threshold = 0.0001;
-
     // Execute one more step so the vertices can arrive
     const hvr_time_t max_timestep = npes + delay + 1;
 
@@ -92,8 +103,9 @@ int main() {
     hvr_sparse_vec_set(0, double(mype) + 0.5, vecs + 1, hvr_ctx);
     hvr_sparse_vec_set(1, 0.1, vecs + 1, hvr_ctx);
 
-    hvr_init(npes, update_metadata, might_interact, check_abort, actor_to_partition,
-             NULL, &main_graph, 1, connectivity_threshold, 0, 1, max_timestep, hvr_ctx);
+    hvr_init(npes, update_metadata, might_interact, check_abort,
+            actor_to_partition, NULL, should_have_edge, &main_graph, 1,
+            max_timestep, hvr_ctx);
 
     hvr_body(hvr_ctx);
 
