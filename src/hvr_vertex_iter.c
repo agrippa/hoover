@@ -66,7 +66,7 @@ hvr_sparse_vec_t *hvr_vertex_iter_next(hvr_vertex_iter_t *iter) {
                      iter->index_for_current_chunk);
 
                 /*
-                 * deleted_timestamp is initialized to MAX_TIMESTEP.
+                 * deleted_timestamp is initialized to HVR_MAX_TIMESTEP.
                  *
                  * created_timestamp < current timestep ensures we don't iterate
                  * over any vertices created in the current timestep.

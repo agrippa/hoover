@@ -19,6 +19,7 @@
 #include "hoover_internal.h"
 #include "shmem_rw_lock.h"
 #include "hvr_vertex_iter.h"
+#include "hvr_mailbox.h"
 
 // #define DETAILED_PRINTS
 
@@ -177,7 +178,7 @@ void hvr_sparse_vec_init_with_const_attrs(hvr_sparse_vec_t *vec,
     memset(vec, 0x00, sizeof(*vec));
     vec->cached_timestamp = -1;
     vec->created_timestamp = ctx->timestep;
-    vec->deleted_timestamp = MAX_TIMESTAMP;
+    vec->deleted_timestamp = HVR_MAX_TIMESTAMP;
     vec->graph = graph;
 
     for (unsigned i = 0; i < HVR_BUCKETS; i++) {
@@ -287,8 +288,8 @@ static void set_helper(hvr_sparse_vec_t *vec, const unsigned curr_bucket,
  */
 static void hvr_sparse_vec_set_internal(const unsigned feature,
         const double val, hvr_sparse_vec_t *vec, const hvr_time_t timestep) {
-    assert(timestep <= MAX_TIMESTAMP);
-    if (vec->deleted_timestamp != MAX_TIMESTAMP) {
+    assert(timestep <= HVR_MAX_TIMESTAMP);
+    if (vec->deleted_timestamp != HVR_MAX_TIMESTAMP) {
         fprintf(stderr, "ERROR Setting value on deleted vertex? "
                 "ctx->timestep=%d vec->deleted_timestamp=%d\n", timestep,
                 vec->deleted_timestamp);
@@ -366,8 +367,8 @@ static inline int find_feature_in_const_attrs(const hvr_sparse_vec_t *vec,
 
 /*
  * Find the finalized bucket in vec that is closest to but less than
- * curr_timestamp. This may also return buckets for MAX_TIMESTAMP, which were
- * created as a PE exited the simulation.
+ * curr_timestamp. This may also return buckets for HVR_MAX_TIMESTAMP, which
+ * were created as a PE exited the simulation.
  */
 static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
         const hvr_time_t curr_timestamp, unsigned *nhits, unsigned *nmisses) {
@@ -400,7 +401,7 @@ static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
             // Ignore partial entry
         } else {
             if (vec->timestamps[curr_bucket] < curr_timestamp ||
-                    vec->timestamps[curr_bucket] == MAX_TIMESTAMP) {
+                    vec->timestamps[curr_bucket] == HVR_MAX_TIMESTAMP) {
                 // Handle finding an existing bucket for this timestep
                 vec->cached_timestamp = vec->timestamps[curr_bucket];
                 vec->cached_timestamp_index = curr_bucket;
@@ -502,7 +503,7 @@ int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec) {
 
 static hvr_time_t hvr_sparse_vec_max_timestamp(hvr_sparse_vec_t *vec) {
     unsigned unused;
-    int highest_bucket = hvr_sparse_vec_find_bucket(vec, MAX_TIMESTAMP + 1,
+    int highest_bucket = hvr_sparse_vec_find_bucket(vec, HVR_MAX_TIMESTAMP + 1,
             &unused, &unused);
     if (highest_bucket < 0) {
         return -1;
@@ -536,7 +537,7 @@ static int hvr_sparse_vec_has_timestamp(hvr_sparse_vec_t *vec,
     const int target_bucket = hvr_sparse_vec_find_bucket(vec, timestamp + 1,
             &unused, &unused);
     if (target_bucket >= 0 && (vec->timestamps[target_bucket] == timestamp ||
-            vec->timestamps[target_bucket] == MAX_TIMESTAMP)) {
+            vec->timestamps[target_bucket] == HVR_MAX_TIMESTAMP)) {
         return HAS_TIMESTAMP;
     } else {
         hvr_time_t min_timestamp = hvr_sparse_vec_min_timestamp(vec);
@@ -588,7 +589,7 @@ static void hvr_sparse_vec_add_internal(hvr_sparse_vec_t *dst,
 static int get_newest_timestamp(hvr_sparse_vec_t *vec,
         hvr_time_t *out_timestamp) {
     unsigned unused;
-    int bucket = hvr_sparse_vec_find_bucket(vec, MAX_TIMESTAMP, &unused,
+    int bucket = hvr_sparse_vec_find_bucket(vec, HVR_MAX_TIMESTAMP, &unused,
             &unused);
 
     if (bucket == -1) {
@@ -739,7 +740,7 @@ static void get_cache_metrics(hvr_sparse_vec_cache_t *cache,
         double *avg_timestep_out,
         unsigned *count_requested_on_this_timestep_out) {
     hvr_time_t max_timestep = -1;
-    hvr_time_t min_timestep = MAX_TIMESTAMP;
+    hvr_time_t min_timestep = HVR_MAX_TIMESTAMP;
     double avg_timestep = 0.0;
     unsigned avg_timestep_count = 0;
     unsigned count_requested_on_this_timestep = 0;
@@ -1492,7 +1493,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
          * second loop over # local vertices outside of the critical
          * section) we stick it here.
          */
-        if (curr->deleted_timestamp != MAX_TIMESTAMP) {
+        if (curr->deleted_timestamp != HVR_MAX_TIMESTAMP) {
             if (curr->deleted_timestamp >
                     (ctx->last_timestep_using_partition)[partition]) {
                 (ctx->last_timestep_using_partition)[partition] =
@@ -1521,7 +1522,7 @@ static unsigned free_old_actors(hvr_time_t timestep, hvr_internal_ctx_t *ctx) {
     unsigned count_vertices = 0;
     for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
             curr = hvr_vertex_iter_next(&iter)) {
-        if (curr->deleted_timestamp != MAX_TIMESTAMP &&
+        if (curr->deleted_timestamp != HVR_MAX_TIMESTAMP &&
                 timestep - curr->deleted_timestamp >= HVR_BUCKETS) {
             // Release back into the pool
             hvr_free_sparse_vecs(curr, 1, ctx);
@@ -1864,6 +1865,8 @@ void hvr_init(const hvr_partition_t n_partitions,
     }
 
     hvr_sparse_vec_cache_init(&new_ctx->vec_cache);
+
+    hvr_mailbox_init(&new_ctx->mailbox, 32 * 1024 * 1024);
 
     // Print the number of bytes allocated
     // shmem_malloc_wrapper(0);
@@ -2574,6 +2577,28 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     ctx->p_sync);
             shmem_barrier_all();
         }
+
+        // Just to test out mailboxes
+        if (shmem_my_pe() == 3) {
+            int success;
+            int *buf = NULL;
+            size_t buf_size = 0;
+            int count = 0;
+            do {
+                size_t msg_len;
+                success = hvr_mailbox_recv((void **)&buf, &buf_size, &msg_len,
+                        &ctx->mailbox);
+                if (success) {
+                    assert(msg_len == sizeof(int));
+                    assert(*buf == 24);
+                }
+                count++;
+            } while (success && count < 100);
+            fprintf(stderr, "PE 3 got %d messages\n", count);
+        } else {
+            int msg = 24;
+            hvr_mailbox_send(&msg, sizeof(msg), 3, &ctx->mailbox);
+        }
     }
 
     /*
@@ -2595,14 +2620,14 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         assert(success == 1);
 
         hvr_sparse_vec_set_internal(features[f], last_val,
-                ctx->coupled_pes_values + ctx->pe, MAX_TIMESTAMP);
+                ctx->coupled_pes_values + ctx->pe, HVR_MAX_TIMESTAMP);
     }
     finalize_actor_for_timestep(ctx->coupled_pes_values + ctx->pe,
-            MAX_TIMESTAMP);
+            HVR_MAX_TIMESTAMP);
 
     hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
 
-    update_my_timestep(ctx, MAX_TIMESTAMP);
+    update_my_timestep(ctx, HVR_MAX_TIMESTAMP);
 
     shmem_quiet(); // Make sure the timestep updates complete
 

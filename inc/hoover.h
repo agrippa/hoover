@@ -15,6 +15,7 @@ extern "C" {
 #include "hoover_internal.h"
 #include "hvr_avl_tree.h"
 #include "hvr_vertex_iter.h"
+#include "hvr_mailbox.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -40,7 +41,7 @@ extern "C" {
 // Number of elements to cache in a hvr_set_t
 #define PE_SET_CACHE_SIZE 100
 
-#define MAX_TIMESTAMP (INT32_MAX - 1)
+#define HVR_MAX_TIMESTAMP (INT32_MAX - 1)
 
 typedef unsigned long long bit_vec_element_type;
 
@@ -294,6 +295,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_graph_id_t interacting_graphs_mask;
 
     hvr_sparse_vec_cache_t vec_cache;
+
+    hvr_mailbox_t mailbox;
 
     struct {
         unsigned long long quiet_counter;

@@ -18,7 +18,7 @@ void hvr_mailbox_init(hvr_mailbox_t *mailbox, size_t capacity_in_bytes);
  * Place msg with length msg_len in bytes into the designated mailbox on the
  * designated PE.
  */
-void hvr_mailbox_send(void *msg, size_t msg_len, int target_pe,
+void hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
         hvr_mailbox_t *mailbox);
 
 /*

@@ -920,7 +920,7 @@ int main(int argc, char **argv) {
             start_time_step,
             should_have_edge,
             &graph, 1,
-            MAX_TIMESTAMP,
+            HVR_MAX_TIMESTAMP,
             hvr_ctx);
 
     best_patterns = (timestamped_pattern_count_t *)shmem_malloc(

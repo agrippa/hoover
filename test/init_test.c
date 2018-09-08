@@ -329,7 +329,7 @@ int main(int argc, char **argv) {
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata, might_interact, check_abort,
             actor_to_partition, NULL, should_have_edge, &graph, 1,
-            MAX_TIMESTAMP, hvr_ctx);
+            HVR_MAX_TIMESTAMP, hvr_ctx);
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);
