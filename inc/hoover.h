@@ -16,6 +16,7 @@ extern "C" {
 #include "hvr_avl_tree.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
+#include "hvr_change_buffer.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -64,13 +65,13 @@ typedef struct _hvr_set_t {
      * elements contained. When we can use cache, using it means we don't have
      * to iterate over the full bit_vector to look for all contained elements.
      */
-    unsigned cache[PE_SET_CACHE_SIZE];
+    uint64_t cache[PE_SET_CACHE_SIZE];
 
     // Number of elements in the cache
-    int nelements;
+    uint64_t nelements;
 
     // Total number of elements inserted in this cache
-    unsigned n_contained;
+    uint64_t n_contained;
 
     // Backing bit vector
     bit_vec_element_type *bit_vector;
@@ -79,12 +80,12 @@ typedef struct _hvr_set_t {
 /*
  * Add a given value to this set.
  */
-extern int hvr_set_insert(int pe, hvr_set_t *set);
+extern int hvr_set_insert(uint64_t val, hvr_set_t *set);
 
 /*
  * Check if a given value exists in this set.
  */
-extern int hvr_set_contains(int pe, hvr_set_t *set);
+extern int hvr_set_contains(uint64_t val, hvr_set_t *set);
 
 /*
  * Count how many elements are in this set.
@@ -110,8 +111,8 @@ extern void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen,
 /*
  * Return an array containing all values in the provided set.
  */
-extern unsigned *hvr_set_non_zeros(hvr_set_t *set,
-        unsigned *n_non_zeros, int *user_must_free);
+extern uint64_t *hvr_set_non_zeros(hvr_set_t *set,
+        uint64_t *n_non_zeros, int *user_must_free);
 
 /*
  * Callback type definitions to be defined by the user for the HOOVER runtime to
@@ -297,6 +298,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_sparse_vec_cache_t vec_cache;
 
     hvr_mailbox_t mailbox;
+
+    hvr_buffered_changes_t changes;
 
     struct {
         unsigned long long quiet_counter;

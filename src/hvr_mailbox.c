@@ -108,14 +108,11 @@ int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
     uint64_t msg_offset = ((read_index + sizeof(sentinel) + sizeof(*msg_len)) %
             mailbox->capacity_in_bytes);
 
-    fprintf(stderr, "Trying to get sentinel value at byte %lu / %lu\n",
-            start_msg_offset, mailbox->capacity_in_bytes);
     unsigned expect_sentinel;
     do {
         get_from_mailbox_with_rotation(start_msg_offset, &expect_sentinel,
                 sizeof(expect_sentinel), mailbox);
     } while (expect_sentinel != sentinel);
-    fprintf(stderr, "Got sentinel value\n");
 
     size_t recv_msg_len;
     get_from_mailbox_with_rotation(msg_len_offset, &recv_msg_len,
