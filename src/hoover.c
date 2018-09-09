@@ -2166,6 +2166,111 @@ static void finalize_actors_for_timestep(hvr_internal_ctx_t *ctx,
     }
 }
 
+static void send_vertex_updates(hvr_time_t target_timestep,
+        hvr_internal_ctx_t *ctx) {
+    static hvr_set_t *full_part_set = NULL;
+    if (full_part_set == NULL) {
+        full_part_set = hvr_create_full_set(ctx->n_partitions, ctx);
+    }
+
+    hvr_vertex_iter_t iter;
+    hvr_vertex_iter_init_with_dead_vertices(&iter,
+            ctx->interacting_graphs_mask, ctx);
+    for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
+            curr = hvr_vertex_iter_next(&iter)) {
+        hvr_change_t change;
+        int send_update = 0;
+
+        if (curr->created_timestamp == target_timestep) {
+            change.type = CREATE;
+            send_update = 1;
+        } else if (curr->deleted_timestamp == target_timestep) {
+            change.type = DELETE;
+            send_update = 1;
+        } else if (curr->timestamps[prev_bucket(curr->next_bucket)] ==
+                target_timestep) {
+            change.type = UPDATE;
+            send_update = 1;
+        }
+
+        if (send_update) {
+            change.id = curr->id;
+            change.timestamp = target_timestep;
+            memcpy(change.values,
+                    &(curr->values[prev_bucket(curr->next_bucket)][0]),
+                    HVR_BUCKET_SIZE * sizeof(double));
+            memcpy(change.features,
+                    &(curr->features[prev_bucket(curr->next_bucket)][0]),
+                    HVR_BUCKET_SIZE * sizeof(unsigned));
+            change.size = curr->bucket_size[
+                prev_bucket(curr->next_bucket)];
+
+            const hvr_partition_t part = wrap_actor_to_partition(curr, ctx);
+            hvr_partition_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
+            unsigned n_interacting_partitions;
+            ctx->might_interact(part, full_part_set,
+                    interacting_partitions, &n_interacting_partitions,
+                    MAX_INTERACTING_PARTITIONS, ctx);
+
+            hvr_set_t *pe_set = hvr_create_empty_set(ctx->npes, ctx);
+            get_pes_for_partitions(interacting_partitions,
+                    n_interacting_partitions, pe_set, ctx);
+
+            uint64_t n_interacting_pes;
+            int user_must_free;
+            uint64_t *interacting_pes = hvr_set_non_zeros(pe_set,
+                    &n_interacting_pes, &user_must_free);
+            for (uint64_t p = 0; p < n_interacting_pes; p++) {
+                hvr_mailbox_send(&change, sizeof(change),
+                        interacting_pes[p], &ctx->mailbox);
+            }
+
+            if (user_must_free) free(interacting_pes);
+        }
+    }
+}
+
+static void buffer_vertex_updates(hvr_internal_ctx_t *ctx) {
+    int success;
+    void *buf = NULL;
+    size_t buf_size = 0;
+    int count = 0;
+    do {
+        size_t msg_len;
+        success = hvr_mailbox_recv(&buf, &buf_size, &msg_len,
+                &ctx->mailbox);
+        if (success) {
+            assert(msg_len == sizeof(hvr_change_t));
+            hvr_buffered_changes_add(buf, &ctx->changes);
+        }
+        count++;
+    } while (success && count < 100);
+    free(buf);
+    fprintf(stderr, "PE %d got %d messages\n", shmem_my_pe(), count);
+}
+
+static void process_vertex_updates(hvr_time_t max_timestep,
+        hvr_internal_ctx_t *ctx) {
+    unsigned count = 0;
+    hvr_timestep_changes_t *changes = NULL;
+    do {
+        changes = hvr_buffered_changes_remove_any(max_timestep, &ctx->changes);
+
+        if (changes) {
+            hvr_timestep_changes_node_t *change = changes->changes_list;
+            while (change) {
+                // TODO Use change to update edges, based on update_edges
+                // change.change
+                count++;
+                change = change->next;
+            }
+
+            hvr_buffered_changes_free(changes);
+        }
+    } while (changes);
+    fprintf(stderr, "PE %d processed %u updates\n", shmem_my_pe(), count);
+}
+
 static void *aborting_thread(void *user_data) {
     int nseconds = atoi(getenv("HVR_HANG_ABORT"));
     assert(nseconds > 0);
@@ -2182,7 +2287,6 @@ static void *aborting_thread(void *user_data) {
     }
     return NULL;
 }
-
 
 hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
@@ -2279,65 +2383,12 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         __sync_synchronize();
 
-        hvr_set_t *full_part_set = hvr_create_full_set(ctx->n_partitions,
-                ctx);
+        // Send any changes on this timestep to other PEs
+        send_vertex_updates(ctx->timestep - 1, ctx);
 
-        hvr_vertex_iter_t iter;
-        hvr_vertex_iter_init_with_dead_vertices(&iter,
-                ctx->interacting_graphs_mask, ctx);
-        for (hvr_sparse_vec_t *curr = hvr_vertex_iter_next(&iter); curr;
-                curr = hvr_vertex_iter_next(&iter)) {
-            hvr_change_t change;
-            int send_update = 0;
+        buffer_vertex_updates(ctx);
 
-            if (curr->created_timestamp == ctx->timestep - 1) {
-                change.type = CREATE;
-                send_update = 1;
-            } else if (curr->deleted_timestamp == ctx->timestep - 1) {
-                change.type = DELETE;
-                send_update = 1;
-            } else if (curr->timestamps[prev_bucket(curr->next_bucket)] ==
-                    ctx->timestep - 1) {
-                change.type = UPDATE;
-                send_update = 1;
-            }
-
-            if (send_update) {
-                change.id = curr->id;
-                change.timestamp = ctx->timestep;
-                memcpy(change.values,
-                        &(curr->values[prev_bucket(curr->next_bucket)][0]),
-                        HVR_BUCKET_SIZE * sizeof(double));
-                memcpy(change.features,
-                        &(curr->features[prev_bucket(curr->next_bucket)][0]),
-                        HVR_BUCKET_SIZE * sizeof(unsigned));
-                change.size = curr->bucket_size[
-                    prev_bucket(curr->next_bucket)];
-
-                const hvr_partition_t part = wrap_actor_to_partition(curr, ctx);
-                hvr_partition_t interacting_partitions[MAX_INTERACTING_PARTITIONS];
-                unsigned n_interacting_partitions;
-                ctx->might_interact(part, full_part_set,
-                        interacting_partitions, &n_interacting_partitions,
-                        MAX_INTERACTING_PARTITIONS, ctx);
-
-                hvr_set_t *pe_set = hvr_create_empty_set(ctx->npes, ctx);
-                get_pes_for_partitions(interacting_partitions,
-                        n_interacting_partitions, pe_set, ctx);
-
-                uint64_t n_interacting_pes;
-                int user_must_free;
-                uint64_t *interacting_pes = hvr_set_non_zeros(pe_set,
-                        &n_interacting_pes, &user_must_free);
-                for (uint64_t p = 0; p < n_interacting_pes; p++) {
-                    hvr_mailbox_send(&change, sizeof(change),
-                            interacting_pes[p], &ctx->mailbox);
-                }
-
-                if (user_must_free) free(interacting_pes);
-            }
-        }
-        hvr_set_destroy(full_part_set);
+        process_vertex_updates(ctx->timestep - 1, ctx);
 
         // Update mapping from actors to partitions
         update_actor_partitions(ctx);
@@ -2360,7 +2411,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         // Update neighboring PEs based on fuzzy partition windows
         update_neighbors_based_on_partitions(ctx);
 
-        const unsigned long long finished_summary_update = hvr_current_time_us();
+        const unsigned long long finished_summary_update =
+            hvr_current_time_us();
 
         // Update edges with actors in neighboring PEs
         hvr_clear_edge_set(ctx->edges);
@@ -2385,6 +2437,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
                 sizeof(coupled_metric));
 
+        hvr_vertex_iter_t iter;
         hvr_vertex_iter_init(&iter, ctx->interacting_graphs_mask, ctx);
         should_abort = ctx->check_abort(&iter, ctx, to_couple_with,
                 &coupled_metric);
@@ -2630,22 +2683,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     ctx->p_sync);
             shmem_barrier_all();
         }
-
-        int success;
-        void *buf = NULL;
-        size_t buf_size = 0;
-        int count = 0;
-        do {
-            size_t msg_len;
-            success = hvr_mailbox_recv(&buf, &buf_size, &msg_len,
-                    &ctx->mailbox);
-            if (success) {
-                assert(msg_len == sizeof(hvr_change_t));
-            }
-            count++;
-        } while (success && count < 100);
-        free(buf);
-        fprintf(stderr, "PE %d got %d messages\n", shmem_my_pe(), count);
     }
 
     /*
