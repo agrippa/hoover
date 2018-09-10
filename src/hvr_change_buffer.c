@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "hvr_change_buffer.h"
+#include "hoover_internal.h"
 
 void hvr_buffered_changes_init(hvr_buffered_changes_t *changes) {
     memset(changes, 0x00, sizeof(*changes));
@@ -75,4 +76,20 @@ void hvr_buffered_changes_free(hvr_timestep_changes_t *changes) {
         iter = next;
     }
     free(changes);
+}
+
+
+void hvr_vertex_from_change(hvr_change_t *change, hvr_sparse_vec_t *vertex,
+        hvr_internal_ctx_t *ctx) {
+
+    hvr_sparse_vec_init_with_const_attrs(vertex, change->graph,
+            change->const_features, change->const_values,
+            change->n_const_features, ctx);
+
+    for (unsigned i = 0; i < change->size; i++) {
+        hvr_sparse_vec_set_internal(change->features[i], change->values[i],
+                vertex, 0);
+    }
+
+    finalize_actor_for_timestep(vertex, 0);
 }

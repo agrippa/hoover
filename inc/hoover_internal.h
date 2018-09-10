@@ -135,4 +135,8 @@ typedef struct _hvr_partition_list_node_t {
     struct _hvr_partition_list_node_t *next;
 } hvr_partition_list_node_t;
 
+
+extern void hvr_sparse_vec_set_internal(const unsigned feature,
+        const double val, hvr_sparse_vec_t *vec, const hvr_time_t timestep);
+
 #endif // _HOOVER_INTERNAL_H
