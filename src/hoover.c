@@ -1860,7 +1860,7 @@ int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
                 ctx->edges->tree, vertex);
 
         // If vertex_edge_tree is NULL, this node has no edges
-        if (vertex_edge_tree) {
+        if (vertex_edge_tree && vertex_edge_tree->subtree) {
             *n_neighbors_out = hvr_tree_linearize(neighbors_out,
                     vertex_edge_tree->subtree);
         }
@@ -1908,7 +1908,7 @@ static unsigned update_local_actor_metadata(hvr_sparse_vec_t *vertex,
             ctx->edges->tree, vertex->id);
 
     // Update the metadata for actor i
-    if (vertex_edge_tree != NULL) {
+    if (vertex_edge_tree && vertex_edge_tree->subtree) {
         // This vertex has edges
         hvr_vertex_id_t *neighbors;
         const size_t n_neighbors = hvr_tree_linearize(&neighbors,
@@ -2206,7 +2206,7 @@ static void process_vertex_updates(hvr_time_t max_timestep,
                          * If vertex_edge_tree is NULL, this node has no locally
                          * known edges.
                          */
-                        if (vertex_edge_tree) {
+                        if (vertex_edge_tree && vertex_edge_tree->subtree) {
                             hvr_vertex_id_t *neighbors = NULL;
                             size_t n_neighbors = hvr_tree_linearize(&neighbors,
                                     vertex_edge_tree->subtree);
@@ -2231,7 +2231,7 @@ static void process_vertex_updates(hvr_time_t max_timestep,
                     } else {
                         // Update to local vertex
 
-                        if (vertex_edge_tree) {
+                        if (vertex_edge_tree && vertex_edge_tree->subtree) {
                             // Clear out existing neighbors
                             hvr_vertex_id_t *existing_neighbors = NULL;
                             size_t n_existing_neighbors = hvr_tree_linearize(
@@ -2270,7 +2270,7 @@ static void process_vertex_updates(hvr_time_t max_timestep,
                     hvr_avl_tree_node_t *vertex_edge_tree = hvr_tree_find(
                             ctx->edges->tree, change->change.id);
                     // If vertex_edge_tree is NULL, this node has no edges
-                    if (vertex_edge_tree) {
+                    if (vertex_edge_tree && vertex_edge_tree->subtree) {
                         hvr_vertex_id_t *neighbors = NULL;
                         size_t n_neighbors = hvr_tree_linearize(&neighbors,
                                 vertex_edge_tree->subtree);
