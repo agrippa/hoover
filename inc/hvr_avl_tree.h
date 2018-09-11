@@ -20,6 +20,8 @@ typedef struct _hvr_avl_tree_node_t {
 
 extern hvr_avl_tree_node_t* hvr_tree_insert(hvr_avl_tree_node_t* node,
         hvr_vertex_id_t key);
+extern hvr_avl_tree_node_t* hvr_tree_remove(hvr_avl_tree_node_t *curr,
+        hvr_vertex_id_t key);
 extern hvr_avl_tree_node_t *hvr_tree_find(hvr_avl_tree_node_t *curr,
         hvr_vertex_id_t key);
 extern size_t hvr_tree_size(hvr_avl_tree_node_t *curr);

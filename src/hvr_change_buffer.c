@@ -85,6 +85,7 @@ void hvr_vertex_from_change(hvr_change_t *change, hvr_sparse_vec_t *vertex,
     hvr_sparse_vec_init_with_const_attrs(vertex, change->graph,
             change->const_features, change->const_values,
             change->n_const_features, ctx);
+    vertex->id = change->id;
 
     for (unsigned i = 0; i < change->size; i++) {
         hvr_sparse_vec_set_internal(change->features[i], change->values[i],

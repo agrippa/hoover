@@ -301,13 +301,6 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_buffered_changes_t changes;
 
-    struct {
-        unsigned long long quiet_counter;
-        unsigned long long fetch_neighbors_time;
-        unsigned long long quiet_neighbors_time;
-        unsigned long long update_metadata_time;
-    } cache_perf_info;
-
 } hvr_internal_ctx_t;
 
 /*

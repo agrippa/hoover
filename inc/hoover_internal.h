@@ -71,8 +71,14 @@ typedef struct _hvr_sparse_vec_cache_t {
     hvr_sparse_vec_cache_node_t *lru_head;
     hvr_sparse_vec_cache_node_t *lru_tail;
 
-    // Performance metrics tracked per remote PE
-    unsigned nhits, nmisses, nmisses_due_to_age;
+    struct {
+        unsigned long long quiet_counter;
+        unsigned long long fetch_neighbors_time;
+        unsigned long long quiet_neighbors_time;
+        unsigned long long update_metadata_time;
+        unsigned long long nhits;
+        unsigned long long nmisses;
+    } cache_perf_info;
 } hvr_sparse_vec_cache_t;
 
 /*

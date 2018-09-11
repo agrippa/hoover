@@ -8,15 +8,6 @@
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 
- 
-// A utility function to get height of the tree
-static inline int height(hvr_avl_tree_node_t *N) {
-    if (N == NULL) {
-        return 0;
-    }
-    return N->height;
-}
- 
 /* Helper function that allocates a new node with the given key and
     NULL left and right pointers. */
 static hvr_avl_tree_node_t *newNode(hvr_vertex_id_t key) {
@@ -32,83 +23,242 @@ static hvr_avl_tree_node_t *newNode(hvr_vertex_id_t key) {
     return(node);
 }
 
-static hvr_avl_tree_node_t *rotateWithLeftChild(hvr_avl_tree_node_t *k2) {
-    hvr_avl_tree_node_t *k1 = k2->left;
-    k2->left = k1->right;
-    k1->right = k2;
-    k2->height = MAX(height(k2->left), height(k2->right)) + 1;
-    k1->height = MAX(height(k1->left), k2->height) + 1;
-    return k1;
+// A utility function to get height of the tree
+static int height(hvr_avl_tree_node_t *N)
+{
+    if (N == NULL)
+        return 0;
+    return N->height;
 }
+ 
+// A utility function to right rotate subtree rooted with y
+// See the diagram given above.
+static hvr_avl_tree_node_t *rightRotate(hvr_avl_tree_node_t *y)
+{
+    hvr_avl_tree_node_t *x = y->left;
+    hvr_avl_tree_node_t *T2 = x->right;
 
-static hvr_avl_tree_node_t *rotateWithRightChild(hvr_avl_tree_node_t *k1) {
-    hvr_avl_tree_node_t *k2 = k1->right;
-    k1->right = k2->left;
-    k2->left = k1;
-    k1->height = MAX(height(k1->left), height(k1->right)) + 1;
-    k2->height = MAX(height(k2->right), k1->height) + 1;
-    return k2;
+    // Perform rotation
+    x->right = y;
+    y->left = T2;
+
+    // Update heights
+    y->height = MAX(height(y->left), height(y->right))+1;
+    x->height = MAX(height(x->left), height(x->right))+1;
+
+    // Return new root
+    return x;
 }
+ 
+// A utility function to left rotate subtree rooted with x
+// See the diagram given above.
+static hvr_avl_tree_node_t *leftRotate(hvr_avl_tree_node_t *x)
+{
+    hvr_avl_tree_node_t *y = x->right;
+    hvr_avl_tree_node_t *T2 = y->left;
 
-static hvr_avl_tree_node_t *doubleWithLeftChild(hvr_avl_tree_node_t *k3) {
-    k3->left = rotateWithRightChild(k3->left);
-    return rotateWithLeftChild(k3);
+    // Perform rotation
+    y->left = x;
+    x->right = T2;
+
+    //  Update heights
+    x->height = MAX(height(x->left), height(x->right))+1;
+    y->height = MAX(height(y->left), height(y->right))+1;
+
+    // Return new root
+    return y;
 }
-
-static hvr_avl_tree_node_t *doubleWithRightChild(hvr_avl_tree_node_t *k1) {
-    k1->right = rotateWithLeftChild(k1->right);
-    return rotateWithRightChild(k1);
+ 
+// Get Balance factor of node N
+static int getBalance(hvr_avl_tree_node_t *N)
+{
+    if (N == NULL)
+        return 0;
+    return height(N->left) - height(N->right);
 }
-
-// Recursive function to insert key in subtree rooted
-// with node and returns new root of subtree.
+ 
 hvr_avl_tree_node_t* hvr_tree_insert(hvr_avl_tree_node_t* node,
         hvr_vertex_id_t key) {
-    if (node == NULL) {
-        node = newNode(key);
-    } else if (key == node->key) {
-        node = node;
-    } else if (key < node->key) {
+    /* 1.  Perform the normal BST rotation */
+    if (node == NULL)
+        return(newNode(key));
+
+    if (key < node->key)
         node->left  = hvr_tree_insert(node->left, key);
-        if (height(node->left) - height(node->right) == 2) {
-            if (key < node->left->key) {
-                node = rotateWithLeftChild(node);
-            } else {
-                node = doubleWithLeftChild(node);
-            }
-        }
-    } else if (key > node->key) {
+    else if (key > node->key)
         node->right = hvr_tree_insert(node->right, key);
-        if (height(node->right) - height(node->left) == 2) {
-            if (key > node->right->key) {
-                node = rotateWithRightChild(node);
-            } else {
-                node = doubleWithRightChild(node);
-            }
-        }
-    } else {
-        assert(0);
+    else // Equal keys not allowed
+        return node;
+
+    /* 2. Update height of this ancestor node */
+    node->height = 1 + MAX(height(node->left),
+            height(node->right));
+
+    /* 3. Get the balance factor of this ancestor
+       node to check whether this node became
+       unbalanced */
+    int balance = getBalance(node);
+
+    // If this node becomes unbalanced, then there are 4 cases
+
+    // Left Left Case
+    if (balance > 1 && key < node->left->key)
+        return rightRotate(node);
+
+    // Right Right Case
+    if (balance < -1 && key > node->right->key)
+        return leftRotate(node);
+
+    // Left Right Case
+    if (balance > 1 && key > node->left->key)
+    {
+        node->left =  leftRotate(node->left);
+        return rightRotate(node);
     }
 
-    node->height = 1 + MAX(height(node->left),
-                           height(node->right));
- 
+    // Right Left Case
+    if (balance < -1 && key < node->right->key)
+    {
+        node->right = rightRotate(node->right);
+        return leftRotate(node);
+    }
+
+    /* return the (unchanged) node pointer */
     return node;
 }
+ 
+/* Given a non-empty binary search tree, return the
+      node with minimum key value found in that tree.
+         Note that the entire tree does not need to be
+            searched. */
+hvr_avl_tree_node_t * minValueNode(hvr_avl_tree_node_t* node)
+{
+    hvr_avl_tree_node_t* current = node;
 
-hvr_avl_tree_node_t *hvr_tree_find(hvr_avl_tree_node_t *curr,
+    /* loop down to find the leftmost leaf */
+    while (current->left != NULL)
+        current = current->left;
+
+    return current;
+}
+ 
+// Recursive function to delete a node with given key
+// from subtree with given root. It returns root of
+// the modified subtree.
+hvr_avl_tree_node_t* hvr_tree_remove(hvr_avl_tree_node_t *root,
         hvr_vertex_id_t key) {
+    // STEP 1: PERFORM STANDARD BST DELETE
+
+    if (root == NULL)
+        return root;
+
+    // If the key to be deleted is smaller than the
+    // root's key, then it lies in left subtree
+    if ( key < root->key )
+        root->left = hvr_tree_remove(root->left, key);
+
+    // If the key to be deleted is greater than the
+    // root's key, then it lies in right subtree
+    else if( key > root->key )
+        root->right = hvr_tree_remove(root->right, key);
+
+    // if key is same as root's key, then This is
+    // the node to be deleted
+    else
+    {
+        // node with only one child or no child
+        if( (root->left == NULL) || (root->right == NULL) )
+        {
+            hvr_avl_tree_node_t *temp = root->left ? root->left :
+                root->right;
+
+            // No child case
+            if (temp == NULL)
+            {
+                temp = root;
+                root = NULL;
+            }
+            else {
+                // One child case
+                memcpy(root, temp, sizeof(*root));
+            }
+            // the non-empty child
+            free(temp);
+        }
+        else
+        {
+            // node with two children: Get the inorder
+            // successor (smallest in the right subtree)
+            hvr_avl_tree_node_t* temp = minValueNode(root->right);
+
+            // Copy the inorder successor's data to this node
+            root->key = temp->key;
+
+            // Delete the inorder successor
+            root->right = hvr_tree_remove(root->right, temp->key);
+        }
+    }
+
+    // If the tree had only one node then return
+    if (root == NULL)
+        return root;
+
+    // STEP 2: UPDATE HEIGHT OF THE CURRENT NODE
+    root->height = 1 + MAX(height(root->left),
+            height(root->right));
+
+    // STEP 3: GET THE BALANCE FACTOR OF THIS NODE (to
+    // check whether this node became unbalanced)
+    int balance = getBalance(root);
+
+    // If this node becomes unbalanced, then there are 4 cases
+
+    // Left Left Case
+    if (balance > 1 && getBalance(root->left) >= 0)
+        return rightRotate(root);
+
+    // Left Right Case
+    if (balance > 1 && getBalance(root->left) < 0)
+    {
+        root->left =  leftRotate(root->left);
+        return rightRotate(root);
+    }
+
+    // Right Right Case
+    if (balance < -1 && getBalance(root->right) <= 0)
+        return leftRotate(root);
+
+    // Right Left Case
+    if (balance < -1 && getBalance(root->right) > 0)
+    {
+        root->right = rightRotate(root->right);
+        return leftRotate(root);
+    }
+
+    return root;
+}
+
+static hvr_avl_tree_node_t *hvr_tree_find_helper(hvr_avl_tree_node_t *curr,
+        hvr_vertex_id_t key, hvr_avl_tree_node_t **parent) {
     if (curr == NULL) {
         return NULL;
     }
 
     if (key < curr->key) {
-        return hvr_tree_find(curr->left, key);
+        *parent = curr;
+        return hvr_tree_find_helper(curr->left, key, parent);
     } else if (key > curr->key) {
-        return hvr_tree_find(curr->right, key);
+        *parent = curr;
+        return hvr_tree_find_helper(curr->right, key, parent);
     } else {
         return curr;
     }
+}
+
+hvr_avl_tree_node_t *hvr_tree_find(hvr_avl_tree_node_t *curr,
+        hvr_vertex_id_t key) {
+    hvr_avl_tree_node_t *unused;
+    return hvr_tree_find_helper(curr, key, &unused);
 }
 
 void hvr_tree_destroy(hvr_avl_tree_node_t *curr) {

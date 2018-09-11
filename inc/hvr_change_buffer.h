@@ -14,7 +14,7 @@ typedef struct _hvr_change_t {
     hvr_vertex_id_t id;
     hvr_time_t timestamp;
     hvr_change_type_t type;
-    hvr_graph_t graph;
+    hvr_graph_id_t graph;
 
     double values[HVR_BUCKET_SIZE];
     unsigned features[HVR_BUCKET_SIZE];
