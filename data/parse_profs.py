@@ -15,7 +15,6 @@ prof_files = [os.path.join(dump_dir, f) for f in os.listdir(dump_dir) if f.endsw
 #   start_time_step 1.313000 ms
 #   metadata 0.001000 ms (0.000000 0.000000 0.000000)
 #   summary 2.859000 ms (0.450000 1.118000 1.291000)
-#   edges 10.063000 ms (update=0.000000 getmem=0.000000 # edge checks=109 # part checks=278 # dist measures=284 # (cached|uncached) remote fetches=(0|109))
 #   neighbor updates 0.035000 ms
 #   coupled values 0.007000 ms
 #   coupling 0.003000 ms (0)
@@ -27,10 +26,7 @@ prof_files = [os.path.join(dump_dir, f) for f in os.listdir(dump_dir) if f.endsw
 # Header
 print('pe,timestep,total,start_time_step,metadata,metadata_fetch_neighbors,' +
       'metadata_quiet_neighbors,metadata_update_metadata,summary,' +
-      'summary_actor_partitions,summary_time_window,summary_update,edges,' +
-      'edges_update,edges_getmem,edges_edge_checks,edges_part_checks,' +
-      'edges_dist_measures,edges_cached_remote_fetches,' +
-      'edges_uncached_remote_fetches,edges_mean_interacting_parts,neighbor_updates,coupled_values,' +
+      'summary_actor_partitions,summary_time_window,summary_update,neighbor_updates,coupled_values,' +
       'coupling,coupling_spins,throttling,throttling_spins,n_neighbors,' +
       'n_active_partitions,n_total_partitions,n_local_vertices,aborting,' +
       'last_step,remote_cache_hits,remote_cache_misses,quiets')
@@ -63,21 +59,6 @@ for prof_file in prof_files:
         summary_actor_partitions = float(tokens[3][1:])
         summary_time_window = float(tokens[4])
         summary_update = float(tokens[5][:-1])
-
-        #   edges 10.063000 ms (update=0.000000 getmem=0.000000 # edge checks=109 # part checks=278 # dist measures=284 # (cached|uncached) remote fetches=(0|109))
-        tokens = prof_fp.readline().strip().split()
-        edges = float(tokens[1])
-        edges_update = float(tokens[3].split('=')[1])
-        edges_getmem = float(tokens[4].split('=')[1])
-        edges_edge_checks = int(tokens[7].split('=')[1])
-        edges_part_checks = int(tokens[10].split('=')[1])
-        edges_dist_measures = int(tokens[13].split('=')[1])
-        remote_fetches_str = tokens[17].split('=')[1]
-        remote_fetches_str = remote_fetches_str[1:]
-        remote_fetches_str = remote_fetches_str[:-2]
-        edges_cached_remote_fetches = int(remote_fetches_str.split('|')[0])
-        edges_uncached_remote_fetches = int(remote_fetches_str.split('|')[1])
-        edges_mean_interacting_parts = float(tokens[23])
 
         #   neighbor updates 0.035000 ms
         tokens = prof_fp.readline().strip().split()
@@ -129,15 +110,6 @@ for prof_file in prof_files:
                     summary_actor_partitions,
                     summary_time_window,
                     summary_update,
-                    edges,
-                    edges_update,
-                    edges_getmem,
-                    edges_edge_checks,
-                    edges_part_checks,
-                    edges_dist_measures,
-                    edges_cached_remote_fetches,
-                    edges_uncached_remote_fetches,
-                    edges_mean_interacting_parts,
                     neighbor_updates,
                     coupled_values,
                     coupling,

@@ -2349,10 +2349,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     process_vertex_updates(0, ctx);
     shmem_barrier_all();
 
-    // unsigned long long unused; unsigned u_unused; double d_unused;
-    // update_edges(ctx, &ctx->vec_cache, &unused, &unused, &unused, &unused,
-    //         &unused, &unused, &u_unused, &u_unused, &d_unused);
-
     hvr_set_t *to_couple_with = hvr_create_empty_set(ctx->npes, ctx);
 
     if (getenv("HVR_HANG_ABORT")) {
@@ -2446,25 +2442,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long finished_summary_update =
             hvr_current_time_us();
-
-        // Update edges with actors in neighboring PEs
-        // hvr_clear_edge_set(ctx->edges);
-        unsigned long long getmem_time = 0;
-        unsigned long long update_edge_time = 0;
-        unsigned long long n_edge_checks = 0;
-        unsigned long long partition_checks = 0;
-        unsigned long long n_distance_measures = 0;
-        unsigned n_cached_remote_fetches_for_update_edges = 0;
-        unsigned n_uncached_remote_fetches_for_update_edges = 0;
-        double mean_n_interacting_partitions = 0.0;
-        // update_edges(ctx, &ctx->vec_cache, &getmem_time, &update_edge_time,
-        //         &n_edge_checks, &partition_checks,
-        //         &ctx->cache_perf_info.quiet_counter,
-        //         &n_distance_measures, &n_cached_remote_fetches_for_update_edges,
-        //         &n_uncached_remote_fetches_for_update_edges,
-        //         &mean_n_interacting_partitions);
-
-        const unsigned long long finished_edge_adds = hvr_current_time_us();
 
         hvr_sparse_vec_t coupled_metric;
         memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
@@ -2666,20 +2643,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     (double)(finished_actor_partitions - finished_updates) / 1000.0,
                     (double)(finished_time_window - finished_actor_partitions) / 1000.0,
                     (double)(finished_summary_update - finished_time_window) / 1000.0);
-            fprintf(profiling_fp, "  edges %f ms (update=%f getmem=%f # edge "
-                    "checks=%llu # part checks=%llu # dist measures=%llu # "
-                    "(cached|uncached) remote fetches=(%u|%u)) mean # interacting parts = %f\n",
-                    (double)(finished_edge_adds - finished_summary_update) / 1000.0,
-                    (double)update_edge_time / 1000.0,
-                    (double)getmem_time / 1000.0,
-                    n_edge_checks,
-                    partition_checks,
-                    n_distance_measures,
-                    n_cached_remote_fetches_for_update_edges,
-                    n_uncached_remote_fetches_for_update_edges,
-                    mean_n_interacting_partitions);
             fprintf(profiling_fp, "  neighbor updates %f ms\n",
-                    (double)(finished_neighbor_updates - finished_edge_adds) / 1000.0);
+                    (double)(finished_neighbor_updates - finished_summary_update) / 1000.0);
             fprintf(profiling_fp, "  coupled values %f ms\n",
                     (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0);
             fprintf(profiling_fp, "  coupling %f ms (%u)\n",
