@@ -26,7 +26,7 @@ prof_files = [os.path.join(dump_dir, f) for f in os.listdir(dump_dir) if f.endsw
 # Header
 print('pe,timestep,total,start_time_step,metadata,metadata_fetch_neighbors,' +
       'metadata_quiet_neighbors,metadata_update_metadata,summary,' +
-      'summary_actor_partitions,summary_time_window,summary_update,neighbor_updates,coupled_values,' +
+      'summary_actor_partitions,summary_time_window,summary_update,summary_send_updates,summary_buffer_updates,summary_process_updates,summary_local_creates,summary_remote_creates,summary_local_updates,summary_remote_updates,summary_local_deletes,summary_remote_deletes,neighbor_updates,coupled_values,' +
       'coupling,coupling_spins,throttling,throttling_spins,n_neighbors,' +
       'n_active_partitions,n_total_partitions,n_local_vertices,aborting,' +
       'last_step,remote_cache_hits,remote_cache_misses,quiets')
@@ -58,7 +58,16 @@ for prof_file in prof_files:
         summary = float(tokens[1])
         summary_actor_partitions = float(tokens[3][1:])
         summary_time_window = float(tokens[4])
-        summary_update = float(tokens[5][:-1])
+        summary_update = float(tokens[5])
+        summary_send_updates = float(tokens[6])
+        summary_buffer_updates = float(tokens[7])
+        summary_process_updates = float(tokens[8])
+        summary_local_creates = float(tokens[9])
+        summary_remote_creates = float(tokens[10])
+        summary_local_updates = float(tokens[11])
+        summary_remote_updates = float(tokens[12])
+        summary_local_deletes = float(tokens[13])
+        summary_remote_deletes = float(tokens[14][:-1])
 
         #   neighbor updates 0.035000 ms
         tokens = prof_fp.readline().strip().split()
@@ -110,6 +119,15 @@ for prof_file in prof_files:
                     summary_actor_partitions,
                     summary_time_window,
                     summary_update,
+                    summary_send_updates,
+                    summary_buffer_updates,
+                    summary_process_updates,
+                    summary_local_creates,
+                    summary_remote_creates,
+                    summary_local_updates,
+                    summary_remote_updates,
+                    summary_local_deletes,
+                    summary_remote_deletes,
                     neighbor_updates,
                     coupled_values,
                     coupling,

@@ -1778,8 +1778,7 @@ static void collect_neighbors(hvr_sparse_vec_t *vertex,
         rlock_actor_to_partition(p, ctx);
         shmem_getmem(ctx->other_actor_to_partition_map,
                 ctx->actor_to_partition_map,
-                ctx->pool->pool_size * sizeof(hvr_partition_t),
-                p);
+                ctx->pool->pool_size * sizeof(hvr_partition_t), p);
         runlock_actor_to_partition(p, ctx);
 
         /*
@@ -2109,10 +2108,20 @@ static void add_local_edges(hvr_partition_t *interacting_partitions,
 }
 
 static void process_vertex_updates(hvr_time_t max_timestep,
+        unsigned *out_n_local_creates, unsigned *out_n_remote_creates,
+        unsigned *out_n_local_updates, unsigned *out_n_remote_updates,
+        unsigned *out_n_local_deletes, unsigned *out_n_remote_deletes,
         hvr_internal_ctx_t *ctx) {
     static hvr_set_t *full_partition_set = NULL;
     static hvr_vertex_id_t *neighbors_buf = NULL;
     static unsigned neighbors_buf_len = 256;
+
+    unsigned n_local_creates = 0;
+    unsigned n_local_updates = 0;
+    unsigned n_local_deletes = 0;
+    unsigned n_remote_creates = 0;
+    unsigned n_remote_updates = 0;
+    unsigned n_remote_deletes = 0;
 
     if (full_partition_set == NULL) {
         full_partition_set = hvr_create_full_set(ctx->n_partitions, ctx);
@@ -2132,6 +2141,7 @@ static void process_vertex_updates(hvr_time_t max_timestep,
                 // Use change to update edges
                 hvr_sparse_vec_t vertex;
                 hvr_vertex_from_change(&change->change, &vertex, ctx);
+
                 // Find the partition for the given change
                 hvr_partition_t part = wrap_actor_to_partition(&vertex, ctx);
 
@@ -2157,6 +2167,7 @@ static void process_vertex_updates(hvr_time_t max_timestep,
                         // Remote vertex create
                         add_local_edges(interacting_partitions,
                                 n_interacting_partitions, &vertex, ctx);
+                        n_remote_creates++;
                     } else {
                         // Local vertex create
                         unsigned n_neighbors;
@@ -2170,6 +2181,7 @@ static void process_vertex_updates(hvr_time_t max_timestep,
                             hvr_add_edge(change->change.id, neighbors_buf[n],
                                     ctx->edges);
                         }
+                        n_local_creates++;
                     }
                 } else if (change->change.type == UPDATE) {
                     /*
@@ -2228,6 +2240,7 @@ static void process_vertex_updates(hvr_time_t max_timestep,
 
                         add_local_edges(interacting_partitions,
                                 n_interacting_partitions, &vertex, ctx);
+                        n_remote_updates++;
                     } else {
                         // Update to local vertex
 
@@ -2257,6 +2270,7 @@ static void process_vertex_updates(hvr_time_t max_timestep,
                             hvr_add_edge(change->change.id, neighbors_buf[n],
                                     ctx->edges);
                         }
+                        n_local_updates++;
                     }
                 } else if (change->change.type == DELETE) {
                     /*
@@ -2287,6 +2301,12 @@ static void process_vertex_updates(hvr_time_t max_timestep,
                                 change->change.id);
 
                     }
+
+                    if (VERTEX_ID_PE(change->change.id) == ctx->pe) {
+                        n_local_deletes++;
+                    } else {
+                        n_remote_deletes++;
+                    }
                 } else {
                     assert(0);
                 }
@@ -2298,6 +2318,13 @@ static void process_vertex_updates(hvr_time_t max_timestep,
             hvr_buffered_changes_free(changes);
         }
     } while (changes);
+
+    *out_n_local_creates = n_local_creates;
+    *out_n_local_updates = n_local_updates;
+    *out_n_local_deletes = n_local_deletes;
+    *out_n_remote_creates = n_remote_creates;
+    *out_n_remote_updates = n_remote_updates;
+    *out_n_remote_deletes = n_remote_deletes;
 }
 
 static void *aborting_thread(void *user_data) {
@@ -2346,7 +2373,9 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     send_vertex_updates(0, ctx);
     shmem_barrier_all();
     buffer_vertex_updates(ctx);
-    process_vertex_updates(0, ctx);
+    unsigned unused;
+    process_vertex_updates(0, &unused, &unused, &unused, &unused, &unused,
+            &unused, ctx);
     shmem_barrier_all();
 
     hvr_set_t *to_couple_with = hvr_create_empty_set(ctx->npes, ctx);
@@ -2412,20 +2441,30 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         __sync_synchronize();
 
-        // Send any changes on this timestep to other PEs
-        send_vertex_updates(ctx->timestep - 1, ctx);
-
-        buffer_vertex_updates(ctx);
-
-        process_vertex_updates(ctx->timestep - 1, ctx);
-
-        // Update mapping from actors to partitions
-        update_actor_partitions(ctx);
-
         /*
          * Remove cached remote vecs that are old relative to our next timestep.
          */
         hvr_sparse_vec_cache_clear_old(&ctx->vec_cache, ctx->timestep, ctx->pe);
+
+        // Send any changes on this timestep to other PEs
+        send_vertex_updates(ctx->timestep - 1, ctx);
+
+        const unsigned long long finished_update_sends = hvr_current_time_us();
+
+        buffer_vertex_updates(ctx);
+
+        const unsigned long long finished_update_buffers = hvr_current_time_us();
+
+        unsigned n_local_creates, n_local_updates, n_local_deletes;
+        unsigned n_remote_creates, n_remote_updates, n_remote_deletes;
+        process_vertex_updates(ctx->timestep - 1, &n_local_creates,
+                &n_remote_creates, &n_local_updates, &n_remote_updates,
+                &n_local_deletes, &n_remote_deletes, ctx);
+
+        const unsigned long long finished_update_processing = hvr_current_time_us();
+
+        // Update mapping from actors to partitions
+        update_actor_partitions(ctx);
 
         const unsigned long long finished_actor_partitions = hvr_current_time_us();
 
@@ -2638,11 +2677,16 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     (double)ctx->vec_cache.cache_perf_info.fetch_neighbors_time / 1000.0,
                     (double)ctx->vec_cache.cache_perf_info.quiet_neighbors_time / 1000.0,
                     (double)ctx->vec_cache.cache_perf_info.update_metadata_time / 1000.0);
-            fprintf(profiling_fp, "  summary %f ms (%f %f %f)\n",
+            fprintf(profiling_fp, "  summary %f ms (%f %f %f %f %f %f %u %u %u %u %u %u)\n",
                     (double)(finished_summary_update - finished_updates) / 1000.0,
                     (double)(finished_actor_partitions - finished_updates) / 1000.0,
                     (double)(finished_time_window - finished_actor_partitions) / 1000.0,
-                    (double)(finished_summary_update - finished_time_window) / 1000.0);
+                    (double)(finished_summary_update - finished_time_window) / 1000.0,
+                    (double)(finished_update_sends - finished_updates) / 1000.0,
+                    (double)(finished_update_buffers - finished_update_sends) / 1000.0,
+                    (double)(finished_update_processing - finished_update_buffers) / 1000.0,
+                    n_local_creates, n_remote_creates, n_local_updates,
+                    n_remote_updates, n_local_deletes, n_remote_deletes);
             fprintf(profiling_fp, "  neighbor updates %f ms\n",
                     (double)(finished_neighbor_updates - finished_summary_update) / 1000.0);
             fprintf(profiling_fp, "  coupled values %f ms\n",
