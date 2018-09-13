@@ -12,7 +12,7 @@ extern "C" {
 #include "hvr_sparse_vec_pool.h"
 #include "hvr_sparse_vec.h"
 #include "hvr_common.h"
-#include "hoover_internal.h"
+#include "hvr_internal.h"
 #include "hvr_avl_tree.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"

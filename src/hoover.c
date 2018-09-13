@@ -16,7 +16,7 @@
 #include <shmemx.h>
 
 #include "hoover.h"
-#include "hoover_internal.h"
+#include "hvr_internal.h"
 #include "shmem_rw_lock.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"

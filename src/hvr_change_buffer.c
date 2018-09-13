@@ -1,7 +1,7 @@
 #include <string.h>
 
 #include "hvr_change_buffer.h"
-#include "hoover_internal.h"
+#include "hvr_internal.h"
 
 void hvr_buffered_changes_init(hvr_buffered_changes_t *changes) {
     memset(changes, 0x00, sizeof(*changes));
