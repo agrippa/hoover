@@ -716,7 +716,7 @@ void hvr_sparse_vec_cache_clear_old(hvr_sparse_vec_cache_t *cache,
 }
 
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(hvr_vertex_id_t vert,
-        hvr_sparse_vec_cache_t *cache, hvr_time_t target_timestep) {
+        hvr_sparse_vec_cache_t *cache) {
     const unsigned bucket = CACHE_BUCKET(vert);
 
     hvr_sparse_vec_cache_node_t *iter = cache->buckets[bucket];
@@ -1258,7 +1258,7 @@ static hvr_sparse_vec_cache_node_t *get_remote_vec_nbi(const uint32_t offset,
         const int src_pe, hvr_internal_ctx_t *ctx,
         hvr_sparse_vec_cache_t *cache) {
     hvr_sparse_vec_cache_node_t *cached = hvr_sparse_vec_cache_lookup(
-            construct_vertex_id(src_pe, offset), cache, ctx->timestep - 1);
+            construct_vertex_id(src_pe, offset), cache);
 
     if (cached) {
         // May still be pending

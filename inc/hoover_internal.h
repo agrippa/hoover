@@ -97,7 +97,7 @@ void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache);
  * because of their age, as judged by CACHED_TIMESTEPS_TOLERANCE.
  */
 hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(hvr_vertex_id_t vert,
-        hvr_sparse_vec_cache_t *cache, hvr_time_t target_timestep);
+        hvr_sparse_vec_cache_t *cache);
 
 /*
  * Reserve a node in the specified cache to store the contents of the specified
