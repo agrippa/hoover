@@ -6,6 +6,9 @@
 #include "hvr_sparse_vec.h"
 #include "hvr_avl_tree.h"
 
+#define BITS_PER_BYTE 8
+#define BITS_PER_WORD (BITS_PER_BYTE * sizeof(unsigned))
+
 #define HVR_CACHE_BUCKETS 128
 
 /*

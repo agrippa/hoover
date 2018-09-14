@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 4
+#SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:05:00
+#SBATCH -t 00:02:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -93,3 +93,8 @@ cd $SCRATCH
 #     $HOME/hoover/bin/const_attr_test 20
 
 # srun --ntasks=4 $HOME/hoover/bin/neighbor_test_cross_pe
+
+srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/hvr_dist_bitvec_test
+

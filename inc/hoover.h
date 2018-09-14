@@ -36,9 +36,6 @@ extern "C" {
  *     hvr_finalize();  // return to the user code, not a global barrier
  */
 
-#define BITS_PER_BYTE 8
-#define BITS_PER_WORD (BITS_PER_BYTE * sizeof(unsigned))
-
 // Number of elements to cache in a hvr_set_t
 #define PE_SET_CACHE_SIZE 100
 
