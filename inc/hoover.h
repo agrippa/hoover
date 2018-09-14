@@ -9,14 +9,13 @@
 extern "C" {
 #endif
 
-#include "hvr_sparse_vec_pool.h"
-#include "hvr_sparse_vec.h"
+#include "hvr_vertex_pool.h"
+#include "hvr_vertex_cache.h"
 #include "hvr_common.h"
-#include "hvr_internal.h"
+#include "hvr_edge_set.h"
 #include "hvr_avl_tree.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
-#include "hvr_change_buffer.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -42,6 +41,14 @@ extern "C" {
 #define HVR_MAX_TIMESTAMP (INT32_MAX - 1)
 
 typedef unsigned long long bit_vec_element_type;
+
+typedef enum _edge_type_t {
+    BIDIRECTIONAL,
+    DIRECTED_IN,
+    DIRECTED_OUT,
+    NO_EDGE
+} edge_type_t;
+
 
 /*
  * Utilities used for storing a set of integers. This class is used for storing
@@ -120,8 +127,8 @@ extern uint64_t *hvr_set_non_zeros(hvr_set_t *set,
  * Based on these updates, the HOOVER programmer can then choose to couple with
  * some other PEs by setting elements in couple_with.
  */
-typedef void (*hvr_update_metadata_func)(hvr_sparse_vec_t *metadata,
-        hvr_sparse_vec_t *neighbors, const size_t n_neighbors,
+typedef void (*hvr_update_metadata_func)(hvr_vertex_t *vert,
+        hvr_vertex_t **neighbors, const size_t n_neighbors,
         hvr_set_t *couple_with, hvr_ctx_t ctx);
 
 /*
@@ -136,7 +143,7 @@ typedef void (*hvr_start_time_step)(hvr_vertex_iter_t *iter, hvr_ctx_t ctx);
  */
 typedef int (*hvr_check_abort_func)(hvr_vertex_iter_t *iter,
         hvr_ctx_t ctx, hvr_set_t *to_couple_with,
-        hvr_sparse_vec_t *out_coupled_metric);
+        hvr_vertex_t *out_coupled_metric);
 
 /*
  * API for checking if this PE might have any vertices that interact with
@@ -151,15 +158,15 @@ typedef int (*hvr_might_interact_func)(const hvr_partition_t partition,
  * API for calculating the problem space partition that a given vertex belongs
  * to.
  */
-typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_sparse_vec_t *actor,
+typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_vertex_t *actor,
         hvr_ctx_t ctx);
 
 /*
  * API for checking if two vertices should have an edge between them, based on
  * application-specific logic.
  */
-typedef int (*hvr_should_have_edge)(hvr_sparse_vec_t *verta,
-        hvr_sparse_vec_t *vertb, hvr_ctx_t ctx);
+typedef edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
+        hvr_vertex_t *candidate, hvr_ctx_t ctx);
 
 /*
  * Per-PE data structure for storing all information about the running problem
@@ -174,7 +181,7 @@ typedef struct _hvr_internal_ctx_t {
     // The number of PEs (caches shmem_n_pes())
     int npes;
 
-    hvr_sparse_vec_pool_t *pool;
+    hvr_vertex_pool_t *pool;
 
     // Number of partitions passed in by the user
     hvr_partition_t n_partitions;
@@ -228,9 +235,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_time_t max_timestep;
 
     // List of asynchronously fetching vertices
-    hvr_sparse_vec_cache_node_t **neighbor_buffer;
-    // Buffer of edges for a given vertex, to be passed to update_metadata
-    hvr_sparse_vec_t *buffered_neighbors;
+    hvr_vertex_cache_node_t **neighbor_buffer;
 
     long long *p_wrk;
     int *p_wrk_int;
@@ -258,8 +263,8 @@ typedef struct _hvr_internal_ctx_t {
     // Set of PEs we are in coupled execution with
     hvr_set_t *coupled_pes;
     // Values retrieved from each coupled PE on each timestep
-    hvr_sparse_vec_t *coupled_pes_values;
-    hvr_sparse_vec_t *coupled_pes_values_buffer;
+    hvr_vertex_t *coupled_pes_values;
+    hvr_vertex_t *coupled_pes_values_buffer;
     volatile long *coupled_lock;
 
     /*
@@ -282,7 +287,7 @@ typedef struct _hvr_internal_ctx_t {
     char my_hostname[1024];
 
     // List of local vertices in each partition
-    hvr_sparse_vec_t **partition_lists;
+    hvr_vertex_t **partition_lists;
     unsigned *partition_lists_lengths;
 
     // Counter for which graph IDs have already been allocated
@@ -292,12 +297,9 @@ typedef struct _hvr_internal_ctx_t {
     unsigned n_interacting_graphs;
     hvr_graph_id_t interacting_graphs_mask;
 
-    hvr_sparse_vec_cache_t vec_cache;
+    hvr_vertex_cache_t vec_cache;
 
     hvr_mailbox_t mailbox;
-
-    hvr_buffered_changes_t changes;
-
 } hvr_internal_ctx_t;
 
 /*

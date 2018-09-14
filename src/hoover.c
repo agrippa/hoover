@@ -16,7 +16,6 @@
 #include <shmemx.h>
 
 #include "hoover.h"
-#include "hvr_internal.h"
 #include "shmem_rw_lock.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
@@ -26,7 +25,6 @@
 #define CACHED_TIMESTEPS_TOLERANCE 2
 #define MAX_INTERACTING_PARTITIONS 100
 #define N_PARTITION_NODES_PREALLOC 3000
-#define CACHE_BUCKET(vert_id) ((vert_id) % HVR_CACHE_BUCKETS)
 
 #define FINE_GRAIN_TIMING
 
@@ -110,9 +108,6 @@ static void inline _shmem_uint_atomic_and(unsigned int *dst, unsigned int val,
 static int have_default_sparse_vec_val = 0;
 static double default_sparse_vec_val = 0.0;
 
-static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
-        const hvr_time_t curr_timestamp, unsigned *nhits, unsigned *nmisses);
-
 static inline void *shmem_malloc_wrapper(size_t nbytes) {
     static size_t total_nbytes = 0;
     if (nbytes == 0) {
@@ -124,20 +119,6 @@ static inline void *shmem_malloc_wrapper(size_t nbytes) {
         total_nbytes += nbytes;
         return ptr;
     }
-}
-
-static inline size_t get_symm_pool_nelements() {
-    static size_t symm_pool_nelements = 0;
-
-    if (symm_pool_nelements == 0) {
-        if (getenv("HVR_SYMM_POOL_SIZE")) {
-            symm_pool_nelements = atoi(getenv("HVR_SYMM_POOL_SIZE"));
-            assert(symm_pool_nelements > 0);
-        } else {
-            symm_pool_nelements = 1024UL * 1024UL; // Default
-        }
-    }
-    return symm_pool_nelements;
 }
 
 static void rlock_actor_to_partition(const int pe, hvr_internal_ctx_t *ctx) {
@@ -254,27 +235,27 @@ static int uint_compare(const void *_a, const void *_b) {
  * out_features must be at least of size HVR_MAX_FEATURES. This is not a cheap
  * call.
  */
-static void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
-        const hvr_time_t curr_timestep, unsigned *out_features,
-        unsigned *n_out_features) {
-    *n_out_features = 0;
-
-    unsigned unused;
-    const int bucket = hvr_sparse_vec_find_bucket(vec, curr_timestep, &unused,
-            &unused);
-    assert(bucket >= 0);
-
-    for (unsigned i = 0; i < vec->bucket_size[bucket]; i++) {
-        out_features[*n_out_features] = vec->features[bucket][i];
-        *n_out_features += 1;
-    }
-    for (unsigned i = 0; i < vec->n_const_features; i++) {
-        out_features[*n_out_features] = vec->const_features[i];
-        *n_out_features += 1;
-    }
-
-    qsort(out_features, *n_out_features, sizeof(*out_features), uint_compare);
-}
+// static void hvr_sparse_vec_unique_features(hvr_sparse_vec_t *vec,
+//         const hvr_time_t curr_timestep, unsigned *out_features,
+//         unsigned *n_out_features) {
+//     *n_out_features = 0;
+// 
+//     unsigned unused;
+//     const int bucket = hvr_sparse_vec_find_bucket(vec, curr_timestep, &unused,
+//             &unused);
+//     assert(bucket >= 0);
+// 
+//     for (unsigned i = 0; i < vec->bucket_size[bucket]; i++) {
+//         out_features[*n_out_features] = vec->features[bucket][i];
+//         *n_out_features += 1;
+//     }
+//     for (unsigned i = 0; i < vec->n_const_features; i++) {
+//         out_features[*n_out_features] = vec->const_features[i];
+//         *n_out_features += 1;
+//     }
+// 
+//     qsort(out_features, *n_out_features, sizeof(*out_features), uint_compare);
+// }
 
 static void set_helper(hvr_sparse_vec_t *vec, const unsigned curr_bucket,
         const unsigned feature, const double val) {
@@ -379,79 +360,6 @@ static inline int find_feature_in_const_attrs(const hvr_sparse_vec_t *vec,
     return 0;
 }
 
-/*
- * Find the finalized bucket in vec that is closest to but less than
- * curr_timestamp. This may also return buckets for HVR_MAX_TIMESTAMP, which
- * were created as a PE exited the simulation.
- */
-static inline int hvr_sparse_vec_find_bucket(hvr_sparse_vec_t *vec,
-        const hvr_time_t curr_timestamp, unsigned *nhits, unsigned *nmisses) {
-    if (vec->cached_timestamp == curr_timestamp - 1 &&
-            vec->cached_timestamp_index < HVR_BUCKETS &&
-            vec->timestamps[vec->cached_timestamp_index] == curr_timestamp - 1 &&
-            vec->finalized[vec->cached_timestamp_index] == curr_timestamp - 1) {
-        /*
-         * If we might have the location of this timestamp in this vector
-         * cached, double check and then use that information to do an O(1)
-         * lookup if possible.
-         */
-#ifdef TRACK_VECTOR_GET_CACHE
-        (*nhits)++;
-#endif
-        return vec->cached_timestamp_index;
-    }
-#ifdef TRACK_VECTOR_GET_CACHE
-    (*nmisses)++;
-#endif
-
-    unsigned initial_bucket = prev_bucket(vec->next_bucket);
-
-    unsigned curr_bucket = initial_bucket;
-    do {
-        // No valid entries
-        if (vec->timestamps[curr_bucket] < 0) break;
-
-        if (vec->timestamps[curr_bucket] != vec->finalized[curr_bucket]) {
-            // Ignore partial entry
-        } else {
-            if (vec->timestamps[curr_bucket] < curr_timestamp ||
-                    vec->timestamps[curr_bucket] == HVR_MAX_TIMESTAMP) {
-                // Handle finding an existing bucket for this timestep
-                vec->cached_timestamp = vec->timestamps[curr_bucket];
-                vec->cached_timestamp_index = curr_bucket;
-                return curr_bucket;
-            }
-        }
-
-        // Move to the next bucket
-        curr_bucket = prev_bucket(curr_bucket);
-    } while (curr_bucket != initial_bucket);
-
-    return -1;
-}
-
-static inline int hvr_sparse_vec_get_internal(const unsigned feature,
-        hvr_sparse_vec_t *vec, const hvr_time_t curr_timestamp,
-        double *out_val, unsigned *nhits, unsigned *nmisses) {
-    // First check to see if this is a constant feature.
-    if (find_feature_in_const_attrs(vec, feature, out_val)) {
-        return 1;
-    }
-
-    int target_bucket = hvr_sparse_vec_find_bucket(vec, curr_timestamp, nhits,
-            nmisses);
-
-    if (target_bucket >= 0 && find_feature_in_bucket(vec, target_bucket,
-                feature, out_val)) {
-        return 1;
-    } else if (have_default_sparse_vec_val) {
-        *out_val = default_sparse_vec_val;
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
 double hvr_sparse_vec_get(const unsigned feature, hvr_sparse_vec_t *vec,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
@@ -513,32 +421,6 @@ void hvr_sparse_vec_dump(hvr_sparse_vec_t *vec, char *buf,
 int hvr_sparse_vec_get_owning_pe(hvr_sparse_vec_t *vec) {
     assert(vec->id != HVR_INVALID_VERTEX_ID);
     return VERTEX_ID_PE(vec->id);
-}
-
-static hvr_time_t hvr_sparse_vec_max_timestamp(hvr_sparse_vec_t *vec) {
-    unsigned unused;
-    int highest_bucket = hvr_sparse_vec_find_bucket(vec, HVR_MAX_TIMESTAMP + 1,
-            &unused, &unused);
-    if (highest_bucket < 0) {
-        return -1;
-    } else {
-        return vec->timestamps[highest_bucket];
-    }
-}
-
-static hvr_time_t hvr_sparse_vec_min_timestamp(hvr_sparse_vec_t *vec) {
-    const unsigned initial_bucket = vec->next_bucket;
-    unsigned bucket = initial_bucket;
-    while (vec->timestamps[bucket] < 0) {
-        bucket = next_bucket(bucket);
-        if (bucket == initial_bucket) break;
-    }
-
-    if (vec->timestamps[bucket] >= 0 && vec->timestamps[bucket] == vec->finalized[bucket]) {
-        return vec->timestamps[bucket];
-    } else {
-        return -1;
-    }
 }
 
 #define HAS_TIMESTAMP -1
@@ -612,31 +494,6 @@ static int get_newest_timestamp(hvr_sparse_vec_t *vec,
         *out_timestamp = vec->timestamps[bucket];
         return 1;
     }
-}
-
-void hvr_sparse_vec_cache_init(hvr_sparse_vec_cache_t *cache) {
-    memset(cache, 0x00, sizeof(*cache));
-
-    unsigned n_preallocs = 1024;
-    if (getenv("HVR_VEC_CACHE_PREALLOCS")) {
-        n_preallocs = atoi(getenv("HVR_VEC_CACHE_PREALLOCS"));
-    }
-
-    hvr_sparse_vec_cache_node_t *prealloc =
-        (hvr_sparse_vec_cache_node_t *)malloc(n_preallocs * sizeof(*prealloc));
-    assert(prealloc);
-    memset(prealloc, 0x00, n_preallocs * sizeof(*prealloc));
-
-    prealloc[0].next = prealloc + 1;
-    prealloc[0].prev = NULL;
-    prealloc[n_preallocs - 1].next = NULL;
-    prealloc[n_preallocs - 1].prev = prealloc + (n_preallocs - 2);
-    for (unsigned i = 1; i < n_preallocs - 1; i++) {
-        prealloc[i].next = prealloc + (i + 1);
-        prealloc[i].prev = prealloc + (i - 1);
-    }
-    cache->pool_head = prealloc + 0;
-    cache->pool_size = n_preallocs;
 }
 
 static void remove_node_from_cache(hvr_sparse_vec_cache_node_t *iter,
@@ -715,23 +572,6 @@ void hvr_sparse_vec_cache_clear_old(hvr_sparse_vec_cache_t *cache,
     }
 }
 
-hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_lookup(hvr_vertex_id_t vert,
-        hvr_sparse_vec_cache_t *cache) {
-    const unsigned bucket = CACHE_BUCKET(vert);
-
-    hvr_sparse_vec_cache_node_t *iter = cache->buckets[bucket];
-    while (iter) {
-        if (iter->vert == vert) break;
-        iter = iter->next;
-    }
-
-    if (iter == NULL) {
-        cache->cache_perf_info.nmisses++;
-    } else {
-        cache->cache_perf_info.nhits++;
-    }
-    return iter;
-}
 
 void hvr_sparse_vec_cache_quiet(hvr_sparse_vec_cache_t *cache) {
     for (unsigned b = 0; b < HVR_CACHE_BUCKETS; b++) {
@@ -791,72 +631,6 @@ static void get_cache_metrics(hvr_sparse_vec_cache_t *cache,
     *min_timestep_out = min_timestep;
     *avg_timestep_out = avg_timestep;
     *count_requested_on_this_timestep_out = count_requested_on_this_timestep;
-}
-
-hvr_sparse_vec_cache_node_t *hvr_sparse_vec_cache_reserve(
-        hvr_vertex_id_t vert, hvr_sparse_vec_cache_t *cache,
-        hvr_time_t curr_timestep, int pe) {
-    // Assume that vec is not already in the cache, but don't enforce this
-    hvr_sparse_vec_cache_node_t *new_node = NULL;
-    if (cache->pool_head) {
-        // Look for an already free node
-        new_node = cache->pool_head;
-        cache->pool_head = new_node->next;
-        if (cache->pool_head) {
-            cache->pool_head->prev = NULL;
-        }
-    } else if (cache->lru_tail && !cache->lru_tail->pending_comm) { 
-        /*
-         * Find the oldest requested node, check it isn't pending communication,
-         * and if so use it.
-         */
-        new_node = cache->lru_tail;
-
-        // Removes node from bucket and LRU lists
-        remove_node_from_cache(new_node, cache);
-    } else {
-        // No valid node found, print an error
-        hvr_time_t max_timestep, min_timestep;
-        double avg_timestep;
-        unsigned count_requested_on_this_timestep;
-
-        get_cache_metrics(cache, curr_timestep, &max_timestep, &min_timestep,
-                &avg_timestep, &count_requested_on_this_timestep);
-
-        fprintf(stderr, "ERROR: PE %d exhausted %u cache slots, curr timestep "
-                "= %d, max timestep = %d, min timestep = %d, average timestep "
-                "= %f, # requested on this timestep = %u\n", pe,
-                cache->pool_size, curr_timestep, max_timestep, min_timestep,
-                avg_timestep, count_requested_on_this_timestep);
-        abort();
-    }
-
-    const unsigned bucket = CACHE_BUCKET(vert);
-    assert(new_node->pending_comm == 0);
-    new_node->vert = vert;
-    new_node->pending_comm = 1;
-    new_node->requested_on = curr_timestep;
-
-    // Insert into the appropriate bucket
-    if (cache->buckets[bucket]) {
-        cache->buckets[bucket]->prev = new_node;
-    }
-    new_node->next = cache->buckets[bucket];
-    new_node->prev = NULL;
-    cache->buckets[bucket] = new_node;
-
-    // Insert into the LRU list
-    new_node->lru_prev = NULL;
-    new_node->lru_next = cache->lru_head;
-    if (cache->lru_head) {
-        cache->lru_head->lru_prev = new_node;
-        cache->lru_head = new_node;
-    } else {
-        assert(cache->lru_tail == NULL);
-        cache->lru_head = cache->lru_tail = new_node;
-    }
-
-    return new_node;
 }
 
 static hvr_set_t *hvr_create_empty_set_helper(hvr_internal_ctx_t *ctx,
@@ -1024,100 +798,6 @@ uint64_t *hvr_set_non_zeros(hvr_set_t *set,
         }
 
         return non_zeros;
-    }
-}
-
-hvr_edge_set_t *hvr_create_empty_edge_set() {
-    hvr_edge_set_t *new_set = (hvr_edge_set_t *)malloc(sizeof(*new_set));
-    assert(new_set);
-    new_set->tree = NULL;
-    return new_set;
-}
-
-static inline int valid_vertex_id(const hvr_vertex_id_t id) {
-    return id != HVR_INVALID_VERTEX_ID &&
-                 VERTEX_ID_PE(id) < shmem_n_pes() &&
-                 VERTEX_ID_OFFSET(id) < get_symm_pool_nelements();
-}
-
-/*
- * Add an edge from a local vertex local_vertex_id to another vertex (possibly
- * local or remote) global_vertex_id.
- */
-void hvr_add_edge(const hvr_vertex_id_t local_vertex_id,
-        const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
-    // If it already exists, just returns existing node in tree
-    assert(valid_vertex_id(local_vertex_id));
-    assert(valid_vertex_id(global_vertex_id));
-
-    set->tree = hvr_tree_insert(set->tree, local_vertex_id);
-    hvr_avl_tree_node_t *inserted = hvr_tree_find(set->tree, local_vertex_id);
-    inserted->subtree = hvr_tree_insert(inserted->subtree, global_vertex_id);
-}
-
-void hvr_remove_edge(const hvr_vertex_id_t local_vertex_id,
-        const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
-    assert(valid_vertex_id(local_vertex_id));
-    assert(valid_vertex_id(global_vertex_id));
-
-    hvr_avl_tree_node_t *found = hvr_tree_find(set->tree, local_vertex_id);
-    if (found) {
-        found->subtree = hvr_tree_remove(found->subtree, global_vertex_id);
-    }
-}
-
-int hvr_have_edge(const hvr_vertex_id_t local_vertex_id,
-        const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
-    assert(valid_vertex_id(local_vertex_id));
-    assert(valid_vertex_id(global_vertex_id));
-
-    hvr_avl_tree_node_t *inserted = hvr_tree_find(set->tree, local_vertex_id);
-    if (inserted == NULL) {
-        return 0;
-    }
-    return hvr_tree_find(inserted->subtree, global_vertex_id) != NULL;
-}
-
-size_t hvr_count_edges(const hvr_vertex_id_t local_vertex_id,
-        hvr_edge_set_t *set) {
-    assert(valid_vertex_id(local_vertex_id));
-
-    hvr_avl_tree_node_t *found = hvr_tree_find(set->tree, local_vertex_id);
-    if (found == NULL) return 0;
-    else return hvr_tree_size(found->subtree);
-}
-
-void hvr_clear_edge_set(hvr_edge_set_t *set) {
-    hvr_tree_destroy(set->tree);
-    set->tree = NULL;
-}
-
-void hvr_release_edge_set(hvr_edge_set_t *set) {
-    hvr_tree_destroy(set->tree);
-    free(set);
-}
-
-static void hvr_print_edge_set_helper(hvr_avl_tree_node_t *tree,
-        const int print_colon) {
-    if (tree == NULL) {
-        return;
-    }
-    hvr_print_edge_set_helper(tree->left, print_colon);
-    hvr_print_edge_set_helper(tree->right, print_colon);
-    if (print_colon) {
-        printf("%lu: ", tree->key);
-        hvr_print_edge_set_helper(tree->subtree, 0);
-        printf("\n");
-    } else {
-        printf("%lu ", tree->key);
-    }
-}
-
-void hvr_print_edge_set(hvr_edge_set_t *set) {
-    if (set->tree == NULL) {
-        printf("Empty set\n");
-    } else {
-        hvr_print_edge_set_helper(set->tree, 1);
     }
 }
 

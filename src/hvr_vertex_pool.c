@@ -2,18 +2,18 @@
 #include <shmem.h>
 
 #include "hoover.h"
-#include "hvr_sparse_vec_pool.h"
+#include "hvr_vertex_pool.h"
 
-static hvr_sparse_vec_range_node_t *remove_from_range(unsigned start_index,
-        unsigned nvecs, hvr_sparse_vec_range_node_t *list_head);
+static hvr_vertex_range_node_t *remove_from_range(unsigned start_index,
+        unsigned nvecs, hvr_vertex_range_node_t *list_head);
 
-static hvr_sparse_vec_range_node_t *add_to_range(unsigned start_index,
-        unsigned nvecs, hvr_sparse_vec_range_node_t *list_head);
+static hvr_vertex_range_node_t *add_to_range(unsigned start_index,
+        unsigned nvecs, hvr_vertex_range_node_t *list_head);
 
-static hvr_sparse_vec_range_node_t *create_node(unsigned start_index,
+static hvr_vertex_range_node_t *create_node(unsigned start_index,
         unsigned length)  {
-    hvr_sparse_vec_range_node_t *node =
-        (hvr_sparse_vec_range_node_t *)malloc(sizeof(*node));
+    hvr_vertex_range_node_t *node =
+        (hvr_vertex_range_node_t *)malloc(sizeof(*node));
     assert(node);
 
     node->start_index = start_index;
@@ -29,10 +29,10 @@ static hvr_sparse_vec_range_node_t *create_node(unsigned start_index,
  * Removes the range of values starting at start_index (inclusive) and including
  * the following nvecs values.
  */
-static hvr_sparse_vec_range_node_t *remove_from_range(unsigned start_index,
-        unsigned nvecs, hvr_sparse_vec_range_node_t *list_head) {
+static hvr_vertex_range_node_t *remove_from_range(unsigned start_index,
+        unsigned nvecs, hvr_vertex_range_node_t *list_head) {
     // Find the node containing the range start_index to start_index + nvecs
-    hvr_sparse_vec_range_node_t *curr = list_head;
+    hvr_vertex_range_node_t *curr = list_head;
     while (curr && !(start_index >= curr->start_index &&
                 start_index < curr->start_index + curr->length)) {
         curr = curr->next;
@@ -52,7 +52,7 @@ static hvr_sparse_vec_range_node_t *remove_from_range(unsigned start_index,
     unsigned nvecs_after = (curr->start_index + curr->length) -
         (start_index + nvecs);
 
-    hvr_sparse_vec_range_node_t *new_head = NULL;
+    hvr_vertex_range_node_t *new_head = NULL;
     if (nvecs_before == 0 && nvecs_after == 0) {
         // Remove whole node
         if (curr->prev == NULL && curr->next == NULL) {
@@ -78,7 +78,7 @@ static hvr_sparse_vec_range_node_t *remove_from_range(unsigned start_index,
         free(curr);
     } else if (nvecs_before > 0 && nvecs_after > 0) {
         // Pull interior section out of current node
-        hvr_sparse_vec_range_node_t *new_node = create_node(start_index + nvecs,
+        hvr_vertex_range_node_t *new_node = create_node(start_index + nvecs,
                 nvecs_after);
         new_node->next = curr->next;
         new_node->prev = curr;
@@ -104,10 +104,10 @@ static hvr_sparse_vec_range_node_t *remove_from_range(unsigned start_index,
     return new_head;
 }
 
-static hvr_sparse_vec_range_node_t *add_to_range(unsigned start_index,
-        unsigned nvecs, hvr_sparse_vec_range_node_t *list_head) {
-    hvr_sparse_vec_range_node_t *prev = NULL;
-    hvr_sparse_vec_range_node_t *next = list_head;
+static hvr_vertex_range_node_t *add_to_range(unsigned start_index,
+        unsigned nvecs, hvr_vertex_range_node_t *list_head) {
+    hvr_vertex_range_node_t *prev = NULL;
+    hvr_vertex_range_node_t *next = list_head;
     while (next && next->start_index < start_index) {
         prev = next;
         next = next->next;
@@ -121,7 +121,7 @@ static hvr_sparse_vec_range_node_t *add_to_range(unsigned start_index,
     assert(prev == NULL || start_index >= prev->start_index + prev->length);
     assert(next == NULL || start_index + nvecs <= next->start_index);
 
-    hvr_sparse_vec_range_node_t *new_head = NULL;
+    hvr_vertex_range_node_t *new_head = NULL;
     if (prev && next && start_index == prev->start_index + prev->length &&
             start_index + nvecs == next->start_index) {
         // Merge with both, both must be non-NULL
@@ -146,13 +146,13 @@ static hvr_sparse_vec_range_node_t *add_to_range(unsigned start_index,
             next->prev = new_head;
         } else if (next == NULL) {
             // next is NULL, inserting at end of a non-empty list
-            hvr_sparse_vec_range_node_t *new_node = create_node(start_index,
+            hvr_vertex_range_node_t *new_node = create_node(start_index,
                     nvecs);
             prev->next = new_node;
             new_node->prev = prev;
             new_head = list_head;
         } else { // both non-NULL
-            hvr_sparse_vec_range_node_t *new_node = create_node(start_index,
+            hvr_vertex_range_node_t *new_node = create_node(start_index,
                     nvecs);
             prev->next = new_node;
             new_node->prev = prev;
@@ -176,16 +176,15 @@ static hvr_sparse_vec_range_node_t *add_to_range(unsigned start_index,
     return new_head;
 }
 
-hvr_sparse_vec_pool_t *hvr_sparse_vec_pool_create(size_t pool_size) {
-    hvr_sparse_vec_pool_t *pool = (hvr_sparse_vec_pool_t *)malloc(
+hvr_vertex_pool_t *hvr_vertex_pool_create(size_t pool_size) {
+    hvr_vertex_pool_t *pool = (hvr_vertex_pool_t *)malloc(
             sizeof(*pool));
     assert(pool);
 
-    pool->pool = (hvr_sparse_vec_t *)shmem_malloc(
-            pool_size * sizeof(hvr_sparse_vec_t));
+    pool->pool = (hvr_vertex_t *)shmem_malloc(pool_size * sizeof(hvr_vertex_t));
     if (pool->pool == NULL) {
         fprintf(stderr, "PE %d failed allocating sparse vec pool of size %lu "
-                "bytes\n", shmem_my_pe(), pool_size * sizeof(hvr_sparse_vec_t));
+                "bytes\n", shmem_my_pe(), pool_size * sizeof(hvr_vertex_t));
         abort();
     }
 
@@ -200,18 +199,16 @@ hvr_sparse_vec_pool_t *hvr_sparse_vec_pool_create(size_t pool_size) {
     return pool;
 }
 
-hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs, hvr_graph_id_t graph,
-        unsigned *const_features, double *const_values, unsigned n_const_attrs,
-        hvr_ctx_t in_ctx) {
+hvr_vertex_t *hvr_alloc_vertices(unsigned nvecs, hvr_ctx_t in_ctx) {
     if (nvecs == 0) {
         return NULL;
     }
 
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    hvr_sparse_vec_pool_t *pool = ctx->pool;
+    hvr_vertex_pool_t *pool = ctx->pool;
 
     // Greedily find the first free node large enough to satisfy this request
-    hvr_sparse_vec_range_node_t *curr = pool->free_list;
+    hvr_vertex_range_node_t *curr = pool->free_list;
     size_t nfree = 0;
     while (curr && curr->length < nvecs) {
         nfree += curr->length;
@@ -219,7 +216,7 @@ hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs, hvr_graph_id_t graph,
     }
 
     if (curr == NULL) {
-        fprintf(stderr, "HOOVER> ERROR Ran out of sparse vectors in the pool "
+        fprintf(stderr, "HOOVER> ERROR Ran out of vertices in the pool "
                 "on PE %d. # free = %lu, allocating %u, total %lu\n",
                 shmem_my_pe(), nfree, nvecs, pool->pool_size);
         abort();
@@ -231,18 +228,17 @@ hvr_sparse_vec_t *hvr_alloc_sparse_vecs(unsigned nvecs, hvr_graph_id_t graph,
     pool->used_list = add_to_range(alloc_start_index, nvecs, pool->used_list);
 
     // Initialize each of the reserved vectors, including giving them valid IDs
-    hvr_sparse_vec_t *allocated = pool->pool + alloc_start_index;
+    hvr_vertex_t *allocated = pool->pool + alloc_start_index;
     for (size_t i = 0; i < nvecs; i++) {
-        hvr_sparse_vec_init_with_const_attrs(&allocated[i], graph,
-                const_features, const_values, n_const_attrs, ctx);
+        hvr_vertex_init(&allocated[i], ctx);
     }
     return allocated;
 }
 
-void hvr_free_sparse_vecs(hvr_sparse_vec_t *vecs, unsigned nvecs,
+void hvr_free_vertices(hvr_vertex_t *vecs, unsigned nvecs,
         hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    hvr_sparse_vec_pool_t *pool = ctx->pool;
+    hvr_vertex_pool_t *pool = ctx->pool;
     const size_t pool_index = vecs - pool->pool;
 
     pool->used_list = remove_from_range(pool_index, nvecs, pool->used_list);

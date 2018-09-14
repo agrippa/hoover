@@ -2,8 +2,8 @@
 #include <string.h>
 #include <limits.h>
 
+#include "hvr_common.h"
 #include "hvr_dist_bitvec.h"
-#include "hvr_internal.h"
 
 #define BITS_PER_ELE (sizeof(hvr_dist_bitvec_ele_t) * BITS_PER_BYTE)
 
