@@ -77,7 +77,8 @@ void hvr_set_wipe(hvr_set_t *set) {
     set->n_contained = 0;
 }
 
-int hvr_set_contains_internal(int val, bit_vec_element_type *bit_vector) {
+int hvr_set_contains(uint64_t val, hvr_set_t *set) {
+    bit_vec_element_type *bit_vector = set->bit_vector;
     const uint64_t element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);
     const uint64_t bit = val % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
@@ -88,8 +89,19 @@ int hvr_set_contains_internal(int val, bit_vec_element_type *bit_vector) {
     }
 }
 
-int hvr_set_contains(uint64_t val, hvr_set_t *set) {
-    return hvr_set_contains_internal(val, set->bit_vector);
+int hvr_set_contains_atomic(uint64_t val, hvr_set_t *set) {
+    bit_vec_element_type *bit_vector = set->bit_vector;
+    const uint64_t element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const uint64_t bit = val % (sizeof(*bit_vector) * BITS_PER_BYTE);
+
+    assert(sizeof(unsigned long long) == sizeof(bit_vec_element_type));
+    const bit_vec_element_type old_val = shmem_ulonglong_atomic_fetch(
+            bit_vector + element, shmem_my_pe());
+    if (old_val & ((bit_vec_element_type)1 << bit)) {
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 unsigned hvr_set_count(hvr_set_t *set) {
@@ -166,3 +178,8 @@ uint64_t *hvr_set_non_zeros(hvr_set_t *set,
     }
 }
 
+void hvr_set_copy(hvr_set_t *dst, hvr_set_t *src) {
+    memcpy(dst->bit_vector, src->bit_vector,
+            src->nelements * sizeof(bit_vec_element_type));
+    memcpy(dst, src, offsetof(hvr_set_t, bit_vector));
+}

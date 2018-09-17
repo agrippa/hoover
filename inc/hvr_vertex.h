@@ -26,6 +26,7 @@ typedef struct _hvr_vertex_t {
  * Create nvecs new, empty vectors.
  */
 extern hvr_vertex_t *hvr_vertex_create(hvr_ctx_t ctx);
+extern hvr_vertex_t *hvr_vertex_create_n(size_t n, hvr_ctx_t ctx);
 
 /*
  * Remove these vertices from the graph.

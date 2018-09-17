@@ -197,8 +197,10 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_t global_partition_registry_subscribers;
     hvr_dist_bitvec_t global_partition_registry_producers;
 
-    hvr_dist_bitvec_local_subcopy_t *local_partition_membership;
+    hvr_dist_bitvec_local_subcopy_t *local_partition_membership_subscribers;
+    hvr_dist_bitvec_local_subcopy_t *local_partition_membership_producers;
     hvr_dist_bitvec_local_subcopy_t tmp_local_partition_membership;
+    hvr_dist_bitvec_local_subcopy_t tmp_local_partition_membership2;
 
     hvr_set_t *full_partition_set;
 
@@ -221,18 +223,6 @@ extern void hvr_ctx_create(hvr_ctx_t *out_ctx);
 
 // Reserve a graph identifier for allocating vertices inside.
 extern hvr_graph_id_t hvr_graph_create(hvr_ctx_t ctx);
-
-// Find the vertex IDs of the vertices that are neighbors of the provided vertex
-void hvr_sparse_vec_get_neighbors(hvr_vertex_id_t vertex, hvr_ctx_t in_ctx,
-        hvr_vertex_id_t **neighbors_out, unsigned *n_neighbors_out);
-
-int hvr_sparse_vec_get_neighbors_with_metrics(hvr_vertex_id_t vertex,
-        hvr_ctx_t in_ctx, hvr_vertex_id_t **neighbors_out,
-        unsigned *n_neighbors_out,
-        unsigned *count_local_gets,
-        unsigned *count_remote_gets,
-        unsigned *count_cached_remote_fetches,
-        unsigned *count_uncached_remote_fetches);
 
 // Initialize the state of the simulation/ctx
 extern void hvr_init(const hvr_partition_t n_partitions,

@@ -191,8 +191,11 @@ static void update_vertex_partitions_for_vertex(hvr_vertex_t *curr,
     }
     partition_lists_lengths[partition] += 1;
 
-    ctx->partition_min_dist_from_local_vertex[partition] =
-        dist_from_local_vertex;
+    if (dist_from_local_vertex <
+            ctx->partition_min_dist_from_local_vertex[partition]) {
+        ctx->partition_min_dist_from_local_vertex[partition] =
+            dist_from_local_vertex;
+    }
 }
 
 /*
@@ -238,7 +241,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
 
 static inline void update_partition_info(hvr_partition_t p,
         hvr_set_t *local_new, hvr_set_t *local_old,
-        hvr_dist_bitvec_t *registry, hvr_internal_ctx_t *ctx) {
+        hvr_dist_bitvec_t *registry, hvr_internal_ctx_t *ctx, char *lbl) {
     if (hvr_set_contains(p, local_new) != hvr_set_contains(p, local_old)) {
         /*
          * If a change in active partition set occurred, we notify any
@@ -247,9 +250,11 @@ static inline void update_partition_info(hvr_partition_t p,
         if (hvr_set_contains(p, local_new)) {
             // Became active
             hvr_dist_bitvec_set(p, ctx->pe, registry);
+            fprintf(stderr, "PE %d entered %s partition %u on iter %u\n", shmem_my_pe(), lbl, p, ctx->iter);
         } else {
             // Went inactive
             hvr_dist_bitvec_clear(p, ctx->pe, registry);
+            fprintf(stderr, "PE %d left %s partition %u on iter %u\n", shmem_my_pe(), lbl, p, ctx->iter);
         }
     }
 }
@@ -302,31 +307,21 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx) {
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
         update_partition_info(p, ctx->tmp_subscriber_partition_time_window,
                 ctx->subscriber_partition_time_window,
-                &ctx->global_partition_registry_subscribers, ctx);
+                &ctx->global_partition_registry_subscribers, ctx, "subscriber");
         update_partition_info(p, ctx->tmp_producer_partition_time_window,
                 ctx->producer_partition_time_window,
-                &ctx->global_partition_registry_producers, ctx);
+                &ctx->global_partition_registry_producers, ctx, "producer");
     }
 
     /*
      * Copy the newly computed partition window over for next time when we need
      * to check for changes.
      */
-    memcpy(ctx->subscriber_partition_time_window->bit_vector,
-            ctx->tmp_subscriber_partition_time_window->bit_vector,
-            ctx->tmp_subscriber_partition_time_window->nelements *
-            sizeof(bit_vec_element_type));
-    memcpy(ctx->subscriber_partition_time_window,
-            ctx->tmp_subscriber_partition_time_window,
-            offsetof(hvr_set_t, bit_vector));
+    hvr_set_copy(ctx->subscriber_partition_time_window,
+            ctx->tmp_subscriber_partition_time_window);
 
-    memcpy(ctx->producer_partition_time_window->bit_vector,
-            ctx->tmp_producer_partition_time_window->bit_vector,
-            ctx->tmp_producer_partition_time_window->nelements *
-            sizeof(bit_vec_element_type));
-    memcpy(ctx->producer_partition_time_window,
-            ctx->tmp_producer_partition_time_window,
-            offsetof(hvr_set_t, bit_vector));
+    hvr_set_copy(ctx->producer_partition_time_window,
+            ctx->tmp_producer_partition_time_window);
 }
 
 void hvr_init(const hvr_partition_t n_partitions,
@@ -465,24 +460,41 @@ void hvr_init(const hvr_partition_t n_partitions,
 
     hvr_mailbox_init(&new_ctx->mailbox, 32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->partition_mailbox, 32 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->forward_mailbox, 32 * 1024 * 1024);
 
     hvr_dist_bitvec_init(new_ctx->n_partitions, new_ctx->npes,
             &new_ctx->global_partition_registry_subscribers);
     hvr_dist_bitvec_init(new_ctx->n_partitions, new_ctx->npes,
             &new_ctx->global_partition_registry_producers);
-    new_ctx->local_partition_membership =
+
+    new_ctx->local_partition_membership_subscribers =
         (hvr_dist_bitvec_local_subcopy_t *)malloc(
                 new_ctx->global_partition_registry_subscribers.dim0_per_pe *
-                sizeof(*new_ctx->local_partition_membership));
+                sizeof(*new_ctx->local_partition_membership_subscribers));
     for (unsigned i = 0; i <
             new_ctx->global_partition_registry_subscribers.dim0_per_pe; i++) {
         hvr_dist_bitvec_local_subcopy_init(
                 &new_ctx->global_partition_registry_subscribers,
-                new_ctx->local_partition_membership + i);
+                new_ctx->local_partition_membership_subscribers + i);
     }
+
+    new_ctx->local_partition_membership_producers =
+        (hvr_dist_bitvec_local_subcopy_t *)malloc(
+                new_ctx->global_partition_registry_subscribers.dim0_per_pe *
+                sizeof(*new_ctx->local_partition_membership_producers));
+    for (unsigned i = 0; i <
+            new_ctx->global_partition_registry_subscribers.dim0_per_pe; i++) {
+        hvr_dist_bitvec_local_subcopy_init(
+                &new_ctx->global_partition_registry_subscribers,
+                new_ctx->local_partition_membership_producers + i);
+    }
+
     hvr_dist_bitvec_local_subcopy_init(
             &new_ctx->global_partition_registry_subscribers,
             &new_ctx->tmp_local_partition_membership);
+    hvr_dist_bitvec_local_subcopy_init(
+            &new_ctx->global_partition_registry_producers,
+            &new_ctx->tmp_local_partition_membership2);
 
     new_ctx->full_partition_set = hvr_create_full_set(new_ctx->n_partitions);
 
@@ -537,8 +549,8 @@ static void update_pes_on_partition_membership(hvr_internal_ctx_t *ctx) {
             &ctx->global_partition_registry_subscribers);
 
     for (hvr_partition_t p = start_partition; p < end_partition; p++) {
-        hvr_dist_bitvec_local_subcopy_t *old = ctx->local_partition_membership +
-            (p - start_partition);
+        hvr_dist_bitvec_local_subcopy_t *old =
+            ctx->local_partition_membership_subscribers + (p - start_partition);
         hvr_dist_bitvec_copy_locally(p,
                 &ctx->global_partition_registry_subscribers,
                 &ctx->tmp_local_partition_membership);
@@ -550,65 +562,72 @@ static void update_pes_on_partition_membership(hvr_internal_ctx_t *ctx) {
             const int new_sub_status = hvr_dist_bitvec_local_subcopy_contains(i,
                         &ctx->tmp_local_partition_membership);
             if (old_sub_status != new_sub_status) {
-                /*
-                 * Find the PE that owns the producer information for partition
-                 * p, and notify it of the change in subscription status for PE
-                 * i.
-                 */
                 int owner = hvr_dist_bitvec_owning_pe(p,
                         &ctx->global_partition_registry_producers);
+                assert(owner == shmem_my_pe());
 
-                hvr_partition_member_change_t msg;
-                msg.pe = i;
-                msg.partition = p;
-                msg.entered = new_sub_status;
-                hvr_mailbox_send(&msg, sizeof(msg), owner,
-                        &ctx->partition_mailbox);
+                hvr_partition_member_change_t change;
+                change.pe = i;
+                change.partition = p;
+                change.entered = new_sub_status;
+
+                // Notify the producers for partition p of the new subscriber
+                hvr_dist_bitvec_copy_locally(change.partition,
+                        &ctx->global_partition_registry_producers,
+                        &ctx->tmp_local_partition_membership2);
+                for (int pe = 0; pe < ctx->npes; pe++) {
+                    if (hvr_dist_bitvec_local_subcopy_contains(pe,
+                                &ctx->tmp_local_partition_membership2)) {
+                        /*
+                         * Forward the change in membership to PE pe so that it
+                         * knows to start/stop sending messages to PE i.
+                         */
+                        hvr_mailbox_send(&change, sizeof(change), pe,
+                                &ctx->forward_mailbox);
+                    }
+                }
             }
         }
 
         // Save for next iteration comparison
         hvr_dist_bitvec_local_subcopy_copy(old,
                 &ctx->tmp_local_partition_membership);
-    }
-}
 
-static void update_pes_on_membership(hvr_internal_ctx_t *ctx) {
-    void *buf;
-    size_t buf_capacity, msg_len;
-    int success = hvr_mailbox_recv(&buf, &buf_capacity,
-            &msg_len, &ctx->partition_mailbox);
-    while (success) {
-        assert(msg_len == sizeof(hvr_partition_member_change_t));
 
-        /*
-         * This message tells us that a given PE has changed its subscription
-         * to a given partition (either entered or left). That partition is the
-         * responsibility of this PE in the global partition registry mapping
-         * from partitions to producers for those partitions.
-         */
-        hvr_partition_member_change_t *change =
-            (hvr_partition_member_change_t *)buf;
-        assert(hvr_dist_bitvec_owning_pe(change->partition,
-                    &ctx->global_partition_registry_producers) == ctx->pe);
-
-        hvr_dist_bitvec_copy_locally(change->partition,
+        old = ctx->local_partition_membership_producers + (p - start_partition);
+        hvr_dist_bitvec_copy_locally(p,
                 &ctx->global_partition_registry_producers,
                 &ctx->tmp_local_partition_membership);
-        for (int pe = 0; pe < ctx->npes; pe++) {
-            if (hvr_dist_bitvec_local_subcopy_contains(pe,
-                        &ctx->tmp_local_partition_membership)) {
+        for (unsigned i = 0; i < ctx->npes; i++) {
+            // If PE i's producer status for partition p has changed
+            const int old_pub_status = hvr_dist_bitvec_local_subcopy_contains(i,
+                    old);
+            const int new_pub_status = hvr_dist_bitvec_local_subcopy_contains(i,
+                        &ctx->tmp_local_partition_membership);
+            if (old_pub_status != new_pub_status) {
                 /*
-                 * Forward to the change in membership to PE pe so that it
-                 * knows to start/stop sending messages to PE change->pe.
+                 * We have a new producer i for partition p. We need to send
+                 * them all current subscribers for that partition, out of
+                 * ctx->local_partition_membership_subscribers.
                  */
-                hvr_mailbox_send(change, sizeof(*change), pe,
-                        &ctx->forward_mailbox);
+                hvr_dist_bitvec_local_subcopy_t *subscribers =
+                    ctx->local_partition_membership_subscribers +
+                    (p - start_partition);
+                for (int pe = 0; pe < ctx->npes; pe++) {
+                    if (hvr_dist_bitvec_local_subcopy_contains(pe,
+                                subscribers)) {
+                        hvr_partition_member_change_t change;
+                        change.pe = pe;
+                        change.partition = p;
+                        change.entered = 1;
+                        hvr_mailbox_send(&change, sizeof(change), i,
+                                &ctx->forward_mailbox);
+                    }
+                }
             }
         }
-
-        success = hvr_mailbox_recv(&buf, &buf_capacity,
-                &msg_len, &ctx->partition_mailbox);
+        hvr_dist_bitvec_local_subcopy_copy(old,
+                &ctx->tmp_local_partition_membership);
     }
 }
 
@@ -621,8 +640,9 @@ typedef struct _hvr_vertex_update_t {
 } hvr_vertex_update_t;
 
 static void process_neighbor_updates(hvr_internal_ctx_t *ctx) {
-    void *buf;
-    size_t buf_capacity, msg_len;
+    void *buf = NULL;
+    size_t buf_capacity = 0;
+    size_t msg_len;
     int success = hvr_mailbox_recv(&buf, &buf_capacity,
             &msg_len, &ctx->forward_mailbox);
     while (success) {
@@ -636,8 +656,14 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx) {
 
         if (change->entered) {
             // Entered partition
-            if (!hvr_have_edge(change->partition, change->pe,
-                        ctx->pe_subscription_info)) {
+
+            // printf("PE %d received notification that PE %d entered partition "
+            //         "%u, new info? %d\n", shmem_my_pe(), change->pe,
+            //         change->partition, hvr_have_edge(change->partition,
+            //             change->pe, ctx->pe_subscription_info));
+
+            if (hvr_have_edge(change->partition, change->pe,
+                        ctx->pe_subscription_info) == NO_EDGE) {
                 /*
                  * This is a new subscription from this PE for this
                  * partition. As we go through this, if we find new
@@ -658,12 +684,15 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx) {
             }
         } else {
             // Left partition
+            // printf("PE %d received notification that PE %d left partition %u\n",
+            //         shmem_my_pe(), change->pe, change->partition);
             hvr_remove_edge(change->partition, change->pe,
                     ctx->pe_subscription_info);
         }
         success = hvr_mailbox_recv(&buf, &buf_capacity,
                 &msg_len, &ctx->forward_mailbox);
     }
+    free(buf);
 }
 
 static inline hvr_edge_type_t flip_edge_direction(hvr_edge_type_t dir) {
@@ -745,8 +774,9 @@ static unsigned create_new_edges(hvr_vertex_t *updated,
 }
 
 static void process_vertex_updates(hvr_internal_ctx_t *ctx) {
-    void *buf;
-    size_t buf_capacity, msg_len;
+    void *buf = NULL;
+    size_t buf_capacity = 0;
+    size_t msg_len;
     int success = hvr_mailbox_recv(&buf, &buf_capacity,
             &msg_len, &ctx->mailbox);
     while (success) {
@@ -755,6 +785,11 @@ static void process_vertex_updates(hvr_internal_ctx_t *ctx) {
 
         hvr_partition_t partition = wrap_actor_to_partition(&msg->vert, ctx);
         hvr_vertex_id_t updated_vert_id = msg->vert.id;
+
+        // printf("PE %d, iter %lu processing update from PE %d on vertex %lu, "
+        //         "iter %lu\n", shmem_my_pe(), ctx->iter,
+        //         VERTEX_ID_PE(updated_vert_id), updated_vert_id,
+        //         msg->vert.last_modify_iter);
 
         hvr_partition_t interacting[MAX_INTERACTING_PARTITIONS];
         unsigned n_interacting;
@@ -822,6 +857,7 @@ static void process_vertex_updates(hvr_internal_ctx_t *ctx) {
         success = hvr_mailbox_recv(&buf, &buf_capacity,
                 &msg_len, &ctx->mailbox);
     }
+    free(buf);
 }
 
 void hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_id_t **out_neighbors,
@@ -842,11 +878,16 @@ void hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_id_t **out_neighbors,
 hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
 
-    hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(vert_id,
-            &ctx->vec_cache);
-    assert(cached);
+    if (VERTEX_ID_PE(vert_id) == ctx->pe) {
+        // Get it from the pool
+        return ctx->pool->pool + VERTEX_ID_OFFSET(vert_id);
+    } else {
+        hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(vert_id,
+                &ctx->vec_cache);
+        assert(cached);
 
-    return &cached->vert;
+        return &cached->vert;
+    }
 }
 
 static unsigned update_vertices(hvr_set_t *to_couple_with,
@@ -884,12 +925,81 @@ static void send_updates(hvr_internal_ctx_t *ctx) {
                         &edges, pes_tree->subtree);
 
                 for (unsigned s = 0; s < n_subscribers; s++) {
+                    // fprintf(stderr, "PE %d sending update to %d\n",
+                    //         shmem_my_pe(), subscribers[s]);
                     hvr_mailbox_send(&msg, sizeof(msg), subscribers[s],
                             &ctx->mailbox);
                 }
             }
         }
     }
+}
+
+static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
+        hvr_vertex_t *coupled_metric, int *should_abort,
+        hvr_set_t *to_couple_with) {
+    memcpy(coupled_metric, ctx->coupled_pes_values + ctx->pe,
+            sizeof(*coupled_metric));
+
+    hvr_vertex_iter_t iter;
+    hvr_vertex_iter_init(&iter, ctx);
+    *should_abort = ctx->check_abort(&iter, ctx, to_couple_with,
+            coupled_metric);
+
+    // Update my local information on PEs I am coupled with.
+    hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
+
+    // Atomically update other PEs that I am coupled with.
+    for (int p = 0; p < ctx->npes; p++) {
+        if (p != ctx->pe && hvr_set_contains(p, ctx->coupled_pes)) {
+            for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
+                SHMEM_ULONGLONG_ATOMIC_OR(
+                        ctx->coupled_pes->bit_vector + i,
+                        (ctx->coupled_pes->bit_vector)[i], p);
+            }
+        }
+    }
+
+    hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
+    shmem_putmem(ctx->coupled_pes_values + ctx->pe, coupled_metric,
+            sizeof(*coupled_metric), ctx->pe);
+    shmem_quiet();
+    hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
+
+    /*
+     * For each PE I know I'm coupled with, lock their coupled_timesteps
+     * list and update my copy with any newer entries in my
+     * coupled_timesteps list.
+     */
+    int ncoupled = 1; // include myself
+    for (int p = 0; p < ctx->npes; p++) {
+        if (p == ctx->pe) continue;
+
+        if (hvr_set_contains_atomic(p, ctx->coupled_pes)) {
+            // Pull in the latest coupled value from PE p.
+            hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
+            shmem_getmem(ctx->coupled_pes_values_buffer,
+                    ctx->coupled_pes_values,
+                    ctx->npes * sizeof(hvr_vertex_t), p);
+            hvr_rwlock_runlock((long *)ctx->coupled_lock, p);
+
+            // Update my local copy with the latest values
+            hvr_vertex_t *other = ctx->coupled_pes_values_buffer + p;
+            hvr_vertex_t *mine = ctx->coupled_pes_values + p;
+
+            hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
+            memcpy(mine, other, sizeof(*mine));
+            hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
+
+            // No need to read lock here because I know I'm the only writer
+            hvr_vertex_add(coupled_metric, ctx->coupled_pes_values + p,
+                    ctx);
+
+            ncoupled++;
+        }
+    }
+
+    return ncoupled;
 }
 
 hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
@@ -927,20 +1037,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      */
     shmem_barrier_all();
 
-    /*
-     * For the segment of the global registry this PE is responsible for, notify
-     * other segments of changes that occurred which partitions owned by them
-     * might interact with.
-     */
     update_pes_on_partition_membership(ctx);
-
-    /*
-     * Forward along partition membership changes that were sent in
-     * update_pes_on_partition_membership to the actual PEs which might interact
-     * with those partitions (based on local information only available in the
-     * local segment of the global partition registry).
-     */
-    update_pes_on_membership(ctx);
 
     /*
      * Receive and process updates sent in update_pes_on_neighbors, and adjust
@@ -960,11 +1057,14 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     send_updates(ctx);
 
-    ctx->iter = 1;
+    hvr_vertex_t coupled_metric;
+    int should_abort = 0;
+    update_coupled_values(ctx, &coupled_metric, &should_abort, to_couple_with);
+
+    ctx->iter += 1;
 
     const unsigned long long start_body = hvr_current_time_us();
 
-    int should_abort = 0;
     while (!should_abort && hvr_current_time_us() - start_body <
             ctx->max_elapsed_seconds * 1000000ULL) {
         const unsigned long long start_iter = hvr_current_time_us();
@@ -983,80 +1083,13 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         update_actor_partitions(ctx);
         update_partition_time_window(ctx);
         update_pes_on_partition_membership(ctx);
-        update_pes_on_membership(ctx);
         process_neighbor_updates(ctx);
         process_vertex_updates(ctx);
         n_local_verts = update_vertices(to_couple_with, ctx);
         send_updates(ctx);
-        ctx->iter += 1;
 
-        hvr_vertex_t coupled_metric;
-        memcpy(&coupled_metric, ctx->coupled_pes_values + ctx->pe,
-                sizeof(coupled_metric));
-
-        hvr_vertex_iter_t iter;
-        hvr_vertex_iter_init(&iter, ctx);
-        should_abort = ctx->check_abort(&iter, ctx, to_couple_with,
-                &coupled_metric);
-
-        // Update my local information on PEs I am coupled with.
-        hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
-
-        // Atomically update other PEs that I am coupled with.
-        for (int p = 0; p < ctx->npes; p++) {
-            if (p != ctx->pe && hvr_set_contains(p, ctx->coupled_pes)) {
-                for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
-                    SHMEM_ULONGLONG_ATOMIC_OR(
-                            ctx->coupled_pes->bit_vector + i,
-                            (ctx->coupled_pes->bit_vector)[i], p);
-                }
-            }
-        }
-
-        const unsigned long long finished_neighbor_updates =
-            hvr_current_time_us();
-
-        hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
-        shmem_putmem(ctx->coupled_pes_values + ctx->pe, &coupled_metric,
-                sizeof(coupled_metric), ctx->pe);
-        shmem_quiet();
-        hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
-
-        const unsigned long long finished_coupled_values = hvr_current_time_us();
-
-        /*
-         * For each PE I know I'm coupled with, lock their coupled_timesteps
-         * list and update my copy with any newer entries in my
-         * coupled_timesteps list.
-         */
-        unsigned n_coupled_spins = 0;
-        int ncoupled = 1; // include myself
-        for (int p = 0; p < ctx->npes; p++) {
-            if (p == ctx->pe) continue;
-
-            if (hvr_set_contains(p, ctx->coupled_pes)) {
-                // Pull in the latest coupled value from PE p.
-                hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
-                    
-                shmem_getmem(ctx->coupled_pes_values_buffer,
-                        ctx->coupled_pes_values,
-                        ctx->npes * sizeof(hvr_vertex_t), p);
-
-                hvr_rwlock_runlock((long *)ctx->coupled_lock, p);
-
-                hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
-                hvr_vertex_t *other = ctx->coupled_pes_values_buffer + p;
-                hvr_vertex_t *mine = ctx->coupled_pes_values + p;
-
-                memcpy(mine, other, sizeof(*mine));
-                hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
-
-                hvr_vertex_add(&coupled_metric, ctx->coupled_pes_values + p,
-                        ctx);
-
-                ncoupled++;
-            }
-        }
+        unsigned ncoupled = update_coupled_values(ctx, &coupled_metric,
+                &should_abort, to_couple_with);
 
         /*
          * TODO coupled_metric here contains the aggregate values over all
@@ -1070,9 +1103,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
             char coupled_pes_str[1024];
             hvr_set_to_string(ctx->coupled_pes, coupled_pes_str, 1024, NULL);
 
-            printf("PE %d - computed coupled value {%s} from %d "
-                    "coupled PEs (%s)\n", ctx->pe, buf, ncoupled,
-                    coupled_pes_str);
+            printf("PE %d - computed coupled value {%s} from %d coupled PEs "
+                    "(%s)\n", ctx->pe, buf, ncoupled, coupled_pes_str);
         }
 
         const unsigned long long finished_coupling = hvr_current_time_us();
@@ -1109,13 +1141,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
             fprintf(profiling_fp, "PE %d - iter %d - total %f ms\n",
                     ctx->pe, ctx->iter,
                     (double)(finished_coupling - start_iter) / 1000.0);
-            fprintf(profiling_fp, "  neighbor updates %f ms\n",
-                    (double)(finished_neighbor_updates - start_iter) / 1000.0);
-            fprintf(profiling_fp, "  coupled values %f ms\n",
-                    (double)(finished_coupled_values - finished_neighbor_updates) / 1000.0);
-            fprintf(profiling_fp, "  coupling %f ms (%u)\n",
-                    (double)(finished_coupling - finished_coupled_values) / 1000.0,
-                    n_coupled_spins);
             fprintf(profiling_fp, "  partition window = %s, %d / %d partitions "
                     "active for %u local vertices\n", partition_time_window_str,
                     hvr_set_count(ctx->producer_partition_time_window),
@@ -1139,7 +1164,11 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     ctx->p_sync);
             shmem_barrier_all();
         }
+
+        ctx->iter += 1;
     }
+
+    fprintf(stderr, "PE %d leaving...\n", shmem_my_pe());
 
     shmem_quiet();
 

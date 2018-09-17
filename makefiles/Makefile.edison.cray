@@ -1,13 +1,16 @@
 # CFLAGS=-Wall -Werror -g -O2 -Iinc -std=c99
-CFLAGS=-g -O2 -Iinc -std=c99 -Wall
+CFLAGS=-g -O0 -Iinc -std=c99 -Wall
 SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -L$(OPENSHMEM_INSTALL)/lib64 -lsma
 
-all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test \
+all: bin/libhoover.so bin/edge_set_test bin/vertex_test bin/init_test \
 	bin/infectious_test bin/shmem_rw_lock bin/write_lock_stress \
 	bin/test_vertex_id bin/add_vertices_test bin/multi_graph_test \
 	bin/remove_vertices_test bin/intrusion_detection bin/const_attr_test bin/neighbor_test_cross_pe bin/hvr_dist_bitvec_test
 
-bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c src/hvr_dist_bitvec.c src/hvr_vertex_cache.c src/hvr_edge_set.c
+bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c \
+	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c \
+	src/hvr_set.c src/hvr_edge_set.c src/hvr_vertex.c \
+	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c
 	gcc $(CFLAGS) $^ -o $@ -shared -fPIC $(SHMEM_FLAGS)
 
 bin/init_test: test/init_test.c
@@ -19,7 +22,7 @@ bin/infectious_test: test/infectious_test.c
 bin/edge_set_test: test/edge_set_test.c
 	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
-bin/sparse_vec_test: test/sparse_vec_test.c
+bin/vertex_test: test/vertex_test.c
 	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/pe_neighbors_set_test: test/pe_neighbors_set_test.c

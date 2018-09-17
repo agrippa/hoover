@@ -56,6 +56,8 @@ extern int hvr_set_insert(uint64_t val, hvr_set_t *set);
  */
 extern int hvr_set_contains(uint64_t val, hvr_set_t *set);
 
+extern int hvr_set_contains_atomic(uint64_t val, hvr_set_t *set);
+
 /*
  * Count how many elements are in this set.
  */
@@ -89,6 +91,8 @@ extern uint64_t *hvr_set_non_zeros(hvr_set_t *set,
 extern hvr_set_t *hvr_create_full_set(const uint64_t nvals);
 
 extern void hvr_set_merge_atomic(hvr_set_t *set, hvr_set_t *other);
+
+extern void hvr_set_copy(hvr_set_t *dst, hvr_set_t *src);
 
 #ifdef __cplusplus
 }

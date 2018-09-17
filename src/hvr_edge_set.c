@@ -51,7 +51,7 @@ hvr_edge_type_t hvr_have_edge(const hvr_vertex_id_t local_vertex_id,
 
     hvr_avl_tree_node_t *inserted = hvr_tree_find(set->tree, local_vertex_id);
     if (inserted == NULL) {
-        return 0;
+        return NO_EDGE;
     }
 
     hvr_avl_tree_node_t *found = hvr_tree_find(inserted->subtree,

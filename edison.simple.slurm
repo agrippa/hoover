@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:02:00
+#SBATCH -t 00:01:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -44,15 +44,15 @@ export MAX_NUM_TIMESTEPS=25
 
 cd $SCRATCH
 
-# echo ""
-# echo "RUNNING GRID TEST"
-# echo ""
-# export HVR_SYMM_POOL_SIZE=40000
-# export HVR_VEC_CACHE_PREALLOCS=60000
-# export HVR_DISABLE_PROFILING_PRINTS=1
-# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/init_test 50
+echo ""
+echo "RUNNING GRID TEST"
+echo ""
+export HVR_SYMM_POOL_SIZE=40000
+export HVR_VEC_CACHE_PREALLOCS=60000
+export HVR_DISABLE_PROFILING_PRINTS=1
+srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/init_test 50
 
 # echo ""
 # echo "RUNNING ADD VERTICES TEST"
@@ -94,7 +94,9 @@ cd $SCRATCH
 
 # srun --ntasks=4 $HOME/hoover/bin/neighbor_test_cross_pe
 
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/hvr_dist_bitvec_test
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/hvr_dist_bitvec_test
+
+# srun --ntasks=1 $HOME/hoover/bin/vertex_test
 
