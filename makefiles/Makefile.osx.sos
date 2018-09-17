@@ -5,7 +5,7 @@ all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test \
 	bin/multi_graph_test bin/remove_vertices_test bin/intrusion_detection
 
 bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c \
-	src/hvr_sparse_vec_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c
+	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c src/hvr_set.c
 	oshcc $(CFLAGS) $^ -o $@ -shared -fPIC -lm
 
 bin/init_test: test/init_test.c

@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include "hvr_vertex.h"
 #include "hvr_sparse_vec_pool.h"
 
@@ -49,4 +51,76 @@ double hvr_vertex_get(const unsigned feature, hvr_vertex_t *vert,
         }
     }
     assert(0);
+}
+
+static int uint_compare(const void *_a, const void *_b) {
+    unsigned a = *((unsigned *)_a);
+    unsigned b = *((unsigned *)_b);
+    if (a < b) {
+        return -1;
+    } else if (a > b) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+void hvr_vertex_unique_features(hvr_vertex_t *vert,
+        unsigned *out_features, unsigned *n_out_features) {
+    *n_out_features = vert->size;
+    memcpy(out_features, vert->features,
+            vert->size * sizeof(vert->features[0]));
+
+    qsort(out_features, *n_out_features, sizeof(*out_features), uint_compare);
+}
+
+void hvr_vertex_dump(hvr_vertex_t *vert, char *buf, const size_t buf_size,
+        hvr_ctx_t ctx) {
+    char *iter = buf;
+    int first = 1;
+
+    unsigned n_features;
+    unsigned features[HVR_BUCKET_SIZE];
+    hvr_sparse_vec_unique_features(vec, timestep, features, &n_features);
+
+    for (unsigned i = 0; i < n_features; i++) {
+        const unsigned feat = features[i];
+        double val;
+
+        const int err = hvr_vertex_get(feat, vert, ctx);
+        assert(err == 1);
+
+        const int capacity = buf_size - (iter - buf);
+        int written;
+        if (first) {
+            written = snprintf(iter, capacity, "%u: %f", feat, val);
+        } else {
+            written = snprintf(iter, capacity, ", %u: %f", feat, val);
+        }
+        if (written <= 0 || written > capacity) {
+            assert(0);
+        }
+
+        iter += written;
+        first = 0;
+    }
+}
+
+int hvr_vertex_get_owning_pe(hvr_vertex_t *vec) {
+    assert(vec->id != HVR_INVALID_VERTEX_ID);
+    return VERTEX_ID_PE(vec->id);
+}
+
+void hvr_vertex_add(hvr_vertex_t *dst, hvr_vertex_t *src, hvr_ctx_t *ctx) {
+    unsigned dst_n_features, src_n_features;
+    unsigned dst_features[HVR_BUCKET_SIZE], src_features[HVR_BUCKET_SIZE];
+    hvr_vertex_unique_features(dst, dst_features, &dst_n_features);
+    hvr_vertex_unique_features(src, src_features, &src_n_features);
+    assert(dst_n_features == src_n_features);
+
+    for (unsigned i = 0; i < n_dst_features; i++) {
+        const double sum = hvr_vertex_get(dst_features[i], dst, ctx) +
+            hvr_vertex_get(src_features[i], src, ctx);
+        hvr_vertex_set(dst_features[i], sum, dst, ctx);
+    }
 }

@@ -16,6 +16,8 @@ extern "C" {
 #include "hvr_avl_tree.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
+#include "hvr_set.h"
+#include "hvr_dist_bitvec.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -35,89 +37,6 @@ extern "C" {
  *     hvr_finalize();  // return to the user code, not a global barrier
  */
 
-// Number of elements to cache in a hvr_set_t
-#define PE_SET_CACHE_SIZE 100
-
-#define HVR_MAX_TIMESTAMP (INT32_MAX - 1)
-
-typedef unsigned long long bit_vec_element_type;
-
-typedef enum _edge_type_t {
-    BIDIRECTIONAL,
-    DIRECTED_IN,
-    DIRECTED_OUT,
-    NO_EDGE
-} edge_type_t;
-
-
-/*
- * Utilities used for storing a set of integers. This class is used for storing
- * sets of PEs, of partitions, and is flexible enough to store anything
- * integer-valued.
- *
- * Under the covers, hvr_set_t at its core is a bit vector, but also uses a
- * small fixed-size cache to enable quick iteration over all elements in the set
- * when only a few elements are set in a large bit vector.
- *
- * HOOVER user code is never expected to create sets, but may be required to
- * manipulate them.
- */
-typedef struct _hvr_set_t {
-    /*
-     * A fixed-size list of elements set in this cache, enabling quick iteration
-     * over contained elements as long as there are <= PE_SET_CACHE_SIZE
-     * elements contained. When we can use cache, using it means we don't have
-     * to iterate over the full bit_vector to look for all contained elements.
-     */
-    uint64_t cache[PE_SET_CACHE_SIZE];
-
-    // Number of elements in the cache
-    uint64_t nelements;
-
-    // Total number of elements inserted in this cache
-    uint64_t n_contained;
-
-    // Backing bit vector
-    bit_vec_element_type *bit_vector;
-} hvr_set_t;
-
-/*
- * Add a given value to this set.
- */
-extern int hvr_set_insert(uint64_t val, hvr_set_t *set);
-
-/*
- * Check if a given value exists in this set.
- */
-extern int hvr_set_contains(uint64_t val, hvr_set_t *set);
-
-/*
- * Count how many elements are in this set.
- */
-extern unsigned hvr_set_count(hvr_set_t *set);
-
-/*
- * Remove all elements from this set.
- */
-extern void hvr_set_wipe(hvr_set_t *set);
-
-/*
- * Free the memory used by the given set.
- */
-extern void hvr_set_destroy(hvr_set_t *set);
-
-/*
- * Create a human-readable string from the provided set.
- */
-extern void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen,
-        unsigned *values);
-
-/*
- * Return an array containing all values in the provided set.
- */
-extern uint64_t *hvr_set_non_zeros(hvr_set_t *set,
-        uint64_t *n_non_zeros, int *user_must_free);
-
 /*
  * Callback type definitions to be defined by the user for the HOOVER runtime to
  * call into.
@@ -128,7 +47,6 @@ extern uint64_t *hvr_set_non_zeros(hvr_set_t *set,
  * some other PEs by setting elements in couple_with.
  */
 typedef void (*hvr_update_metadata_func)(hvr_vertex_t *vert,
-        hvr_vertex_t **neighbors, const size_t n_neighbors,
         hvr_set_t *couple_with, hvr_ctx_t ctx);
 
 /*
@@ -165,7 +83,7 @@ typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_vertex_t *actor,
  * API for checking if two vertices should have an edge between them, based on
  * application-specific logic.
  */
-typedef edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
+typedef hvr_edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
         hvr_vertex_t *candidate, hvr_ctx_t ctx);
 
 /*
@@ -189,39 +107,14 @@ typedef struct _hvr_internal_ctx_t {
     // Set of edges for our local vertices
     hvr_edge_set_t *edges;
 
-    // Current timestep
-    hvr_time_t timestep;
-    // Remotely visible current timestep
-    volatile hvr_time_t *symm_timestep;
-
-    /*
-     * Used for tracking every other PE's current timestep to ensure we don't
-     * get too out of sync.
-     */
-    hvr_time_t *all_pe_timesteps;
-    hvr_time_t *all_pe_timesteps_buffer;
-    long *all_pe_timesteps_locks;
-    /*
-     * For each partition, the last local timestep to have a local vertex inside
-     * it.
-     */
-    hvr_time_t *last_timestep_using_partition;
+    // Current iter
+    hvr_time_t iter;
 
     // Sets of the partitions that have been live in a recent time window.
-    hvr_set_t *partition_time_window;
-    hvr_set_t *other_pe_partition_time_window;
-    hvr_set_t *tmp_partition_time_window;
-    long *partition_time_window_lock;
-    hvr_partition_list_node_t *active_partitions_list;
-    hvr_partition_list_node_t *partitions_list_pool;
-
-    /*
-     * Mapping from each local vertex to its partition. Globally visible and
-     * concurrently accessible using the R/W lock actor_to_partition_lock.
-     */
-    long *actor_to_partition_lock;
-    hvr_partition_t *actor_to_partition_map;
-    hvr_partition_t *other_actor_to_partition_map;
+    hvr_set_t *subscriber_partition_time_window;
+    hvr_set_t *producer_partition_time_window;
+    hvr_set_t *tmp_subscriber_partition_time_window;
+    hvr_set_t *tmp_producer_partition_time_window;
 
     // User callbacks
     hvr_update_metadata_func update_metadata;
@@ -231,8 +124,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_should_have_edge should_have_edge;
     hvr_start_time_step start_time_step;
 
-    // Limit on number of timesteps to run for current simulation
-    hvr_time_t max_timestep;
+    // Limit on execution time
+    unsigned long long max_elapsed_seconds;
 
     // List of asynchronously fetching vertices
     hvr_vertex_cache_node_t **neighbor_buffer;
@@ -253,16 +146,9 @@ typedef struct _hvr_internal_ctx_t {
     int *strict_counter_dest;
     int *strict_counter_src;
 
-    /*
-     * List of PEs that may have vertices my vertices interact with (i.e. have
-     * edges with). No need to check any vertices in any PEs that are not in
-     * this set.
-     */
-    hvr_set_t *my_neighbors;
-
     // Set of PEs we are in coupled execution with
     hvr_set_t *coupled_pes;
-    // Values retrieved from each coupled PE on each timestep
+    // Values retrieved from each coupled PE
     hvr_vertex_t *coupled_pes_values;
     hvr_vertex_t *coupled_pes_values_buffer;
     volatile long *coupled_lock;
@@ -287,19 +173,39 @@ typedef struct _hvr_internal_ctx_t {
     char my_hostname[1024];
 
     // List of local vertices in each partition
-    hvr_vertex_t **partition_lists;
-    unsigned *partition_lists_lengths;
+    hvr_vertex_t **local_partition_lists;
+    unsigned *local_partition_lists_lengths;
+
+    /*
+     * List of locally mirrored vertices in each partition (actually points into
+     * vec_cache).
+     */
+    hvr_vertex_t **mirror_partition_lists;
+    unsigned *mirror_partition_lists_lengths;
+
+    unsigned *partition_min_dist_from_local_vertex;
 
     // Counter for which graph IDs have already been allocated
     hvr_graph_id_t allocated_graphs;
 
-    hvr_graph_id_t *interacting_graphs;
-    unsigned n_interacting_graphs;
-    hvr_graph_id_t interacting_graphs_mask;
-
     hvr_vertex_cache_t vec_cache;
 
     hvr_mailbox_t mailbox;
+    hvr_mailbox_t partition_mailbox;
+    hvr_mailbox_t forward_mailbox;
+
+    hvr_dist_bitvec_t global_partition_registry_subscribers;
+    hvr_dist_bitvec_t global_partition_registry_producers;
+
+    hvr_dist_bitvec_local_subcopy_t *local_partition_membership;
+    hvr_dist_bitvec_local_subcopy_t tmp_local_partition_membership;
+
+    hvr_set_t *full_partition_set;
+
+    // Edge from PE -> partitions we need to notify it about
+    hvr_edge_set_t *pe_subscription_info;
+
+    unsigned max_graph_traverse_depth;
 } hvr_internal_ctx_t;
 
 /*
@@ -307,7 +213,7 @@ typedef struct _hvr_internal_ctx_t {
  * returned to the caller.
  */
 typedef struct _hvr_exec_info {
-    hvr_time_t executed_timesteps;
+    hvr_time_t executed_iters;
 } hvr_exec_info;
 
 // Must be called after shmem_init, zeroes out_ctx and fills in pe and npes
@@ -336,8 +242,9 @@ extern void hvr_init(const hvr_partition_t n_partitions,
         hvr_actor_to_partition actor_to_partition,
         hvr_start_time_step start_time_step,
         hvr_should_have_edge should_have_edge,
-        hvr_graph_id_t *interacting_graphs, unsigned n_interacting_graphs,
-        const hvr_time_t max_timestep, hvr_ctx_t ctx);
+        unsigned long long max_elapsed_seconds,
+        unsigned max_graph_traverse_depth,
+        hvr_ctx_t ctx);
 
 /*
  * Run the simulation. Returns when the local PE is done, but that return is not
@@ -348,14 +255,17 @@ extern hvr_exec_info hvr_body(hvr_ctx_t ctx);
 // Collective call to clean up
 extern void hvr_finalize(hvr_ctx_t ctx);
 
-// Get the current timestep of the local PE
-extern hvr_time_t hvr_current_timestep(hvr_ctx_t ctx);
-
 // Get the PE ID we are running on
 extern int hvr_my_pe(hvr_ctx_t ctx);
 
 // Simple utility for time measurement in microseconds
 extern unsigned long long hvr_current_time_us();
+
+extern void hvr_get_neighbors(hvr_vertex_t *vert,
+        hvr_vertex_id_t **out_neighbors, hvr_edge_type_t **out_directions,
+        size_t *out_n_neighbors, hvr_ctx_t in_ctx);
+
+extern hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t ctx);
 
 #ifdef __cplusplus
 }

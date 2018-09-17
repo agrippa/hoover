@@ -59,9 +59,12 @@ void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec *vec,
         hvr_dist_bitvec_local_subcopy *out) {
     out->coord0 = UINT_MAX;
     out->dim1 = vec->dim1;
+    out->dim1_length_in_words = vec->dim1_length_in_words;
     out->subvec = (hvr_dist_bitvec_ele_t *)malloc(
             vec->dim1_length_in_words * sizeof(*(out->subvec)));
     assert(out->subvec);
+    memset(out->subvec, 0x00,
+            vec->dim1_length_in_words * sizeof(*(out->subvec)));
 }
 
 void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,
@@ -92,6 +95,27 @@ int hvr_dist_bitvec_local_subcopy_contains(hvr_dist_bitvec_size_t coord1,
 }
 
 int hvr_dist_bitvec_owning_pe(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec *vec) {
+        hvr_dist_bitvec *vec) {
     return coord0 / vec->dim0_per_pe;
+}
+
+void hvr_dist_bitvec_my_chunk(hvr_dist_bitvec_size_t *lower,
+        hvr_dist_bitvec_size_t *upper, hvr_dist_bitvec *vec,
+        hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    *lower = ctx->pe * vec->dim0_per_pe;
+    *upper = (ctx->pe + 1) * vec->dim0_per_pe;
+
+    if (*lower > vec->dim0) *lower = vec->dim0;
+    if (*upper > vec->dim0) *upper = vec->dim0;
+}
+
+void hvr_dist_bitvec_local_subcopy_copy(hvr_dist_bitvec_local_subcopy *dst,
+        hvr_dist_bitvec_local_subcopy *src) {
+    assert(dst->dim1 == src->dim1);
+    assert(dst->dim1_length_in_words == src->dim1_length_in_words);
+
+    dst->coord0 = src->coord0;
+    memcpy(dst->subvec, src->subvec,
+            src->dim1_length_in_words * sizeof(hvr_dist_bitvec_ele_t));
 }

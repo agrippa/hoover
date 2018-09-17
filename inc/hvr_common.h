@@ -10,6 +10,13 @@
 #define BITS_PER_BYTE 8
 #define BITS_PER_WORD (BITS_PER_BYTE * sizeof(unsigned))
 
+typedef enum _hvr_edge_type_t {
+    BIDIRECTIONAL,
+    DIRECTED_IN,
+    DIRECTED_OUT,
+    NO_EDGE
+} hvr_edge_type_t;
+
 /*
  * Type definition for vertex IDs and indices
  *

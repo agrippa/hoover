@@ -55,8 +55,46 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
     return iter;
 }
 
+// static void remove_node_from_cache(hvr_sparse_vec_cache_node_t *iter,
+//         hvr_sparse_vec_cache_t *cache) {
+//     const unsigned bucket = CACHE_BUCKET(iter->vert);
+//     assert(iter->pending_comm == 0);
+// 
+//     // Need to fix the prev and next elements in this
+//     if (iter->prev == NULL && iter->next == NULL) {
+//         assert(cache->buckets[bucket] == iter);
+//         cache->buckets[bucket] = NULL;
+//     } else if (iter->next == NULL) {
+//         iter->prev->next = NULL;
+//     } else if (iter->prev == NULL) {
+//         cache->buckets[bucket] = iter->next;
+//         iter->next->prev = NULL;
+//     } else {
+//         iter->prev->next = iter->next;
+//         iter->next->prev = iter->prev;
+//     }
+// 
+//     // Then remove from the LRU list
+//     if (iter->lru_prev == NULL && iter->lru_next == NULL) {
+//         assert(cache->lru_head == iter && cache->lru_tail == iter);
+//         cache->lru_head = NULL;
+//         cache->lru_tail = NULL;
+//     } else if (iter->lru_next == NULL) {
+//         assert(cache->lru_tail == iter);
+//         cache->lru_tail = iter->lru_prev;
+//         iter->lru_prev->lru_next = NULL;
+//     } else if (iter->lru_prev == NULL) {
+//         assert(cache->lru_head == iter);
+//         cache->lru_head = iter->lru_next;
+//         iter->lru_next->lru_prev = NULL;
+//     } else {
+//         iter->lru_prev->lru_next = iter->lru_next;
+//         iter->lru_next->lru_prev = iter->lru_prev;
+//     }
+// }
+
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
-        hvr_vertex_cache_t *cache) {
+        unsigned min_dist_from_local_vertex, hvr_vertex_cache_t *cache) {
     // Assume that vec is not already in the cache, but don't enforce this
     hvr_vertex_cache_node_t *new_node = NULL;
     if (cache->pool_head) {
@@ -84,6 +122,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
     const unsigned bucket = CACHE_BUCKET(vert->id);
     memcpy(&new_node->vert, vert, sizeof(*vert));
+    new_node->min_dist_from_local_vertex
 
     // Insert into the appropriate bucket
     if (cache->buckets[bucket]) {

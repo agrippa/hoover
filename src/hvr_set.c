@@ -1,0 +1,168 @@
+#include <shmem.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "hvr_set.h"
+#include "hvr_common.h"
+
+static hvr_set_t *hvr_create_empty_set_helper(const uint64_t nelements,
+        hvr_set_t *set, bit_vec_element_type *bit_vector) {
+    set->bit_vector = bit_vector;
+    set->nelements = nelements;
+    set->n_contained = 0;
+
+    memset(set->bit_vector, 0x00, nelements * sizeof(bit_vec_element_type));
+
+    return set;
+}
+
+hvr_set_t *hvr_create_empty_set_symmetric(const uint64_t nvals) {
+    const uint64_t bits_per_ele = sizeof(bit_vec_element_type) *
+                BITS_PER_BYTE;
+    const uint64_t nelements = (nvals + bits_per_ele - 1) / bits_per_ele;
+    hvr_set_t *set = (hvr_set_t *)shmem_malloc(sizeof(*set));
+    assert(set);
+    bit_vec_element_type *bit_vector = (bit_vec_element_type *)shmem_malloc(
+            nelements * sizeof(bit_vec_element_type));
+    assert(bit_vector);
+    return hvr_create_empty_set_helper(nelements, set, bit_vector);
+}
+
+hvr_set_t *hvr_create_empty_set(const unsigned nvals) {
+    const uint64_t bits_per_ele = sizeof(bit_vec_element_type) *
+                BITS_PER_BYTE;
+    const uint64_t nelements = (nvals + bits_per_ele - 1) / bits_per_ele;
+    hvr_set_t *set = (hvr_set_t *)malloc(sizeof(*set));
+    assert(set);
+    bit_vec_element_type *bit_vector = (bit_vec_element_type *)malloc(
+            nelements * sizeof(bit_vec_element_type));
+    assert(bit_vector);
+    return hvr_create_empty_set_helper(nelements, set, bit_vector);
+}
+
+void hvr_fill_set(hvr_set_t *s) {
+    memset(s->bit_vector, 0xff, s->nelements * sizeof(*(s->bit_vector)));
+}
+
+hvr_set_t *hvr_create_full_set(const uint64_t nvals) {
+    hvr_set_t *empty_set = hvr_create_empty_set(nvals);
+    hvr_fill_set(empty_set);
+    return empty_set;
+}
+
+static int hvr_set_insert_internal(uint64_t val,
+        bit_vec_element_type *bit_vector) {
+    const uint64_t element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const uint64_t bit = val % (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const bit_vec_element_type old_val = bit_vector[element];
+    const bit_vec_element_type new_val =
+        (old_val | ((bit_vec_element_type)1 << bit));
+    bit_vector[element] = new_val;
+    return old_val != new_val;
+}
+
+int hvr_set_insert(uint64_t val, hvr_set_t *set) {
+    const int changed = hvr_set_insert_internal(val, set->bit_vector);
+    if (changed) {
+        if (set->n_contained < PE_SET_CACHE_SIZE) {
+            (set->cache)[set->n_contained] = val;
+        }
+        set->n_contained++;
+    }
+    return changed;
+}
+
+void hvr_set_wipe(hvr_set_t *set) {
+    memset(set->bit_vector, 0x00, set->nelements * sizeof(*(set->bit_vector)));
+    set->n_contained = 0;
+}
+
+int hvr_set_contains_internal(int val, bit_vec_element_type *bit_vector) {
+    const uint64_t element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const uint64_t bit = val % (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const bit_vec_element_type old_val = bit_vector[element];
+    if (old_val & ((bit_vec_element_type)1 << bit)) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int hvr_set_contains(uint64_t val, hvr_set_t *set) {
+    return hvr_set_contains_internal(val, set->bit_vector);
+}
+
+unsigned hvr_set_count(hvr_set_t *set) {
+    return set->n_contained;
+}
+
+void hvr_set_destroy(hvr_set_t *set) {
+    free(set->bit_vector);
+    free(set);
+}
+
+void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen,
+        unsigned *values) {
+    int offset = snprintf(buf, buflen, "{");
+
+    const size_t nvals = set->nelements * sizeof(bit_vec_element_type) *
+        BITS_PER_BYTE;
+    for (unsigned i = 0; i < nvals; i++) {
+        if (hvr_set_contains(i, set)) {
+            offset += snprintf(buf + offset, buflen - offset - 1, " %u", i);
+            assert(offset < buflen);
+            if (values) {
+                offset += snprintf(buf + offset, buflen - offset - 1, ": %u",
+                        values[i]);
+                assert(offset < buflen);
+            }
+        }
+    }
+
+    snprintf(buf + offset, buflen - offset - 1, " }");
+}
+
+void hvr_set_merge_atomic(hvr_set_t *set, hvr_set_t *other) {
+    assert(set->nelements == other->nelements);
+    // Assert that we can use the long long atomics
+    assert(sizeof(unsigned long long) == sizeof(bit_vec_element_type));
+
+    for (int i = 0; i < set->nelements; i++) {
+        shmem_ulonglong_atomic_or(set->bit_vector + i, (other->bit_vector)[i],
+                shmem_my_pe());
+    }
+}
+
+uint64_t *hvr_set_non_zeros(hvr_set_t *set,
+        uint64_t *n_non_zeros, int *user_must_free) {
+    *n_non_zeros = set->n_contained;
+    if (set->n_contained <= PE_SET_CACHE_SIZE) {
+        *user_must_free = 0;
+        return set->cache;
+    } else {
+        uint64_t count_non_zeros = 0;
+        uint64_t *non_zeros = (uint64_t *)malloc(
+                set->n_contained * sizeof(*non_zeros));
+        assert(non_zeros);
+        *user_must_free = 1;
+
+        for (uint64_t i = 0; i < set->nelements; i++) {
+            const bit_vec_element_type ele = set->bit_vector[i];
+            for (unsigned bit = 0; bit < sizeof(ele) * BITS_PER_BYTE; bit++) {
+                if ((ele & ((bit_vec_element_type)1 << bit)) != 0) {
+                    non_zeros[count_non_zeros++] =
+                        i * sizeof(ele) * BITS_PER_BYTE + bit;
+                }
+            }
+        }
+
+        if (count_non_zeros != set->n_contained) {
+            fprintf(stderr, "Unexpected nnz: count_non_zeros = %lu, "
+                    "n_contained = %lu\n", count_non_zeros, set->n_contained);
+            abort();
+        }
+
+        return non_zeros;
+    }
+}
+

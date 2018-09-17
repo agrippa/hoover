@@ -18,6 +18,11 @@ extern "C" {
 typedef struct _hvr_vertex_cache_node_t {
     // Contents of the vec itself
     hvr_vertex_t vert;
+    /*
+     * Number of edges that separate this vertex from closest vertex stored
+     * locally on the current PE. Is zero for local vertices.
+     */
+    unsigned min_dist_from_local_vertex;
 
     /*
      * If this node is allocated, pointers to the next and previous cache node
@@ -91,7 +96,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
         hvr_vertex_cache_t *cache);
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
-        hvr_vertex_cache_t *cache);
+        unsigned min_dist_from_local_vertex, hvr_vertex_cache_t *cache);
 
 #ifdef __cplusplus
 }

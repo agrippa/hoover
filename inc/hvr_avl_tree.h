@@ -8,9 +8,12 @@
 // An AVL tree node
 typedef struct _hvr_avl_tree_node_t {
     hvr_vertex_id_t key;
+    hvr_edge_type_t direction;
+
     struct _hvr_avl_tree_node_t *subtree;
 
     hvr_vertex_id_t *linearized;
+    hvr_edge_type_t *linearized_edges;
     unsigned linearized_length;
 
     struct _hvr_avl_tree_node_t *left;
@@ -19,14 +22,20 @@ typedef struct _hvr_avl_tree_node_t {
 } hvr_avl_tree_node_t;
 
 extern hvr_avl_tree_node_t* hvr_tree_insert(hvr_avl_tree_node_t* node,
-        hvr_vertex_id_t key);
+        hvr_vertex_id_t key, hvr_edge_type_t direction);
+
 extern hvr_avl_tree_node_t* hvr_tree_remove(hvr_avl_tree_node_t *curr,
         hvr_vertex_id_t key);
+
 extern hvr_avl_tree_node_t *hvr_tree_find(hvr_avl_tree_node_t *curr,
         hvr_vertex_id_t key);
+
 extern size_t hvr_tree_size(hvr_avl_tree_node_t *curr);
-extern size_t hvr_tree_linearize(hvr_vertex_id_t **arr,
+
+extern size_t hvr_tree_linearize(hvr_vertex_id_t **vertices,
+        hvr_edge_type_t **directions,
         hvr_avl_tree_node_t *curr);
+
 extern void hvr_tree_destroy(hvr_avl_tree_node_t *curr);
 
 #endif

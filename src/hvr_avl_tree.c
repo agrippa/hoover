@@ -10,11 +10,13 @@
 
 /* Helper function that allocates a new node with the given key and
     NULL left and right pointers. */
-static hvr_avl_tree_node_t *newNode(hvr_vertex_id_t key) {
+static hvr_avl_tree_node_t *newNode(hvr_vertex_id_t key,
+        hvr_edge_type_t direction) {
     hvr_avl_tree_node_t* node = (hvr_avl_tree_node_t*)malloc(
             sizeof(hvr_avl_tree_node_t));
     assert(node);
     node->key = key;
+    node->direction = direction;
     node->subtree = NULL;
     node->linearized = NULL;
     node->left = NULL;
@@ -26,8 +28,9 @@ static hvr_avl_tree_node_t *newNode(hvr_vertex_id_t key) {
 // A utility function to get height of the tree
 static int height(hvr_avl_tree_node_t *N)
 {
-    if (N == NULL)
+    if (N == NULL) {
         return 0;
+    }
     return N->height;
 }
  
@@ -78,15 +81,15 @@ static int getBalance(hvr_avl_tree_node_t *N)
 }
  
 hvr_avl_tree_node_t* hvr_tree_insert(hvr_avl_tree_node_t* node,
-        hvr_vertex_id_t key) {
+        hvr_vertex_id_t key, hvr_edge_type_t direction) {
     /* 1.  Perform the normal BST rotation */
     if (node == NULL)
-        return(newNode(key));
+        return(newNode(key, direction));
 
     if (key < node->key)
-        node->left  = hvr_tree_insert(node->left, key);
+        node->left  = hvr_tree_insert(node->left, key, direction);
     else if (key > node->key)
-        node->right = hvr_tree_insert(node->right, key);
+        node->right = hvr_tree_insert(node->right, key, direction);
     else // Equal keys not allowed
         return node;
 
@@ -269,7 +272,10 @@ void hvr_tree_destroy(hvr_avl_tree_node_t *curr) {
     hvr_tree_destroy(curr->left);
     hvr_tree_destroy(curr->right);
     hvr_tree_destroy(curr->subtree);
-    if (curr->linearized) free(curr->linearized);
+    if (curr->linearized) {
+        free(curr->linearized);
+        free(curr->linearized_edges);
+    }
     free(curr);
 }
 
@@ -280,34 +286,41 @@ size_t hvr_tree_size(hvr_avl_tree_node_t *curr) {
     return 1 + hvr_tree_size(curr->left) + hvr_tree_size(curr->right);
 }
 
-static void hvr_tree_linearize_helper(hvr_vertex_id_t *arr, unsigned *index,
-        hvr_avl_tree_node_t *curr) {
+static void hvr_tree_linearize_helper(hvr_vertex_id_t *arr,
+        hvr_edge_type_t *edges, unsigned *index, hvr_avl_tree_node_t *curr) {
     if (curr == NULL) {
         return;
     }
 
-    hvr_tree_linearize_helper(arr, index, curr->left);
-    hvr_tree_linearize_helper(arr, index, curr->right);
+    hvr_tree_linearize_helper(arr, edges, index, curr->left);
+    hvr_tree_linearize_helper(arr, edges, index, curr->right);
     arr[*index] = curr->key;
+    edges[*index] = curr->direction;
     *index += 1;
 }
 
-size_t hvr_tree_linearize(hvr_vertex_id_t **arr, hvr_avl_tree_node_t *curr) {
+size_t hvr_tree_linearize(hvr_vertex_id_t **arr, hvr_edge_type_t **directions,
+        hvr_avl_tree_node_t *curr) {
     if (curr->linearized == NULL) {
         const size_t tree_size = hvr_tree_size(curr);
         hvr_vertex_id_t *linearized = (hvr_vertex_id_t *)malloc(
                 tree_size * sizeof(*linearized));
         assert(linearized);
+        hvr_edge_type_t *linearized_edges = (hvr_edge_type_t *)malloc(
+                tree_size * sizeof(*linearized_edges));
+        assert(linearized_edges);
 
         unsigned index = 0;
-        hvr_tree_linearize_helper(linearized, &index, curr);
+        hvr_tree_linearize_helper(linearized, linearized_edges, &index, curr);
         assert(index == tree_size);
 
         curr->linearized = linearized;
+        curr->linearized_edges = linearized_edges;
         curr->linearized_length = tree_size;
     }
 
     *arr = curr->linearized;
+    *directions = curr->linearized_edges;
 
     return curr->linearized_length;
 }

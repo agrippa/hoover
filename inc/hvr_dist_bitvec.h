@@ -16,7 +16,7 @@ extern "C" {
 
 typedef unsigned hvr_dist_bitvec_size_t;
 typedef unsigned hvr_dist_bitvec_ele_t;
-typedef struct _hvr_dist_bitvec {
+typedef struct _hvr_dist_bitvec_t {
     // Outermost dimension of the distributed vector
     hvr_dist_bitvec_size_t dim0;
     // Innermost dimension of the distributed vector
@@ -29,38 +29,46 @@ typedef struct _hvr_dist_bitvec {
      */
     hvr_dist_bitvec_size_t dim1_length_in_words;
     hvr_dist_bitvec_size_t dim0_per_pe;
-} hvr_dist_bitvec;
+} hvr_dist_bitvec_t;
 
 // A local (not symmetric) copy of the values for a single row of the bitvector.
-typedef struct _hvr_dist_bitvec_local_subcopy {
+typedef struct _hvr_dist_bitvec_local_subcopy_t {
     // The row coordinate of this local copy
     hvr_dist_bitvec_size_t coord0;
     // The length in elements of this copy
     hvr_dist_bitvec_size_t dim1;
     // The non-symmetric backing data
     hvr_dist_bitvec_ele_t *subvec;
-} hvr_dist_bitvec_local_subcopy;
+    hvr_dist_bitvec_size_t dim1_length_in_words;
+} hvr_dist_bitvec_local_subcopy_t;
 
 extern void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
-        hvr_dist_bitvec_size_t dim1, hvr_dist_bitvec *vec);
+        hvr_dist_bitvec_size_t dim1, hvr_dist_bitvec_t *vec);
 
 extern void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec *vec);
+        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec);
 
 extern void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec *vec);
+        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec);
 
 extern int hvr_dist_bitvec_owning_pe(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec *vec);
+        hvr_dist_bitvec_t *vec);
 
-extern void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec *vec,
-        hvr_dist_bitvec_local_subcopy *out);
+extern void hvr_dist_bitvec_my_chunk(hvr_dist_bitvec_size_t *lower,
+        hvr_dist_bitvec_size_t *upper, hvr_dist_bitvec_t *vec, hvr_ctx_t ctx);
+
+extern void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec_t *vec,
+        hvr_dist_bitvec_local_subcopy_t *out);
 
 extern void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec *vec, hvr_dist_bitvec_local_subcopy *out);
+        hvr_dist_bitvec_t *vec, hvr_dist_bitvec_local_subcopy_t *out);
 
 extern int hvr_dist_bitvec_local_subcopy_contains(hvr_dist_bitvec_size_t coord1,
-        hvr_dist_bitvec_local_subcopy *vec);
+        hvr_dist_bitvec_local_subcopy_t *vec);
+
+extern void hvr_dist_bitvec_local_subcopy_copy(
+        hvr_dist_bitvec_local_subcopy_t *dst,
+        hvr_dist_bitvec_local_subcopy_t *src);
 
 #ifdef __cplusplus
 }
