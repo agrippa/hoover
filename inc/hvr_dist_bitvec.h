@@ -55,7 +55,7 @@ extern int hvr_dist_bitvec_owning_pe(hvr_dist_bitvec_size_t coord0,
         hvr_dist_bitvec_t *vec);
 
 extern void hvr_dist_bitvec_my_chunk(hvr_dist_bitvec_size_t *lower,
-        hvr_dist_bitvec_size_t *upper, hvr_dist_bitvec_t *vec, hvr_ctx_t ctx);
+        hvr_dist_bitvec_size_t *upper, hvr_dist_bitvec_t *vec);
 
 extern void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec_t *vec,
         hvr_dist_bitvec_local_subcopy_t *out);

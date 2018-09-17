@@ -27,7 +27,7 @@ void hvr_add_edge(const hvr_vertex_id_t local_vertex_id,
     assert(valid_vertex_id(local_vertex_id));
     assert(valid_vertex_id(global_vertex_id));
 
-    set->tree = hvr_tree_insert(set->tree, local_vertex_id);
+    set->tree = hvr_tree_insert(set->tree, local_vertex_id, direction);
     hvr_avl_tree_node_t *inserted = hvr_tree_find(set->tree, local_vertex_id);
     inserted->subtree = hvr_tree_insert(inserted->subtree, global_vertex_id,
             direction);

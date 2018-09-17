@@ -1,32 +1,34 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "hvr_vertex.h"
-#include "hvr_sparse_vec_pool.h"
+#include "hoover.h"
+#include "hvr_vertex_pool.h"
 
-hvr_vertex_t *hvr_vertex_create(hvr_ctx_t ctx) {
+hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    return hvr_alloc_sparse_vecs(1, ctx);
+    return hvr_alloc_vertices(1, ctx);
 }
 
-void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t ctx) {
+void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    hvr_free_sparse_vecs(vert, 1, ctx);
+    hvr_free_vertices(vert, 1, ctx);
 }
 
 void hvr_vertex_init(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     memset(vert, 0x00, sizeof(*vert));
 
-    vert->id = construct_vertex_id(ctx->pe, vert - pool->pool);
-    vert->creation_iter = ctx->timestep;
-    vert->last_modify_iter = ctx->timestep;
+    vert->id = construct_vertex_id(ctx->pe, vert - ctx->pool->pool);
+    vert->creation_iter = ctx->iter;
+    vert->last_modify_iter = ctx->iter;
 }
 
 void hvr_vertex_set(const unsigned feature, const double val,
         hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    assert(HVR_VERTEX_ID_PE(vert->id) == ctx->pe);
-    vert->last_modify_iter = ctx->timestep;
+    assert(VERTEX_ID_PE(vert->id) == ctx->pe);
+    vert->last_modify_iter = ctx->iter;
 
     const unsigned size = vert->size;
     for (unsigned i = 0; i < size; i++) {
@@ -37,7 +39,7 @@ void hvr_vertex_set(const unsigned feature, const double val,
         }
     }
 
-    assert(size < HVR_BUCKET_SIZE); // Can hold one more feature
+    assert(size < HVR_MAX_VECTOR_SIZE); // Can hold one more feature
     vert->features[size] = feature;
     vert->values[size] = val;
     vert->size += 1;
@@ -80,8 +82,8 @@ void hvr_vertex_dump(hvr_vertex_t *vert, char *buf, const size_t buf_size,
     int first = 1;
 
     unsigned n_features;
-    unsigned features[HVR_BUCKET_SIZE];
-    hvr_sparse_vec_unique_features(vec, timestep, features, &n_features);
+    unsigned features[HVR_MAX_VECTOR_SIZE];
+    hvr_vertex_unique_features(vert, features, &n_features);
 
     for (unsigned i = 0; i < n_features; i++) {
         const unsigned feat = features[i];
@@ -106,19 +108,20 @@ void hvr_vertex_dump(hvr_vertex_t *vert, char *buf, const size_t buf_size,
     }
 }
 
-int hvr_vertex_get_owning_pe(hvr_vertex_t *vec) {
-    assert(vec->id != HVR_INVALID_VERTEX_ID);
-    return VERTEX_ID_PE(vec->id);
+int hvr_vertex_get_owning_pe(hvr_vertex_t *vert) {
+    assert(vert->id != HVR_INVALID_VERTEX_ID);
+    return VERTEX_ID_PE(vert->id);
 }
 
-void hvr_vertex_add(hvr_vertex_t *dst, hvr_vertex_t *src, hvr_ctx_t *ctx) {
+void hvr_vertex_add(hvr_vertex_t *dst, hvr_vertex_t *src, hvr_ctx_t ctx) {
     unsigned dst_n_features, src_n_features;
-    unsigned dst_features[HVR_BUCKET_SIZE], src_features[HVR_BUCKET_SIZE];
+    unsigned dst_features[HVR_MAX_VECTOR_SIZE],
+            src_features[HVR_MAX_VECTOR_SIZE];
     hvr_vertex_unique_features(dst, dst_features, &dst_n_features);
     hvr_vertex_unique_features(src, src_features, &src_n_features);
     assert(dst_n_features == src_n_features);
 
-    for (unsigned i = 0; i < n_dst_features; i++) {
+    for (unsigned i = 0; i < dst_n_features; i++) {
         const double sum = hvr_vertex_get(dst_features[i], dst, ctx) +
             hvr_vertex_get(src_features[i], src, ctx);
         hvr_vertex_set(dst_features[i], sum, dst, ctx);

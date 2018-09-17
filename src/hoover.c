@@ -534,7 +534,7 @@ typedef struct _hvr_partition_member_change_t {
 static void update_pes_on_partition_membership(hvr_internal_ctx_t *ctx) {
     hvr_dist_bitvec_size_t start_partition, end_partition;
     hvr_dist_bitvec_my_chunk(&start_partition, &end_partition,
-            &ctx->global_partition_registry_subscribers, ctx);
+            &ctx->global_partition_registry_subscribers);
 
     for (hvr_partition_t p = start_partition; p < end_partition; p++) {
         hvr_dist_bitvec_local_subcopy_t *old = ctx->local_partition_membership +

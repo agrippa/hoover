@@ -8,7 +8,7 @@
 #define BITS_PER_ELE (sizeof(hvr_dist_bitvec_ele_t) * BITS_PER_BYTE)
 
 void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
-        hvr_dist_bitvec_size_t dim1, hvr_dist_bitvec *vec) {
+        hvr_dist_bitvec_size_t dim1, hvr_dist_bitvec_t *vec) {
     vec->dim0 = dim0;
     vec->dim1 = dim1;
 
@@ -25,7 +25,7 @@ void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
 }
 
 void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec *vec) {
+        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec) {
     const unsigned coord0_pe = coord0 / vec->dim0_per_pe;
     const unsigned coord0_offset = coord0 % vec->dim0_per_pe;
 
@@ -40,7 +40,7 @@ void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
 }
 
 void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec *vec) {
+        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec) {
     const unsigned coord0_pe = coord0 / vec->dim0_per_pe;
     const unsigned coord0_offset = coord0 % vec->dim0_per_pe;
 
@@ -55,8 +55,8 @@ void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
             coord1_word, coord1_mask, coord0_pe);
 }
 
-void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec *vec,
-        hvr_dist_bitvec_local_subcopy *out) {
+void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec_t *vec,
+        hvr_dist_bitvec_local_subcopy_t *out) {
     out->coord0 = UINT_MAX;
     out->dim1 = vec->dim1;
     out->dim1_length_in_words = vec->dim1_length_in_words;
@@ -68,7 +68,7 @@ void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec *vec,
 }
 
 void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec *vec, hvr_dist_bitvec_local_subcopy *out) {
+        hvr_dist_bitvec_t *vec, hvr_dist_bitvec_local_subcopy_t *out) {
     out->coord0 = coord0;
     const unsigned coord0_pe = coord0 / vec->dim0_per_pe;
     assert(coord0_pe == shmem_my_pe());
@@ -83,7 +83,7 @@ void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,
 }
 
 int hvr_dist_bitvec_local_subcopy_contains(hvr_dist_bitvec_size_t coord1,
-        hvr_dist_bitvec_local_subcopy *vec) {
+        hvr_dist_bitvec_local_subcopy_t *vec) {
     const unsigned coord1_word = coord1 / BITS_PER_ELE;
     const unsigned coord1_bit = coord1 % BITS_PER_WORD;
     unsigned coord1_mask = (1U << coord1_bit);
@@ -95,23 +95,21 @@ int hvr_dist_bitvec_local_subcopy_contains(hvr_dist_bitvec_size_t coord1,
 }
 
 int hvr_dist_bitvec_owning_pe(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec *vec) {
+        hvr_dist_bitvec_t *vec) {
     return coord0 / vec->dim0_per_pe;
 }
 
 void hvr_dist_bitvec_my_chunk(hvr_dist_bitvec_size_t *lower,
-        hvr_dist_bitvec_size_t *upper, hvr_dist_bitvec *vec,
-        hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    *lower = ctx->pe * vec->dim0_per_pe;
-    *upper = (ctx->pe + 1) * vec->dim0_per_pe;
+        hvr_dist_bitvec_size_t *upper, hvr_dist_bitvec_t *vec) {
+    *lower = shmem_my_pe() * vec->dim0_per_pe;
+    *upper = (shmem_my_pe() + 1) * vec->dim0_per_pe;
 
     if (*lower > vec->dim0) *lower = vec->dim0;
     if (*upper > vec->dim0) *upper = vec->dim0;
 }
 
-void hvr_dist_bitvec_local_subcopy_copy(hvr_dist_bitvec_local_subcopy *dst,
-        hvr_dist_bitvec_local_subcopy *src) {
+void hvr_dist_bitvec_local_subcopy_copy(hvr_dist_bitvec_local_subcopy_t *dst,
+        hvr_dist_bitvec_local_subcopy_t *src) {
     assert(dst->dim1 == src->dim1);
     assert(dst->dim1_length_in_words == src->dim1_length_in_words);
 

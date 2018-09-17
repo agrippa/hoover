@@ -122,7 +122,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
     const unsigned bucket = CACHE_BUCKET(vert->id);
     memcpy(&new_node->vert, vert, sizeof(*vert));
-    new_node->min_dist_from_local_vertex
+    new_node->min_dist_from_local_vertex = min_dist_from_local_vertex;
 
     // Insert into the appropriate bucket
     if (cache->buckets[bucket]) {

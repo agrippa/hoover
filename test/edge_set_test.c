@@ -10,13 +10,13 @@ void assert_only_edge_not_set(unsigned i, unsigned j, hvr_edge_set_t *set) {
     for (unsigned ii = 0; ii < 10; ii++) {
         for (unsigned jj = 0; jj < 10; jj++) {
             if (ii == i && jj == j) {
-                if (hvr_have_edge(ii, jj, set) != 0) {
+                if (hvr_have_edge(ii, jj, set) == BIDIRECTIONAL) {
                     fprintf(stderr, "Expected edge (%u, %u) to not be set, but "
                             "was.\n", ii, jj);
                     abort();
                 }
             } else {
-                if (hvr_have_edge(ii, jj, set) != 1) {
+                if (hvr_have_edge(ii, jj, set) == NO_EDGE) {
                     fprintf(stderr, "Expected edge (%u, %u) to be set, but "
                             "was not.\n", ii, jj);
                     abort();
@@ -30,13 +30,13 @@ void assert_only_edge_set(unsigned i, unsigned j, hvr_edge_set_t *set) {
     for (unsigned ii = 0; ii < 10; ii++) {
         for (unsigned jj = 0; jj < 10; jj++) {
             if (ii == i && jj == j) {
-                if (hvr_have_edge(ii, jj, set) != 1) {
+                if (hvr_have_edge(ii, jj, set) == BIDIRECTIONAL) {
                     fprintf(stderr, "Expected edge (%u, %u) to be set, but "
                             "was not.\n", ii, jj);
                     abort();
                 }
             } else {
-                if (hvr_have_edge(ii, jj, set) != 0) {
+                if (hvr_have_edge(ii, jj, set) == NO_EDGE) {
                     fprintf(stderr, "Expected edge (%u, %u) to not be set, but "
                             "was.\n", ii, jj);
                     abort();
@@ -51,22 +51,22 @@ int main(int argc, char **argv) {
 
     for (unsigned i = 0; i < 10; i++) {
         for (unsigned j = 0; j < 10; j++) {
-            assert(hvr_have_edge(i, j, set) == 0);
+            assert(hvr_have_edge(i, j, set) == NO_EDGE);
         }
     }
 
     for (unsigned i = 0; i < 10; i++) {
         for (unsigned j = 0; j < 10; j++) {
-            hvr_add_edge(i, j, set);
+            hvr_add_edge(i, j, BIDIRECTIONAL, set);
 
-            if (hvr_have_edge(i, j, set) != 1) {
+            if (hvr_have_edge(i, j, set) == BIDIRECTIONAL) {
                 printf("Expected to find (%d, %d) in set:\n", i, j);
                 hvr_print_edge_set(set);
                 abort();
             }
 
             if (j < 9) {
-                assert(hvr_have_edge(i, j + 1, set) == 0);
+                assert(hvr_have_edge(i, j + 1, set) == NO_EDGE);
             }
         }
     }
@@ -75,33 +75,33 @@ int main(int argc, char **argv) {
 
     for (unsigned i = 0; i < 10; i++) {
         for (unsigned j = 0; j < 10; j++) {
-            assert(hvr_have_edge(i, j, set) == 0);
+            assert(hvr_have_edge(i, j, set) == NO_EDGE);
         }
     }
 
-    hvr_add_edge(5, 5, set);
+    hvr_add_edge(5, 5, BIDIRECTIONAL, set);
     assert_only_edge_set(5, 5, set);
     hvr_clear_edge_set(set);
 
-    hvr_add_edge(3, 6, set);
+    hvr_add_edge(3, 6, BIDIRECTIONAL, set);
     assert_only_edge_set(3, 6, set);
 
     hvr_clear_edge_set(set);
 
     for (unsigned i = 0; i < 10; i++) {
         for (unsigned j = 0; j < 10; j++) {
-            assert(hvr_have_edge(i, j, set) == 0);
+            assert(hvr_have_edge(i, j, set) == NO_EDGE);
         }
     }
 
     for (int i = 1; i < 10; i += 2) {
-        hvr_add_edge(5, i, set);
+        hvr_add_edge(5, i, BIDIRECTIONAL, set);
     }
     for (int i = 0; i < 10; i++) {
         if (i % 2 == 0) {
-            assert(hvr_have_edge(5, i, set) == 0);
+            assert(hvr_have_edge(5, i, set) == NO_EDGE);
         } else {
-            if (hvr_have_edge(5, i, set) != 1) {
+            if (hvr_have_edge(5, i, set) == NO_EDGE) {
                 fprintf(stderr, "Expected edge (5, %d) but it wasn't there.\n",
                         i);
                 hvr_print_edge_set(set);
