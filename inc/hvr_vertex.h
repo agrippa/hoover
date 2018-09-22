@@ -74,6 +74,8 @@ extern int hvr_vertex_get_owning_pe(hvr_vertex_t *vec);
 extern void hvr_vertex_add(hvr_vertex_t *dst, hvr_vertex_t *src,
         hvr_ctx_t in_ctx);
 
+extern int hvr_vertex_equal(hvr_vertex_t *a, hvr_vertex_t *b, hvr_ctx_t in_ctx);
+
 #ifdef __cplusplus
 }
 #endif

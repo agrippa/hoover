@@ -145,3 +145,27 @@ void hvr_vertex_add(hvr_vertex_t *dst, hvr_vertex_t *src, hvr_ctx_t ctx) {
         hvr_vertex_set(src_features[i], src_val + dst_val, dst, ctx);
     }
 }
+
+int hvr_vertex_equal(hvr_vertex_t *a, hvr_vertex_t *b, hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    unsigned a_n_features, b_n_features;
+    unsigned a_features[HVR_MAX_VECTOR_SIZE],
+             b_features[HVR_MAX_VECTOR_SIZE];
+    hvr_vertex_unique_features(a, a_features, &a_n_features);
+    hvr_vertex_unique_features(b, b_features, &b_n_features);
+
+    if (a_n_features != b_n_features) {
+        return 0;
+    }
+
+    for (unsigned i = 0; i < a_n_features; i++) {
+        if (a_features[i] != b_features[i]) {
+            return 0;
+        }
+        if (hvr_vertex_get(a_features[i], a, ctx) !=
+                hvr_vertex_get(b_features[i], b, ctx)) {
+            return 0;
+        }
+    }
+    return 1;
+}

@@ -85,7 +85,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
             if (hvr_vertex_get(2, neighbor, ctx)) {
                 const int infected_by = hvr_vertex_get_owning_pe(neighbor);
                 hvr_set_insert(infected_by, couple_with);
-                fprintf(stderr, "PE %d coupling with PE %d\n", shmem_my_pe(), infected_by);
+                // fprintf(stderr, "PE %d coupling with PE %d\n", shmem_my_pe(), infected_by);
                 hvr_vertex_set(2, 1.0, vertex, ctx);
                 break;
             }
@@ -180,9 +180,9 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     }
 
     unsigned long long this_time = hvr_current_time_us();
-    fprintf(stderr, "PE %d - set %lu / %u - %f ms\n", pe, nset,
-            grid_cells_this_pe,
-            last_time == 0 ? 0 : (double)(this_time - last_time) / 1000.0);
+    // fprintf(stderr, "PE %d - set %lu / %u - %f ms\n", pe, nset,
+    //         grid_cells_this_pe,
+    //         last_time == 0 ? 0 : (double)(this_time - last_time) / 1000.0);
     last_time = this_time;
 
     // Only really makes sense when running on one PE for testing
@@ -203,8 +203,10 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     hvr_vertex_set(1, (double)grid_cells_this_pe, out_coupled_metric, ctx);
 
     if (nset == grid_cells_this_pe) {
-        // return 1;
-        return 0;
+        return 1;
+    // } else if (shmem_my_pe() == shmem_n_pes() - 1 &&
+    //         nset == grid_dim * grid_dim) {
+    //     return 1;
     } else {
         return 0;
     }

@@ -193,14 +193,20 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t mailbox;
     hvr_mailbox_t partition_mailbox;
     hvr_mailbox_t forward_mailbox;
+    hvr_mailbox_t dead_mailbox;
 
-    hvr_dist_bitvec_t global_partition_registry_subscribers;
-    hvr_dist_bitvec_t global_partition_registry_producers;
+    hvr_dist_bitvec_t partition_subscribers;
+    hvr_dist_bitvec_t partition_producers;
+    hvr_dist_bitvec_t terminated_pes;
 
-    hvr_dist_bitvec_local_subcopy_t *local_partition_membership_subscribers;
-    hvr_dist_bitvec_local_subcopy_t *local_partition_membership_producers;
+    hvr_dist_bitvec_local_subcopy_t *local_partition_subscribers;
+    hvr_dist_bitvec_local_subcopy_t *local_partition_producers;
+    hvr_dist_bitvec_local_subcopy_t *local_partition_terminated;
     hvr_dist_bitvec_local_subcopy_t tmp_local_partition_membership;
     hvr_dist_bitvec_local_subcopy_t tmp_local_partition_membership2;
+
+    hvr_dist_bitvec_local_subcopy_t **producer_info;
+    hvr_dist_bitvec_local_subcopy_t **dead_info;
 
     hvr_set_t *full_partition_set;
 

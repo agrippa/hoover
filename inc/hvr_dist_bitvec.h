@@ -70,6 +70,9 @@ extern void hvr_dist_bitvec_local_subcopy_copy(
         hvr_dist_bitvec_local_subcopy_t *dst,
         hvr_dist_bitvec_local_subcopy_t *src);
 
+extern void hvr_dist_bitvec_local_subcopy_destroy(
+        hvr_dist_bitvec_local_subcopy_t *c);
+
 #ifdef __cplusplus
 }
 #endif
