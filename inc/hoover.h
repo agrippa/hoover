@@ -137,6 +137,7 @@ typedef struct _hvr_internal_ctx_t {
     // Used to write traces of the simulation out, for later visualization
     int dump_mode;
     FILE *dump_file;
+    FILE *edges_dump_file;
 
     /*
      * Strict mode forces a global barrier on every iteration of the simulation.
@@ -205,8 +206,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_local_subcopy_t tmp_local_partition_membership;
     hvr_dist_bitvec_local_subcopy_t tmp_local_partition_membership2;
 
-    hvr_dist_bitvec_local_subcopy_t **producer_info;
-    hvr_dist_bitvec_local_subcopy_t **dead_info;
+    hvr_dist_bitvec_local_subcopy_t *producer_info;
+    hvr_dist_bitvec_local_subcopy_t *dead_info;
 
     hvr_set_t *full_partition_set;
 

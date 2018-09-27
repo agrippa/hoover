@@ -18,6 +18,10 @@ extern "C" {
 typedef struct _hvr_vertex_cache_node_t {
     // Contents of the vec itself
     hvr_vertex_t vert;
+
+    // Partition for this vert. Think of this as a secondary key, after vert.id
+    hvr_partition_t part;
+
     /*
      * Number of edges that separate this vertex from closest vertex stored
      * locally on the current PE. Is zero for local vertices.
@@ -31,8 +35,15 @@ typedef struct _hvr_vertex_cache_node_t {
      * If this node is not allocated and is sitting in the free pool, pointers
      * to the next/prev node in the pool of free nodes.
      */
-    struct _hvr_vertex_cache_node_t *next;
-    struct _hvr_vertex_cache_node_t *prev;
+    struct _hvr_vertex_cache_node_t *bucket_next;
+    struct _hvr_vertex_cache_node_t *bucket_prev;
+
+    /*
+     * Maintain lists of mirrored vertices in each partition to enable quick
+     * iteration over a subset of mirrored vertices based on partition.
+     */
+    struct _hvr_vertex_cache_node_t *partition_next;
+    struct _hvr_vertex_cache_node_t *partition_prev;
 
     /*
      * For allocated nodes, construct a doubly-linked list with a total ordering
@@ -51,6 +62,9 @@ typedef struct _hvr_vertex_cache_node_t {
 typedef struct _hvr_vertex_cache_t {
     // Lists of vertices by vertex hash
     hvr_vertex_cache_node_t *buckets[HVR_CACHE_BUCKETS];
+
+    hvr_vertex_cache_node_t **partitions;
+    hvr_partition_t npartitions;
 
     /*
      * Pool of pre-allocated but unused vertex data structures. Used
@@ -82,7 +96,8 @@ typedef struct _hvr_vertex_cache_t {
  * cache is assumed to point to a block of memory of at least
  * sizeof(hvr_vertex_cache_t) bytes.
  */
-void hvr_vertex_cache_init(hvr_vertex_cache_t *cache);
+extern void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
+        hvr_partition_t npartitions);
 
 /*
  * Given a vertex ID on a remote PE, look up that vertex in our local cache.
@@ -92,11 +107,12 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache);
  * May lead to evictions of very old cache entries that we now consider unusable
  * because of their age, as judged by CACHED_TIMESTEPS_TOLERANCE.
  */
-hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
+extern hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
         hvr_vertex_cache_t *cache);
 
-hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
-        unsigned min_dist_from_local_vertex, hvr_vertex_cache_t *cache);
+extern hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
+        hvr_partition_t part, unsigned min_dist_from_local_vertex,
+        hvr_vertex_cache_t *cache);
 
 #ifdef __cplusplus
 }

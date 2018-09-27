@@ -37,13 +37,15 @@ void hvr_vertex_set(const unsigned feature, const double val,
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     assert(VERTEX_ID_PE(vert->id) == ctx->pe ||
             vert->id == HVR_INVALID_VERTEX_ID);
-    vert->last_modify_iter = ctx->iter;
 
     const unsigned size = vert->size;
     for (unsigned i = 0; i < size; i++) {
         if (vert->features[i] == feature) {
             // Replace
-            vert->values[i] = val;
+            if (val != vert->values[i]) {
+                vert->last_modify_iter = ctx->iter;
+                vert->values[i] = val;
+            }
             return;
         }
     }
@@ -51,7 +53,8 @@ void hvr_vertex_set(const unsigned feature, const double val,
     assert(size < HVR_MAX_VECTOR_SIZE); // Can hold one more feature
     vert->features[size] = feature;
     vert->values[size] = val;
-    vert->size += 1;
+    vert->size = size + 1;
+    vert->last_modify_iter = ctx->iter;
 }
 
 double hvr_vertex_get(const unsigned feature, hvr_vertex_t *vert,

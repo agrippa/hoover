@@ -4,8 +4,16 @@
 
 #include "hvr_vertex_cache.h"
 
-void hvr_vertex_cache_init(hvr_vertex_cache_t *cache) {
+void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
+        hvr_partition_t npartitions) {
     memset(cache, 0x00, sizeof(*cache));
+
+    cache->partitions = (hvr_vertex_cache_node_t **)malloc(
+            npartitions * sizeof(hvr_vertex_cache_node_t *));
+    assert(cache->partitions);
+    memset(cache->partitions, 0x00,
+            npartitions * sizeof(hvr_vertex_cache_node_t *));
+    cache->npartitions = npartitions;
 
     unsigned n_preallocs = 1024;
     if (getenv("HVR_VEC_CACHE_PREALLOCS")) {
@@ -17,13 +25,13 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache) {
     assert(prealloc);
     memset(prealloc, 0x00, n_preallocs * sizeof(*prealloc));
 
-    prealloc[0].next = prealloc + 1;
-    prealloc[0].prev = NULL;
-    prealloc[n_preallocs - 1].next = NULL;
-    prealloc[n_preallocs - 1].prev = prealloc + (n_preallocs - 2);
+    prealloc[0].bucket_next = prealloc + 1;
+    prealloc[0].bucket_prev = NULL;
+    prealloc[n_preallocs - 1].bucket_next = NULL;
+    prealloc[n_preallocs - 1].bucket_prev = prealloc + (n_preallocs - 2);
     for (unsigned i = 1; i < n_preallocs - 1; i++) {
-        prealloc[i].next = prealloc + (i + 1);
-        prealloc[i].prev = prealloc + (i - 1);
+        prealloc[i].bucket_next = prealloc + (i + 1);
+        prealloc[i].bucket_prev = prealloc + (i - 1);
     }
     cache->pool_head = prealloc + 0;
     cache->pool_size = n_preallocs;
@@ -44,7 +52,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
     hvr_vertex_cache_node_t *iter = cache->buckets[bucket];
     while (iter) {
         if (iter->vert.id == vert) break;
-        iter = iter->next;
+        iter = iter->bucket_next;
     }
 
     if (iter == NULL) {
@@ -94,25 +102,28 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
 // }
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
-        unsigned min_dist_from_local_vertex, hvr_vertex_cache_t *cache) {
+        hvr_partition_t part, unsigned min_dist_from_local_vertex,
+        hvr_vertex_cache_t *cache) {
     // Assume that vec is not already in the cache, but don't enforce this
     hvr_vertex_cache_node_t *new_node = NULL;
     if (cache->pool_head) {
         // Look for an already free node
         new_node = cache->pool_head;
-        cache->pool_head = new_node->next;
+        cache->pool_head = new_node->bucket_next;
         if (cache->pool_head) {
-            cache->pool_head->prev = NULL;
+            cache->pool_head->bucket_prev = NULL;
         }
-    // } else if (cache->lru_tail && !cache->lru_tail->pending_comm) { 
-    //     /*
-    //      * Find the oldest requested node, check it isn't pending communication,
-    //      * and if so use it.
-    //      */
-    //     new_node = cache->lru_tail;
+#if 0
+    } else if (cache->lru_tail) { 
+        /*
+         * Find the oldest requested node, check it isn't pending communication,
+         * and if so use it.
+         */
+        new_node = cache->lru_tail;
 
-    //     // Removes node from bucket and LRU lists
-    //     remove_node_from_cache(new_node, cache);
+        // Removes node from bucket and LRU lists
+        remove_node_from_cache(new_node, cache);
+#endif
     } else {
         // No valid node found, print an error
         fprintf(stderr, "ERROR: PE %d exhausted %u cache slots\n",
@@ -126,11 +137,19 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
     // Insert into the appropriate bucket
     if (cache->buckets[bucket]) {
-        cache->buckets[bucket]->prev = new_node;
+        cache->buckets[bucket]->bucket_prev = new_node;
     }
-    new_node->next = cache->buckets[bucket];
-    new_node->prev = NULL;
+    new_node->bucket_next = cache->buckets[bucket];
+    new_node->bucket_prev = NULL;
     cache->buckets[bucket] = new_node;
+
+    // Insert into the appropriate partition list
+    if (cache->partitions[part]) {
+        cache->partitions[part]->partition_prev = new_node;
+    }
+    new_node->partition_next = cache->partitions[part];
+    new_node->partition_prev = NULL;
+    cache->partitions[part] = new_node;
 
     // Insert into the LRU list
     new_node->lru_prev = NULL;

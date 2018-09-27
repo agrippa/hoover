@@ -1,16 +1,21 @@
 #include "hoover.h"
 #include "hvr_vertex_iter.h"
 
+/*
+ * Don't iterate over vertices that were created during our current internal
+ * iteration, as they will not have updated edge information.
+ */
 static int is_valid_vertex(hvr_vertex_t *vertex, hvr_vertex_iter_t *iter) {
-    return 1;
+    return iter->include_all || vertex->creation_iter < iter->ctx->iter;
 }
 
 static void hvr_vertex_iter_init_helper(hvr_vertex_iter_t *iter,
-        hvr_internal_ctx_t *ctx) {
+        hvr_internal_ctx_t *ctx, int include_all) {
     iter->current_chunk = ctx->pool->used_list;
     iter->index_for_current_chunk = 0;
     iter->pool = ctx->pool;
     iter->ctx = ctx;
+    iter->include_all = include_all;
 
     // May be NULL if no vertices are allocated yet
     if (iter->current_chunk) {
@@ -24,7 +29,12 @@ static void hvr_vertex_iter_init_helper(hvr_vertex_iter_t *iter,
 }
 
 void hvr_vertex_iter_init(hvr_vertex_iter_t *iter, hvr_internal_ctx_t *ctx) {
-    hvr_vertex_iter_init_helper(iter, ctx);
+    hvr_vertex_iter_init_helper(iter, ctx, 0);
+}
+
+void hvr_vertex_iter_all_init(hvr_vertex_iter_t *iter,
+        hvr_internal_ctx_t *ctx) {
+    hvr_vertex_iter_init_helper(iter, ctx, 1);
 }
 
 hvr_vertex_t *hvr_vertex_iter_next(hvr_vertex_iter_t *iter) {
