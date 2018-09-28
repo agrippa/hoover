@@ -36,16 +36,15 @@ static int npes, pe;
 long long total_time = 0;
 long long max_elapsed = 0;
 long long elapsed_time = 0;
-hvr_graph_id_t graph = HVR_INVALID_GRAPH;
 
 long long p_wrk[SHMEM_REDUCE_MIN_WRKDATA_SIZE];
 long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 
 static unsigned grid_cells_this_pe;
 
-hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
-    const double row = hvr_sparse_vec_get(0, actor, ctx);
-    const double col = hvr_sparse_vec_get(1, actor, ctx);
+hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
+    const double row = hvr_vertex_get(0, actor, ctx);
+    const double col = hvr_vertex_get(1, actor, ctx);
 
     const double partition_size = (double)grid_dim / (double)PARTITION_DIM;
 
@@ -55,34 +54,39 @@ hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
     return partition;
 }
 
-int should_have_edge(hvr_sparse_vec_t *a, hvr_sparse_vec_t *b, hvr_ctx_t ctx) {
-    double delta0 = hvr_sparse_vec_get(0, b, ctx) - hvr_sparse_vec_get(0, a, ctx);
-    double delta1 = hvr_sparse_vec_get(1, b, ctx) - hvr_sparse_vec_get(1, a, ctx);
+hvr_edge_type_t should_have_edge(hvr_vertex_t *a, hvr_vertex_t *b, hvr_ctx_t ctx) {
+    double delta0 = hvr_vertex_get(0, b, ctx) - hvr_vertex_get(0, a, ctx);
+    double delta1 = hvr_vertex_get(1, b, ctx) - hvr_vertex_get(1, a, ctx);
     if (delta0 * delta0 + delta1 * delta1 <=
             CONNECTIVITY_THRESHOLD * CONNECTIVITY_THRESHOLD) {
-        return 1;
+        return BIDIRECTIONAL;
     } else {
-        return 0;
+        return NO_EDGE;
     }
 }
 
+unsigned add_until = VERT_MULTIPLIER;
 void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     /*
      * On each time step <= VERT_MULTIPLIER, insert a random vertex in the grid
      * on this PE.
      */
-    if (hvr_current_timestep(ctx) <= VERT_MULTIPLIER) {
-        hvr_sparse_vec_t *new_vertex = hvr_sparse_vec_create_n(1, graph, ctx);
+    if (ctx->iter <= add_until) {
+        hvr_vertex_t *new_vertex = hvr_vertex_create(ctx);
         double rand_row = grid_dim * ((double)rand() / (double)RAND_MAX);
         double rand_col = grid_dim * ((double)rand() / (double)RAND_MAX);
-        hvr_sparse_vec_set(0, rand_row, new_vertex, ctx);
-        hvr_sparse_vec_set(1, rand_col, new_vertex, ctx);
-        hvr_sparse_vec_set(2, 1, new_vertex, ctx); // Initialize to be infected
+        hvr_vertex_set(0, rand_row, new_vertex, ctx);
+        hvr_vertex_set(1, rand_col, new_vertex, ctx);
+        hvr_vertex_set(2, 1, new_vertex, ctx); // Initialize to be infected
     } else {
         // Otherwise, delete a vertex at random
-        hvr_sparse_vec_t *vec = hvr_vertex_iter_next(iter);
-        assert(vec);
-        hvr_sparse_vec_delete_n(vec, 1, ctx);
+        hvr_vertex_t *vec = hvr_vertex_iter_next(iter);
+        if (vec) {
+            hvr_vertex_delete(vec, ctx);
+        } else {
+            // Switch back to adding vertices
+            add_until = ctx->iter + VERT_MULTIPLIER;
+        }
     }
 }
 
@@ -90,71 +94,27 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
  * Callback for the HOOVER runtime for updating positional or logical metadata
  * attached to each vertex based on the updated neighbors on each time step.
  */
-void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
-        const size_t n_neighbors, hvr_set_t *couple_with, hvr_ctx_t ctx) {
+void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
+        hvr_ctx_t ctx) {
     /*
      * If vertex is not already infected, update it to be infected if any of its
      * neighbors are.
      */
-    if (hvr_sparse_vec_get(2, vertex, ctx) == 0.0) {
+    if (hvr_vertex_get(2, vertex, ctx) == 0.0) {
+        hvr_vertex_id_t *neighbors;
+        hvr_edge_type_t *directions;
+        size_t n_neighbors;
+        hvr_get_neighbors(vertex, &neighbors, &directions, &n_neighbors, ctx);
+
         for (int i = 0; i < n_neighbors; i++) {
-            if (hvr_sparse_vec_get(2, &neighbors[i], ctx)) {
-                const int infected_by = hvr_sparse_vec_get_owning_pe(
-                        &neighbors[i]);
+            hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i], ctx);
+            if (hvr_vertex_get(2, neighbor, ctx)) {
+                const int infected_by = hvr_vertex_get_owning_pe(neighbor);
                 hvr_set_insert(infected_by, couple_with);
-                hvr_sparse_vec_set(2, 1.0, vertex, ctx);
+                hvr_vertex_set(2, 1.0, vertex, ctx);
                 break;
             }
         }
-    }
-}
-
-int update_summary_data(void *summary, hvr_sparse_vec_t *actors,
-        const int nactors, hvr_ctx_t ctx) {
-    hvr_sparse_vec_t *mins = ((hvr_sparse_vec_t *)summary) + 0;
-    hvr_sparse_vec_t *maxs = ((hvr_sparse_vec_t *)summary) + 1;
-    double existing_minx, existing_miny, existing_maxx, existing_maxy;
-    existing_minx = existing_miny = existing_maxx = existing_maxy = 0.0;
-
-    const int first_timestep = (hvr_current_timestep(ctx) == 1);
-
-    if (!first_timestep) {
-        existing_minx = hvr_sparse_vec_get(0, mins, ctx);
-        existing_miny = hvr_sparse_vec_get(1, mins, ctx);
-        existing_maxx = hvr_sparse_vec_get(0, maxs, ctx);
-        existing_maxy = hvr_sparse_vec_get(1, maxs, ctx);
-    }
-
-    assert(nactors > 0);
-    double minx = hvr_sparse_vec_get(0, &actors[0], ctx);
-    double maxx = minx;
-    double miny = hvr_sparse_vec_get(1, &actors[0], ctx);
-    double maxy = miny;
-
-    // For each vertex on this PE
-    for (unsigned i = 1; i < nactors; i++) {
-        hvr_sparse_vec_t *curr = actors + i;
-        double currx = hvr_sparse_vec_get(0, curr, ctx);
-        double curry = hvr_sparse_vec_get(1, curr, ctx);
-
-        if (currx < minx) minx = currx;
-        if (currx > maxx) maxx = currx;
-        if (curry < miny) miny = curry;
-        if (curry > maxy) maxy = curry;
-    }
-
-    if (first_timestep || existing_minx != minx || existing_miny != miny ||
-            existing_maxx != maxx || existing_maxy != maxy) {
-
-        hvr_sparse_vec_init(mins, HVR_INVALID_GRAPH, ctx);
-        hvr_sparse_vec_init(maxs, HVR_INVALID_GRAPH, ctx);
-        hvr_sparse_vec_set(0, minx, mins, ctx);
-        hvr_sparse_vec_set(1, miny, mins, ctx);
-        hvr_sparse_vec_set(0, maxx, maxs, ctx);
-        hvr_sparse_vec_set(1, maxy, maxs, ctx);
-        return 1; // summary data changed
-    } else {
-        return 0; // no change
     }
 }
 
@@ -225,50 +185,27 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
     return count_interacting_partitions > 0;
 }
 
-static unsigned long long last_time = 0;
-
 /*
  * Callback used by the HOOVER runtime to check if this PE can abort out of the
  * simulation.
  */
 int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_set_t *to_couple_with,
-        hvr_sparse_vec_t *out_coupled_metric) {
+        hvr_vertex_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
     size_t nset = 0;
     size_t ntotal = 0;
-    hvr_sparse_vec_t *vert = hvr_vertex_iter_next(iter);
+    hvr_vertex_t *vert = hvr_vertex_iter_next(iter);
     while (vert) {
-        if (hvr_sparse_vec_get(2, vert, ctx) > 0.0) {
+        if (hvr_vertex_get(2, vert, ctx) > 0.0) {
             nset++;
         }
         ntotal++;
         vert = hvr_vertex_iter_next(iter);
     }
 
-    unsigned long long this_time = hvr_current_time_us();
-    printf("PE %d - timestep %lu - set %lu / %lu - %f ms\n", pe,
-            (uint64_t)hvr_current_timestep(ctx), nset,
-            ntotal,
-            last_time == 0 ? 0 : (double)(this_time - last_time) / 1000.0);
-    last_time = this_time;
-
-    // Only really makes sense when running on one PE for testing
-    // printf("\nPE %d - timestep %lu:\n", pe, hvr_current_timestep(ctx));
-    // for (int i = grid_dim - 1; i >= 0; i--) {
-    //     printf("  ");
-    //     for (int j = 0; j < grid_dim; j++) {
-    //         if (hvr_sparse_vec_get(2, &vertices[i * grid_dim + j], ctx) > 0.0) {
-    //             printf(" 1");
-    //         } else {
-    //             printf(" 0");
-    //         }
-    //     }
-    //     printf("\n");
-    // }
-
-    hvr_sparse_vec_set(0, (double)nset, out_coupled_metric, ctx);
-    hvr_sparse_vec_set(1, (double)ntotal, out_coupled_metric, ctx);
+    hvr_vertex_set(0, (double)nset, out_coupled_metric, ctx);
+    hvr_vertex_set(1, (double)ntotal, out_coupled_metric, ctx);
 
     return 0;
 }
@@ -276,10 +213,8 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    int num_timesteps = 20;
-    if (argc == 3) {
+    if (argc == 2) {
         grid_dim = atoi(argv[1]);
-        num_timesteps = atoi(argv[2]);
     }
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
@@ -288,7 +223,6 @@ int main(int argc, char **argv) {
 
     shmem_init();
     hvr_ctx_create(&hvr_ctx);
-    graph = hvr_graph_create(hvr_ctx);
 
     pe = shmem_my_pe();
     npes = shmem_n_pes();
@@ -326,49 +260,50 @@ int main(int argc, char **argv) {
      *  1: column of this cell
      *  2: whether this cell has been "infected" by its neighbors
      */
-    hvr_sparse_vec_t *vertices = hvr_sparse_vec_create_n(
-            grid_cell_end - grid_cell_start, graph, hvr_ctx);
+    hvr_vertex_t *vertices = hvr_vertex_create_n(
+            grid_cell_end - grid_cell_start, hvr_ctx);
     for (hvr_vertex_id_t vertex = grid_cell_start; vertex < grid_cell_end;
             vertex++) {
         const hvr_vertex_id_t row = vertex / grid_dim;
         const hvr_vertex_id_t col = vertex % grid_dim;
 
-        hvr_sparse_vec_set(0, (double)row, &vertices[vertex - grid_cell_start],
+        hvr_vertex_set(0, (double)row, &vertices[vertex - grid_cell_start],
                 hvr_ctx);
-        hvr_sparse_vec_set(1, (double)col, &vertices[vertex - grid_cell_start],
+        hvr_vertex_set(1, (double)col, &vertices[vertex - grid_cell_start],
                 hvr_ctx);
         if (pe == 0 && vertex == grid_cell_start) {
             // Initialze just the cell at (0, 0) as infected.
-            hvr_sparse_vec_set(2, 1.0, &vertices[vertex - grid_cell_start],
+            hvr_vertex_set(2, 1.0, &vertices[vertex - grid_cell_start],
                     hvr_ctx);
         } else {
-            hvr_sparse_vec_set(2, 0.0, &vertices[vertex - grid_cell_start],
+            hvr_vertex_set(2, 0.0, &vertices[vertex - grid_cell_start],
                     hvr_ctx);
         }
     }
 
     // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
     hvr_init(PARTITION_DIM * PARTITION_DIM,
-            update_metadata, might_interact, check_abort,
-            actor_to_partition, start_time_step, should_have_edge, &graph, 1,
-            num_timesteps, hvr_ctx);
+            update_metadata,
+            might_interact,
+            check_abort,
+            actor_to_partition,
+            start_time_step,
+            should_have_edge,
+            20,
+            1,
+            hvr_ctx);
 
-    const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);
-    elapsed_time = hvr_current_time_us() - start_time;
 
-    shmem_longlong_sum_to_all(&total_time, &elapsed_time, 1, 0, 0, npes, p_wrk,
-            p_sync);
-    shmem_barrier_all();
-    shmem_longlong_max_to_all(&max_elapsed, &elapsed_time, 1, 0, 0, npes, p_wrk,
-            p_sync);
-    shmem_barrier_all();
-
-    if (pe == 0) {
-        fprintf(stderr, "%d PEs, total CPU time = %f ms, max elapsed = %f ms, ~%u cells "
-                "per PE\n", npes, (double)total_time / 1000.0,
-                (double)max_elapsed / 1000.0, cells_per_pe);
+    unsigned count = 0;
+    hvr_vertex_iter_t iter;
+    hvr_vertex_iter_init(&iter, hvr_ctx);
+    for (hvr_vertex_t *curr = hvr_vertex_iter_next(&iter); curr;
+            curr = hvr_vertex_iter_next(&iter)) {
+        count++;
     }
+    printf("PE %d has %u local vertices at end after %u iterations\n",
+            shmem_my_pe(), count, hvr_ctx->iter);
 
     hvr_finalize(hvr_ctx);
 

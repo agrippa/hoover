@@ -42,8 +42,8 @@ typedef struct _hvr_vertex_cache_node_t {
      * Maintain lists of mirrored vertices in each partition to enable quick
      * iteration over a subset of mirrored vertices based on partition.
      */
-    struct _hvr_vertex_cache_node_t *partition_next;
-    struct _hvr_vertex_cache_node_t *partition_prev;
+    struct _hvr_vertex_cache_node_t *part_next;
+    struct _hvr_vertex_cache_node_t *part_prev;
 
     /*
      * For allocated nodes, construct a doubly-linked list with a total ordering
@@ -112,6 +112,9 @@ extern hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
 
 extern hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         hvr_partition_t part, unsigned min_dist_from_local_vertex,
+        hvr_vertex_cache_t *cache);
+
+extern void hvr_vertex_cache_delete(hvr_vertex_t *vert,
         hvr_vertex_cache_t *cache);
 
 #ifdef __cplusplus

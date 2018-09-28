@@ -118,5 +118,4 @@ void hvr_dist_bitvec_local_subcopy_copy(hvr_dist_bitvec_local_subcopy_t *dst,
 
 void hvr_dist_bitvec_local_subcopy_destroy(hvr_dist_bitvec_local_subcopy_t *c) {
     free(c->subvec);
-    free(c);
 }

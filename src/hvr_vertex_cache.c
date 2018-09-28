@@ -63,43 +63,64 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
     return iter;
 }
 
-// static void remove_node_from_cache(hvr_sparse_vec_cache_node_t *iter,
-//         hvr_sparse_vec_cache_t *cache) {
-//     const unsigned bucket = CACHE_BUCKET(iter->vert);
-//     assert(iter->pending_comm == 0);
-// 
-//     // Need to fix the prev and next elements in this
-//     if (iter->prev == NULL && iter->next == NULL) {
-//         assert(cache->buckets[bucket] == iter);
-//         cache->buckets[bucket] = NULL;
-//     } else if (iter->next == NULL) {
-//         iter->prev->next = NULL;
-//     } else if (iter->prev == NULL) {
-//         cache->buckets[bucket] = iter->next;
-//         iter->next->prev = NULL;
-//     } else {
-//         iter->prev->next = iter->next;
-//         iter->next->prev = iter->prev;
-//     }
-// 
-//     // Then remove from the LRU list
-//     if (iter->lru_prev == NULL && iter->lru_next == NULL) {
-//         assert(cache->lru_head == iter && cache->lru_tail == iter);
-//         cache->lru_head = NULL;
-//         cache->lru_tail = NULL;
-//     } else if (iter->lru_next == NULL) {
-//         assert(cache->lru_tail == iter);
-//         cache->lru_tail = iter->lru_prev;
-//         iter->lru_prev->lru_next = NULL;
-//     } else if (iter->lru_prev == NULL) {
-//         assert(cache->lru_head == iter);
-//         cache->lru_head = iter->lru_next;
-//         iter->lru_next->lru_prev = NULL;
-//     } else {
-//         iter->lru_prev->lru_next = iter->lru_next;
-//         iter->lru_next->lru_prev = iter->lru_prev;
-//     }
-// }
+static void linked_list_remove_helper(hvr_vertex_cache_node_t *to_remove,
+        hvr_vertex_cache_node_t *prev, hvr_vertex_cache_node_t *next,
+        hvr_vertex_cache_node_t **prev_next,
+        hvr_vertex_cache_node_t **next_prev,
+        hvr_vertex_cache_node_t **head) {
+    if (prev == NULL && next == NULL) {
+        // Only element in the list
+        assert(*head == to_remove);
+        *head = NULL;
+    } else if (prev == NULL) {
+        // Only next is non-null, first element in list
+        assert(*head == to_remove);
+        *next_prev = NULL;
+        *head = next;
+    } else if (next == NULL) {
+        // Only prev is non-null, last element in list
+        *prev_next = NULL;
+    } else {
+        assert(prev && next);
+        assert(*prev_next == *next_prev && *prev_next == to_remove &&
+            *next_prev == to_remove);
+        *prev_next = next;
+        *next_prev = prev;
+    }
+}
+
+void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
+    hvr_vertex_cache_node_t *node = hvr_vertex_cache_lookup(vert->id, cache);
+    assert(node);
+
+    // Remove from buckets list
+    unsigned bucket = CACHE_BUCKET(vert->id);
+    linked_list_remove_helper(node, node->bucket_prev, node->bucket_next,
+            node->bucket_prev ? &(node->bucket_prev->bucket_next) : NULL,
+            node->bucket_next ? &(node->bucket_next->bucket_prev) : NULL,
+            &(cache->buckets[bucket]));
+
+    // Remove from partitions list
+    linked_list_remove_helper(node, node->part_prev, node->part_next,
+            node->part_prev ? &(node->part_prev->part_next) : NULL,
+            node->part_next ? &(node->part_next->part_prev) : NULL,
+            &(cache->partitions[node->part]));
+
+    // Remove from LRU list
+    if (cache->lru_tail == node) cache->lru_tail = node->lru_prev;
+    linked_list_remove_helper(node, node->lru_prev, node->lru_next,
+            node->lru_prev ? &(node->lru_prev->lru_next) : NULL,
+            node->lru_next ? &(node->lru_next->lru_prev) : NULL,
+            &(cache->lru_head));
+
+    // Insert into pool using bucket pointers
+    if (cache->pool_head) {
+        cache->pool_head->bucket_prev = node;
+    }
+    node->bucket_next = cache->pool_head;
+    node->bucket_prev = NULL;
+    cache->pool_head = node;
+}
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         hvr_partition_t part, unsigned min_dist_from_local_vertex,
@@ -134,6 +155,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     const unsigned bucket = CACHE_BUCKET(vert->id);
     memcpy(&new_node->vert, vert, sizeof(*vert));
     new_node->min_dist_from_local_vertex = min_dist_from_local_vertex;
+    new_node->part = part;
 
     // Insert into the appropriate bucket
     if (cache->buckets[bucket]) {
@@ -145,10 +167,10 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
     // Insert into the appropriate partition list
     if (cache->partitions[part]) {
-        cache->partitions[part]->partition_prev = new_node;
+        cache->partitions[part]->part_prev = new_node;
     }
-    new_node->partition_next = cache->partitions[part];
-    new_node->partition_prev = NULL;
+    new_node->part_next = cache->partitions[part];
+    new_node->part_prev = NULL;
     cache->partitions[part] = new_node;
 
     // Insert into the LRU list

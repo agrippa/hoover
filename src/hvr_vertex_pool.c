@@ -126,7 +126,9 @@ static hvr_vertex_range_node_t *add_to_range(unsigned start_index,
         // Merge with both, both must be non-NULL
         prev->length += (nvecs + next->length);
         prev->next = next->next;
-        next->next->prev = prev;
+        if (next->next) {
+            next->next->prev = prev;
+        }
         free(next);
         new_head = list_head;
     } else if ((prev == NULL ||

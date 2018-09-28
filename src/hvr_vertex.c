@@ -5,6 +5,9 @@
 #include "hoover.h"
 #include "hvr_vertex_pool.h"
 
+extern void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
+        int is_delete, hvr_internal_ctx_t *ctx);
+
 hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
     return hvr_alloc_vertices(1, (hvr_internal_ctx_t *)in_ctx);
 }
@@ -15,6 +18,10 @@ hvr_vertex_t *hvr_vertex_create_n(size_t n, hvr_ctx_t ctx) {
 
 void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+
+    // Notify others of the deletion
+    send_updates_to_all_subscribed_pes(vert, 1, ctx);
+
     hvr_free_vertices(vert, 1, ctx);
 }
 

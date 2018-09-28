@@ -80,6 +80,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_edge_type_t *directions;
         size_t n_neighbors;
         hvr_get_neighbors(vertex, &neighbors, &directions, &n_neighbors, ctx);
+
         for (size_t i = 0; i < n_neighbors; i++) {
             hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i], ctx);
             if (hvr_vertex_get(2, neighbor, ctx)) {
@@ -160,8 +161,6 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
     return count_interacting_partitions > 0;
 }
 
-static unsigned long long last_time = 0;
-
 /*
  * Callback used by the HOOVER runtime to check if this PE can abort out of the
  * simulation.
@@ -179,34 +178,11 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         vert = hvr_vertex_iter_next(iter);
     }
 
-    unsigned long long this_time = hvr_current_time_us();
-    // fprintf(stderr, "PE %d - set %lu / %u - %f ms\n", pe, nset,
-    //         grid_cells_this_pe,
-    //         last_time == 0 ? 0 : (double)(this_time - last_time) / 1000.0);
-    last_time = this_time;
-
-    // Only really makes sense when running on one PE for testing
-    // printf("\nPE %d - timestep %lu:\n", pe, hvr_current_timestep(ctx));
-    // for (int i = grid_dim - 1; i >= 0; i--) {
-    //     printf("  ");
-    //     for (int j = 0; j < grid_dim; j++) {
-    //         if (hvr_sparse_vec_get(2, &vertices[i * grid_dim + j], ctx) > 0.0) {
-    //             printf(" 1");
-    //         } else {
-    //             printf(" 0");
-    //         }
-    //     }
-    //     printf("\n");
-    // }
-
     hvr_vertex_set(0, (double)nset, out_coupled_metric, ctx);
     hvr_vertex_set(1, (double)grid_cells_this_pe, out_coupled_metric, ctx);
 
     if (nset == grid_cells_this_pe) {
         return 1;
-    // } else if (shmem_my_pe() == shmem_n_pes() - 1 &&
-    //         nset == grid_dim * grid_dim) {
-    //     return 1;
     } else {
         return 0;
     }

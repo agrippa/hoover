@@ -87,4 +87,6 @@ static inline size_t get_symm_pool_nelements() {
     return symm_pool_nelements;
 }
 
+typedef struct _hvr_vertex_update_t hvr_vertex_update_t;
+
 #endif

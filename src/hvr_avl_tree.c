@@ -114,9 +114,29 @@ void hvr_tree_destroy(hvr_avl_tree_node_t *curr) {
 
 size_t hvr_tree_linearize(hvr_vertex_id_t **arr, hvr_edge_type_t **directions,
         hvr_avl_tree_node_t *curr) {
-    *arr = curr->linearized;
-    *directions = curr->linearized_edges;
+    /*
+     * Set up our static buffers so that we aren't traversing over a changing
+     * array.
+     */
+    static hvr_vertex_id_t *copy_arr = NULL;
+    static hvr_edge_type_t *copy_directions = NULL;
+    static unsigned copy_capacity = 0;
 
+    if (copy_capacity < curr->linearized_length) {
+        copy_capacity = curr->linearized_length;
+        copy_arr = (hvr_vertex_id_t *)realloc(copy_arr,
+                copy_capacity * sizeof(*copy_arr));
+        copy_directions = (hvr_edge_type_t *)realloc(copy_directions,
+                copy_capacity * sizeof(*copy_directions));
+        assert(copy_arr && copy_directions);
+    }
+
+    memcpy(copy_arr, curr->linearized,
+            curr->linearized_length * sizeof(*copy_arr));
+    memcpy(copy_directions, curr->linearized_edges,
+            curr->linearized_length * sizeof(*copy_directions));
+    *arr = copy_arr;
+    *directions = copy_directions;
     return curr->linearized_length;
 }
 

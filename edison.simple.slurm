@@ -70,15 +70,7 @@ cd $SCRATCH
 # export HVR_SYMM_POOL_SIZE=40000
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/add_vertices_test 40 $MAX_NUM_TIMESTEPS
-
-# echo ""
-# echo "RUNNING MULTI GRAPH TEST"
-# echo ""
-# export HVR_SYMM_POOL_SIZE=40000
-# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/multi_graph_test 40 $MAX_NUM_TIMESTEPS
+#     $HOME/hoover/bin/add_vertices_test 40
 
 # echo ""
 # echo "RUNNING REMOVE VERTICES TEST"
@@ -86,7 +78,15 @@ cd $SCRATCH
 # export HVR_SYMM_POOL_SIZE=40000
 # srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/remove_vertices_test 40 $MAX_NUM_TIMESTEPS
+#     $HOME/hoover/bin/remove_vertices_test 40
+
+echo ""
+echo "RUNNING OWN EDGE TEST"
+echo ""
+export HVR_SYMM_POOL_SIZE=40000
+srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/own_edge_test
 
 # echo ""
 # echo "RUNNING LOCK STRESS TEST"
