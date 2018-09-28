@@ -64,7 +64,9 @@ extern void hvr_vertex_unique_features(hvr_vertex_t *vert,
 extern void hvr_vertex_dump(hvr_vertex_t *vert, char *buf,
         const size_t buf_size, hvr_ctx_t ctx);
 
-
+/*
+ * Get the PE that allocated and owns this vertex.
+ */
 extern int hvr_vertex_get_owning_pe(hvr_vertex_t *vec);
 
 /*
@@ -74,7 +76,19 @@ extern int hvr_vertex_get_owning_pe(hvr_vertex_t *vec);
 extern void hvr_vertex_add(hvr_vertex_t *dst, hvr_vertex_t *src,
         hvr_ctx_t in_ctx);
 
+/*
+ * Check if two vertices are identical. To be identical, they must have the same
+ * number of attributes, the same attributes, and the same value for each
+ * attribute.
+ */
 extern int hvr_vertex_equal(hvr_vertex_t *a, hvr_vertex_t *b, hvr_ctx_t in_ctx);
+
+/*
+ * Force update_metadata to be called on this vertex and any neighbors on the
+ * next iteration. This can be used as a way to trigger work, even if an update
+ * hasn't been made to the vertices attributes.
+ */
+extern void hvr_vertex_trigger_update(hvr_vertex_t *vert, hvr_ctx_t in_ctx);
 
 #ifdef __cplusplus
 }
