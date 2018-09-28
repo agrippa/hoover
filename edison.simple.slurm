@@ -55,6 +55,16 @@ cd $SCRATCH
 #     $HOME/hoover/bin/init_test 50
 
 # echo ""
+# echo "RUNNING INTERACT TEST"
+# echo ""
+# export HVR_SYMM_POOL_SIZE=40000
+# export HVR_VEC_CACHE_PREALLOCS=60000
+# export HVR_DISABLE_PROFILING_PRINTS=1
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/interact_test
+
+# echo ""
 # echo "RUNNING ADD VERTICES TEST"
 # echo ""
 # export HVR_SYMM_POOL_SIZE=40000
@@ -99,10 +109,3 @@ cd $SCRATCH
 #     $HOME/hoover/bin/hvr_dist_bitvec_test
 
 # srun --ntasks=1 $HOME/hoover/bin/vertex_test
-
-export HVR_SYMM_POOL_SIZE=40000
-export HVR_VEC_CACHE_PREALLOCS=60000
-export HVR_DISABLE_PROFILING_PRINTS=1
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/interact_test
