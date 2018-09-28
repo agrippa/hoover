@@ -175,14 +175,12 @@ typedef struct _hvr_internal_ctx_t {
 
     // List of local vertices in each partition
     hvr_vertex_t **local_partition_lists;
-    unsigned *local_partition_lists_lengths;
 
     /*
      * List of locally mirrored vertices in each partition (actually points into
      * vec_cache).
      */
     hvr_vertex_t **mirror_partition_lists;
-    unsigned *mirror_partition_lists_lengths;
 
     unsigned *partition_min_dist_from_local_vertex;
 

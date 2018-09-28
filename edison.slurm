@@ -34,8 +34,6 @@ export CORES_PER_SOCKET=12
 export SOCKETS_PER_NODE=2
 export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
-export HVR_TRACE_DUMP=1
-
 # export HVR_DEFAULT_SPARSE_VEC_VAL=0.0
 # srun --ntasks=1 ./bin/sparse_vec_test
 
@@ -50,10 +48,9 @@ export BASE_ACTORS_PER_CELL=20
 
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 1 node
-    # export CELL_DIM=4000.0
+    export CELL_DIM=4000.0
     # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 1024))
-    export CELL_DIM=100.0
-    export ACTORS_PER_CELL=100
+    export ACTORS_PER_CELL=1024
     export PE_ROWS=4
     export PE_COLS=6
 elif [[ $SLURM_NNODES -eq 4 ]]; then
@@ -99,8 +96,11 @@ export MAX_NUM_TIMESTEPS=100
 export INFECTION_RADIUS=10.0
 export MAX_DELTA_VELOCITY=0.01
 
-export HVR_SYMM_POOL_SIZE=60000
-export HVR_VEC_CACHE_PREALLOCS=60000
+export HVR_SYMM_POOL_SIZE=2457600
+export HVR_VEC_CACHE_PREALLOCS=120000
+
+# export HVR_TRACE_DUMP=1
+# export HVR_DISABLE_PROFILING_PRINTS=1
 
 cd $SCRATCH
 

@@ -191,7 +191,7 @@ static hvr_partition_t wrap_actor_to_partition(hvr_vertex_t *vec,
 
 static void update_vertex_partitions_for_vertex(hvr_vertex_t *curr,
         hvr_internal_ctx_t *ctx, hvr_vertex_t **partition_lists,
-        unsigned *partition_lists_lengths, unsigned dist_from_local_vertex) {
+        unsigned dist_from_local_vertex) {
     assert(curr->id != HVR_INVALID_VERTEX_ID);
     hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
 
@@ -203,7 +203,6 @@ static void update_vertex_partitions_for_vertex(hvr_vertex_t *curr,
         curr->next_in_partition = NULL;
         partition_lists[partition] = curr;
     }
-    partition_lists_lengths[partition] += 1;
 
     if (dist_from_local_vertex <
             ctx->partition_min_dist_from_local_vertex[partition]) {
@@ -223,12 +222,8 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
      */
     memset(ctx->local_partition_lists, 0x00,
             sizeof(hvr_vertex_t *) * ctx->n_partitions);
-    memset(ctx->local_partition_lists_lengths, 0x00,
-            sizeof(unsigned) * ctx->n_partitions);
     memset(ctx->mirror_partition_lists, 0x00,
             sizeof(hvr_vertex_t *) * ctx->n_partitions);
-    memset(ctx->mirror_partition_lists_lengths, 0x00,
-            sizeof(unsigned) * ctx->n_partitions);
     memset(ctx->partition_min_dist_from_local_vertex, 0xff,
             sizeof(unsigned) * ctx->n_partitions);
 
@@ -237,8 +232,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
     for (hvr_vertex_t *curr = hvr_vertex_iter_next(&iter); curr;
             curr = hvr_vertex_iter_next(&iter)) {
         update_vertex_partitions_for_vertex(curr, ctx,
-                ctx->local_partition_lists, ctx->local_partition_lists_lengths,
-                0);
+                ctx->local_partition_lists, 0);
     }
 
     for (unsigned i = 0; i < HVR_CACHE_BUCKETS; i++) {
@@ -246,7 +240,6 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
         while (iter) {
             update_vertex_partitions_for_vertex(&iter->vert, ctx,
                     ctx->mirror_partition_lists,
-                    ctx->mirror_partition_lists_lengths,
                     iter->min_dist_from_local_vertex);
             iter = iter->bucket_next;
         }
@@ -627,16 +620,10 @@ void hvr_init(const hvr_partition_t n_partitions,
     new_ctx->local_partition_lists = (hvr_vertex_t **)malloc(
             sizeof(hvr_vertex_t *) * new_ctx->n_partitions);
     assert(new_ctx->local_partition_lists);
-    new_ctx->local_partition_lists_lengths = (unsigned *)malloc(
-            sizeof(unsigned) * new_ctx->n_partitions);
-    assert(new_ctx->local_partition_lists_lengths);
 
     new_ctx->mirror_partition_lists = (hvr_vertex_t **)malloc(
             sizeof(hvr_vertex_t *) * new_ctx->n_partitions);
     assert(new_ctx->mirror_partition_lists);
-    new_ctx->mirror_partition_lists_lengths = (unsigned *)malloc(
-            sizeof(unsigned) * new_ctx->n_partitions);
-    assert(new_ctx->mirror_partition_lists_lengths);
 
     new_ctx->partition_min_dist_from_local_vertex = (unsigned *)malloc(
             sizeof(unsigned) * new_ctx->n_partitions);

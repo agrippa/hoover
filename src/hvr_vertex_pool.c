@@ -99,7 +99,6 @@ static hvr_vertex_range_node_t *remove_from_range(unsigned start_index,
     } else {
         assert(0);
     }
-    assert(new_head);
 
     return new_head;
 }
