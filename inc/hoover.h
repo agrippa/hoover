@@ -59,9 +59,15 @@ typedef void (*hvr_start_time_step)(hvr_vertex_iter_t *iter, hvr_ctx_t ctx);
  * API for checking if the simulation for this PE should be aborted based on the
  * status of vertices on this PE.
  */
-typedef int (*hvr_check_abort_func)(hvr_vertex_iter_t *iter,
-        hvr_ctx_t ctx, hvr_set_t *to_couple_with,
-        hvr_vertex_t *out_coupled_metric);
+typedef void (*hvr_update_coupled_val_func)(hvr_vertex_iter_t *iter,
+        hvr_ctx_t ctx, hvr_vertex_t *out_coupled_metric);
+
+/*
+ * Callback to check if this PE should leave the simulation.
+ */
+typedef int (*hvr_should_terminate_func)(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_vertex_t *local_coupled_val, hvr_vertex_t *global_coupled_val,
+        hvr_set_t *coupled_pes, int n_coupled_pes);
 
 /*
  * API for checking if this PE might have any vertices that interact with
@@ -119,10 +125,11 @@ typedef struct _hvr_internal_ctx_t {
     // User callbacks
     hvr_update_metadata_func update_metadata;
     hvr_might_interact_func might_interact;
-    hvr_check_abort_func check_abort;
+    hvr_update_coupled_val_func update_coupled_val;
     hvr_actor_to_partition actor_to_partition;
     hvr_should_have_edge should_have_edge;
     hvr_start_time_step start_time_step;
+    hvr_should_terminate_func should_terminate;
 
     // Limit on execution time
     unsigned long long max_elapsed_seconds;
@@ -229,10 +236,11 @@ extern hvr_graph_id_t hvr_graph_create(hvr_ctx_t ctx);
 extern void hvr_init(const hvr_partition_t n_partitions,
         hvr_update_metadata_func update_metadata,
         hvr_might_interact_func might_interact,
-        hvr_check_abort_func check_abort,
+        hvr_update_coupled_val_func update_coupled_val,
         hvr_actor_to_partition actor_to_partition,
         hvr_start_time_step start_time_step,
         hvr_should_have_edge should_have_edge,
+        hvr_should_terminate_func should_terminate,
         unsigned long long max_elapsed_seconds,
         unsigned max_graph_traverse_depth,
         hvr_ctx_t ctx);

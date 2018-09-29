@@ -54,14 +54,14 @@ typedef struct _pattern_count_t {
 } pattern_count_t;
 
 typedef struct _timestamped_pattern_count_t {
-    hvr_time_t timestamp;
+    hvr_time_t iter;
     unsigned n_patterns;
     pattern_count_t patterns[N_PATTERNS_SHARED];
 } timestamped_pattern_count_t;
 
 // Timing variables
 static unsigned long long start_time = 0;
-static unsigned long long time_limit_us = 0;
+static unsigned long long time_limit_s = 0;
 static long long elapsed_time = 0;
 static long long max_elapsed, total_time;
 
@@ -69,9 +69,6 @@ static long long max_elapsed, total_time;
 static int pe, npes;
 long long p_wrk[SHMEM_REDUCE_MIN_WRKDATA_SIZE];
 long p_sync[SHMEM_REDUCE_SYNC_SIZE];
-
-// HOOVER variables
-static hvr_graph_id_t graph = HVR_INVALID_GRAPH;
 
 // Application variables
 static double distance_threshold = 1.0;
@@ -263,7 +260,7 @@ static void subgraph_add_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
     graph->adjacency_matrix.matrix[b_index][a_index] = 1;
 }
 
-static inline void explore_subgraphs(hvr_vertex_id_t last_added,
+static inline void explore_subgraphs(hvr_vertex_t *last_added,
         subgraph_t *curr_state,
         pattern_count_t *known_patterns,
         std::set<int> **pes_sharing_local_patterns,
@@ -336,35 +333,25 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
          * structure (addition of a vertex and/or edge). If it does, make that
          * change and explore further.
          */
-        const unsigned long long start_get_neighbors = hvr_current_time_us();
-        hvr_vertex_id_t *neighbors = NULL;
-        unsigned n_neighbors;
-        int was_local = hvr_sparse_vec_get_neighbors_with_metrics(last_added,
-                ctx, &neighbors, &n_neighbors, count_local_gets,
-                count_remote_gets, count_cached_remote_fetches,
-                count_uncached_remote_fetches);
-        if (was_local) {
-            *accum_local_get_neighbors_time += (hvr_current_time_us() -
-                    start_get_neighbors);
-        } else {
-            *accum_remote_get_neighbors_time += (hvr_current_time_us() -
-                    start_get_neighbors);
-        }
+        hvr_vertex_id_t *neighbors;
+        hvr_edge_type_t *directions;
+        size_t n_neighbors;
+        hvr_get_neighbors(last_added, &neighbors, &directions, &n_neighbors, ctx);
 
         for (unsigned j = 0; j < n_neighbors; j++) {
-            hvr_vertex_id_t neighbor = neighbors[j];
+            hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[j], ctx);
 
-            if (already_in_subgraph(neighbor, curr_state)) {
+            if (already_in_subgraph(neighbor->id, curr_state)) {
                 /*
                  * 'neighbor' is already in the subgraph (as is
                  * 'existing_vertex'). If the edge
                  * 'neighbor'<->'existing_vertex' is already in the subgraph, do
                  * nothing. Otherwise, add it and iterate.
                  */
-                if (!subgraph_has_edge(neighbor, last_added, curr_state)) {
+                if (!subgraph_has_edge(neighbor->id, last_added->id, curr_state)) {
                     subgraph_t new_state;
                     memcpy(&new_state, curr_state, sizeof(new_state));
-                    subgraph_add_edge(neighbor, last_added, &new_state);
+                    subgraph_add_edge(neighbor->id, last_added->id, &new_state);
                     explore_subgraphs(neighbor, &new_state, known_patterns,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
                             n_explores, curr_depth + 1, max_depth,
@@ -382,9 +369,9 @@ static inline void explore_subgraphs(hvr_vertex_id_t last_added,
                     subgraph_t new_state;
                     memcpy(&new_state, curr_state, sizeof(new_state));
                     new_state.vertices[new_state.adjacency_matrix.n_vertices] =
-                        neighbor;
+                        neighbor->id;
                     new_state.adjacency_matrix.n_vertices += 1;
-                    subgraph_add_edge(neighbor, last_added, &new_state);
+                    subgraph_add_edge(neighbor->id, last_added->id, &new_state);
                     explore_subgraphs(neighbor, &new_state, known_patterns,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
                             n_explores, curr_depth + 1, max_depth,
@@ -404,29 +391,30 @@ static unsigned score_pattern(pattern_count_t *pattern) {
     return pattern->count * adjacency_matrix_n_edges(&pattern->matrix);
 }
 
-hvr_partition_t actor_to_partition(hvr_sparse_vec_t *actor, hvr_ctx_t ctx) {
-    unsigned feat1_partition = (unsigned)hvr_sparse_vec_get(0, actor, ctx) /
+hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
+    unsigned feat1_partition = (unsigned)hvr_vertex_get(0, actor, ctx) /
         partitions_size[0];
-    unsigned feat2_partition = (unsigned)hvr_sparse_vec_get(1, actor, ctx) /
+    unsigned feat2_partition = (unsigned)hvr_vertex_get(1, actor, ctx) /
         partitions_size[1];
-    unsigned feat3_partition = (unsigned)hvr_sparse_vec_get(2, actor, ctx) /
+    unsigned feat3_partition = (unsigned)hvr_vertex_get(2, actor, ctx) /
         partitions_size[2];
     return feat1_partition * partitions_by_dim[1] * partitions_by_dim[2] +
         feat2_partition * partitions_by_dim[2] + feat3_partition;
 }
 
-int should_have_edge(hvr_sparse_vec_t *a, hvr_sparse_vec_t *b, hvr_ctx_t ctx) {
-    const double delta0 = hvr_sparse_vec_get(0, b, ctx) -
-        hvr_sparse_vec_get(0, a, ctx);
-    const double delta1 = hvr_sparse_vec_get(1, b, ctx) -
-        hvr_sparse_vec_get(1, a, ctx);
-    const double delta2 = hvr_sparse_vec_get(2, b, ctx) -
-        hvr_sparse_vec_get(2, a, ctx);
+hvr_edge_type_t should_have_edge(hvr_vertex_t *a, hvr_vertex_t *b,
+        hvr_ctx_t ctx) {
+    const double delta0 = hvr_vertex_get(0, b, ctx) -
+        hvr_vertex_get(0, a, ctx);
+    const double delta1 = hvr_vertex_get(1, b, ctx) -
+        hvr_vertex_get(1, a, ctx);
+    const double delta2 = hvr_vertex_get(2, b, ctx) -
+        hvr_vertex_get(2, a, ctx);
     if (delta0 * delta0 + delta1 * delta1 + delta2 * delta2 <=
             distance_threshold * distance_threshold) {
-        return 1;
+        return BIDIRECTIONAL;
     } else {
-        return 0;
+        return NO_EDGE;
     }
 }
 
@@ -443,8 +431,8 @@ static void update_patterns_from(timestamped_pattern_count_t *tmp_buffer,
      * more recent than ours
      */
     for (int i = 0; i < npes; i++) {
-        if (neighbor_patterns_buffer[i].timestamp >
-                tmp_buffer[i].timestamp) {
+        if (neighbor_patterns_buffer[i].iter >
+                tmp_buffer[i].iter) {
             memcpy(&tmp_buffer[i], &neighbor_patterns_buffer[i],
                     sizeof(timestamped_pattern_count_t));
         }
@@ -482,8 +470,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     const unsigned n_vertices_to_add = min_n_vertices_to_add +
         (rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
 
-    hvr_sparse_vec_t *new_vertices = hvr_sparse_vec_create_n(n_vertices_to_add,
-            graph, ctx);
+    hvr_vertex_t *new_vertices = hvr_vertex_create_n(n_vertices_to_add,
+            ctx);
     n_local_vertices += n_vertices_to_add;
 
     for (unsigned i = 0; i < n_vertices_to_add; i++) {
@@ -502,9 +490,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
         feat2 = MIN(feat2, domain_dim[1] - 1);
         feat3 = MIN(feat3, domain_dim[2] - 1);
 
-        hvr_sparse_vec_set(0, feat1, &new_vertices[i], ctx);
-        hvr_sparse_vec_set(1, feat2, &new_vertices[i], ctx);
-        hvr_sparse_vec_set(2, feat3, &new_vertices[i], ctx);
+        hvr_vertex_set(0, feat1, &new_vertices[i], ctx);
+        hvr_vertex_set(1, feat2, &new_vertices[i], ctx);
+        hvr_vertex_set(2, feat3, &new_vertices[i], ctx);
     }
 
     /*
@@ -525,7 +513,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     unsigned long long accum_local_get_neighbors_time = 0;
     unsigned long long accum_remote_get_neighbors_time = 0;
     unsigned long long accum_tracking_time = 0;
-    for (hvr_sparse_vec_t *vertex = hvr_vertex_iter_next(iter); vertex;
+    for (hvr_vertex_t *vertex = hvr_vertex_iter_next(iter); vertex;
             vertex = hvr_vertex_iter_next(iter)) {
         assert(vertex->id != HVR_INVALID_VERTEX_ID);
 
@@ -537,7 +525,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
 
         unsigned n_this_explores = 0;
         unsigned max_depth = 4;
-        explore_subgraphs(vertex->id, &sub, known_local_patterns,
+        explore_subgraphs(vertex, &sub, known_local_patterns,
             pes_sharing_local_patterns, &n_known_local_patterns, ctx,
             &n_this_explores, 0, max_depth, &n_local_gets, &n_remote_gets,
             &n_cached_remote_fetches, &n_uncached_remote_fetches,
@@ -551,13 +539,13 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     const unsigned long long end_search = hvr_current_time_us();
 
     if (n_known_local_patterns > 0) {
-        printf("PE %d found %u patterns on timestep %d using %d "
+        printf("PE %d found %u patterns on iter %d using %d "
                 "visits, %f ms to search (%f ms spent on local and %f ms on "
                 "remote neighbor fetching, %f "
                 "counting patterns), %u local vertices in total. Best "
                 "score = %u, vertex count = %u, edge count = %u. # local gets "
                 "= %u, # remote gets = %u, (cached|uncached)remote fetches = (%u|%u).\n",
-                pe, n_known_local_patterns, hvr_current_timestep(ctx),
+                pe, n_known_local_patterns, ctx->iter,
                 n_explores, (double)(end_search - start_search) / 1000.0,
                 (double)accum_local_get_neighbors_time / 1000.0,
                 (double)accum_remote_get_neighbors_time / 1000.0,
@@ -574,9 +562,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * Update my remotely accessible best patterns from the patterns I just
      * computed locally and my neighbors' patterns
      */
-
     memcpy(best_patterns_buffer, best_patterns, npes * sizeof(*best_patterns));
-    best_patterns_buffer[pe].timestamp = hvr_current_timestep(ctx);
+    best_patterns_buffer[pe].iter = ctx->iter;
     best_patterns_buffer[pe].n_patterns = MIN(N_PATTERNS_SHARED,
             n_known_local_patterns);
     memcpy(best_patterns_buffer[pe].patterns, known_local_patterns,
@@ -626,8 +613,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     sort_patterns_by_score(sorted_best_patterns, n_sorted_best_patterns);
 }
 
-void update_metadata(hvr_sparse_vec_t *vertex, hvr_sparse_vec_t *neighbors,
-        const size_t n_neighbors, hvr_set_t *couple_with, hvr_ctx_t ctx) {
+void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
+        hvr_ctx_t ctx) {
     /*
      * NOOP. Vertices never move, and so we never need to use this to update
      * their features.
@@ -707,8 +694,8 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
     return (*n_interacting_partitions > 0);
 }
 
-int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_set_t *to_couple_with, hvr_sparse_vec_t *out_coupled_metric) {
+void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_vertex_t *out_coupled_metric) {
 
     /*
      * Find anomalies based on the patterns in sorted_best_patterns. If
@@ -762,7 +749,7 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         } else if (is_similar_to_a_frequent_pattern >= 0) {
             // char buf[1024];
             printf("PE %d found potentially anomalous pattern on "
-                    "timestep %d!\n", pe, hvr_current_timestep(ctx));
+                    "iter %d!\n", pe, ctx->iter);
 
             // if (pe_anomalies_fp == NULL) {
             //     sprintf(buf, "pe_%d.anomalies.txt", pe);
@@ -803,24 +790,27 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     }
 
     // TODO anything useful we'd like to use the coupled metric for?
-    hvr_sparse_vec_set(0, 0.0, out_coupled_metric, ctx);
+    hvr_vertex_set(0, 0.0, out_coupled_metric, ctx);
 
     unsigned long long time_so_far = hvr_current_time_us() - start_time;
-    printf("PE %d - check_abort - elapsed time = %f s, time limit = "
+    printf("PE %d - elapsed time = %f s, time limit = "
             "%f s, # local vertices = %u, # local patterns = %u, # frequent "
             "patterns = %u, # exact pattern matches = %u, # times distance too "
-            "high = %u, avg distance too high = %f, aborting? %d\n", pe,
+            "high = %u, avg distance too high = %f\n", pe,
             (double)time_so_far / 1000000.0,
-            (double)time_limit_us / 1000000.0,
+            (double)time_limit_s,
             n_local_vertices,
             n_known_local_patterns,
             n_sorted_best_patterns,
             count_frequent_pattern_matches,
             count_distance_too_high,
-            avg_distance_too_high / (double)count_distance_too_high,
-            (time_so_far > time_limit_us));
+            avg_distance_too_high / (double)count_distance_too_high);
+}
 
-    return (time_so_far > time_limit_us);
+int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_vertex_t *local_coupled_val, hvr_vertex_t *global_coupled_val,
+        hvr_set_t *coupled_pes, int n_coupled_pes) {
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -836,7 +826,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    time_limit_us = atoi(argv[1]) * 1000 * 1000;
+    time_limit_s = atoi(argv[1]);
     distance_threshold = atof(argv[2]);
     domain_dim[0] = atoi(argv[3]);
     domain_dim[1] = atoi(argv[4]);
@@ -908,19 +898,19 @@ int main(int argc, char **argv) {
             max_point[1], max_point[2]);
 
     hvr_ctx_create(&hvr_ctx);
-    graph = hvr_graph_create(hvr_ctx);
 
     srand(123 + pe);
 
     hvr_init(TOTAL_PARTITIONS, // # partitions
             update_metadata,
             might_interact,
-            check_abort,
+            update_coupled_val,
             actor_to_partition,
             start_time_step,
             should_have_edge,
-            &graph, 1,
-            HVR_MAX_TIMESTAMP,
+            should_terminate,
+            time_limit_s,
+            MAX_SUBGRAPH_VERTICES,
             hvr_ctx);
 
     best_patterns = (timestamped_pattern_count_t *)shmem_malloc(
@@ -952,7 +942,7 @@ int main(int argc, char **argv) {
 
     *best_patterns_lock = 0;
     for (int i = 0; i < npes; i++) {
-        best_patterns[i].timestamp = -1;
+        best_patterns[i].iter = -1;
     }
 
     shmem_barrier_all();
@@ -975,7 +965,7 @@ int main(int argc, char **argv) {
         printf("%d PEs, total CPU time = %f ms, max elapsed = %f ms, "
                 "%d iterations completed on PE 0\n", npes,
                 (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
-                info.executed_timesteps);
+                info.executed_iters);
     }
 
     hvr_finalize(hvr_ctx);

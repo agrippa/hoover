@@ -31,8 +31,13 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
     return 1;
 }
 
-int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_set_t *to_couple_with, hvr_vertex_t *out_coupled_metric) {
+void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_vertex_t *out_coupled_metric) {
+}
+
+int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_vertex_t *local_coupled_metric, hvr_vertex_t *global_coupled_metric,
+        hvr_set_t *coupled_pes, int n_coupled_pes) {
     return 0;
 }
 
@@ -54,10 +59,11 @@ int main(int argc, char **argv) {
     hvr_init(1,
             update_metadata,
             might_interact,
-            check_abort,
+            update_coupled_val,
             actor_to_partition,
             NULL, // start_time_step
             should_have_edge,
+            should_terminate,
             5, // max_elapsed_seconds
             1, // max_graph_traverse_depth
             hvr_ctx);

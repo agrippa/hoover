@@ -189,8 +189,7 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
  * Callback used by the HOOVER runtime to check if this PE can abort out of the
  * simulation.
  */
-int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_set_t *to_couple_with,
+void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
     size_t nset = 0;
@@ -206,7 +205,11 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 
     hvr_vertex_set(0, (double)nset, out_coupled_metric, ctx);
     hvr_vertex_set(1, (double)ntotal, out_coupled_metric, ctx);
+}
 
+int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_vertex_t *local_coupled_metric, hvr_vertex_t *global_coupled_metric,
+        hvr_set_t *coupled_pes, int n_coupled_pes) {
     return 0;
 }
 
@@ -285,10 +288,11 @@ int main(int argc, char **argv) {
     hvr_init(PARTITION_DIM * PARTITION_DIM,
             update_metadata,
             might_interact,
-            check_abort,
+            update_coupled_val,
             actor_to_partition,
             start_time_step,
             should_have_edge,
+            should_terminate,
             20,
             1,
             hvr_ctx);

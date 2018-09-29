@@ -500,10 +500,11 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
 void hvr_init(const hvr_partition_t n_partitions,
         hvr_update_metadata_func update_metadata,
         hvr_might_interact_func might_interact,
-        hvr_check_abort_func check_abort,
+        hvr_update_coupled_val_func update_coupled_val,
         hvr_actor_to_partition actor_to_partition,
         hvr_start_time_step start_time_step,
         hvr_should_have_edge should_have_edge,
+        hvr_should_terminate_func should_terminate,
         unsigned long long max_elapsed_seconds,
         unsigned max_graph_traverse_depth,
         hvr_ctx_t in_ctx) {
@@ -544,10 +545,11 @@ void hvr_init(const hvr_partition_t n_partitions,
 
     new_ctx->update_metadata = update_metadata;
     new_ctx->might_interact = might_interact;
-    new_ctx->check_abort = check_abort;
+    new_ctx->update_coupled_val = update_coupled_val;
     new_ctx->actor_to_partition = actor_to_partition;
     new_ctx->start_time_step = start_time_step;
     new_ctx->should_have_edge = should_have_edge;
+    new_ctx->should_terminate = should_terminate;
 
     new_ctx->max_elapsed_seconds = max_elapsed_seconds;
 
@@ -1057,6 +1059,10 @@ static unsigned update_vertices(hvr_set_t *to_couple_with,
         }
         n_local_verts++;
     }
+
+    // Update my local information on PEs I am coupled with.
+    hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
+
     return n_local_verts;
 }
 
@@ -1108,20 +1114,14 @@ static unsigned send_updates(hvr_internal_ctx_t *ctx) {
 }
 
 static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
-        hvr_vertex_t *coupled_metric, int *should_abort,
-        hvr_set_t *to_couple_with) {
+        hvr_vertex_t *coupled_metric) {
     // Copy the present value of the coupled metric locally
     shmem_getmem(coupled_metric, ctx->coupled_pes_values + ctx->pe,
             sizeof(*coupled_metric), shmem_my_pe());
 
-    // check_abort callback
     hvr_vertex_iter_t iter;
     hvr_vertex_iter_all_init(&iter, ctx);
-    *should_abort = ctx->check_abort(&iter, ctx, to_couple_with,
-            coupled_metric);
-
-    // Update my local information on PEs I am coupled with.
-    hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
+    ctx->update_coupled_val(&iter, ctx, coupled_metric);
 
     /*
      * Atomically update other PEs that I am coupled with, telling them I am
@@ -1134,10 +1134,6 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                         ctx->coupled_pes->bit_vector + i, p);
                 shmem_ulonglong_atomic_or(ctx->coupled_pes->bit_vector + i,
                         remote_val, shmem_my_pe());
-                        
-                // SHMEM_ULONGLONG_ATOMIC_OR(
-                //         ctx->coupled_pes->bit_vector + i,
-                //         (ctx->coupled_pes->bit_vector)[i], p);
             }
         }
     }
@@ -1148,6 +1144,10 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             sizeof(*coupled_metric), ctx->pe);
     shmem_quiet();
     hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
+
+    // Back up the local contribution to pass to should_terminate
+    hvr_vertex_t local_coupled_metric;
+    memcpy(&local_coupled_metric, coupled_metric, sizeof(local_coupled_metric));
 
     /*
      * For each PE I know I'm coupled with, lock their coupled_timesteps
@@ -1182,7 +1182,27 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         }
     }
 
-    return ncoupled;
+    hvr_vertex_iter_all_init(&iter, ctx);
+    int should_abort = ctx->should_terminate(&iter, ctx, &local_coupled_metric,
+            coupled_metric, ctx->coupled_pes, ncoupled);
+
+    /*
+     * TODO coupled_metric here contains the aggregate values over all
+     * coupled PEs, including this one. Do we want to do anything with this,
+     * other than print it?
+     */
+    if (ncoupled > 1) {
+        char buf[1024];
+        hvr_vertex_dump(coupled_metric, buf, 1024, ctx);
+
+        char coupled_pes_str[1024];
+        hvr_set_to_string(ctx->coupled_pes, coupled_pes_str, 1024, NULL);
+
+        printf("PE %d - computed coupled value {%s} from %d coupled PEs "
+                "(%s)\n", ctx->pe, buf, ncoupled, coupled_pes_str);
+    }
+
+    return should_abort;
 }
 
 hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
@@ -1245,8 +1265,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     unsigned n_received_updates = process_vertex_updates(ctx);
 
     hvr_vertex_t coupled_metric;
-    int should_abort = 0;
-    update_coupled_values(ctx, &coupled_metric, &should_abort, to_couple_with);
+    int should_abort = update_coupled_values(ctx, &coupled_metric);
 
     ctx->iter += 1;
 
@@ -1346,24 +1365,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long end_vertex_updates = hvr_current_time_us();
 
-        unsigned ncoupled = update_coupled_values(ctx, &coupled_metric,
-                &should_abort, to_couple_with);
-
-        /*
-         * TODO coupled_metric here contains the aggregate values over all
-         * coupled PEs, including this one. Do we want to do anything with this,
-         * other than print it?
-         */
-        if (ncoupled > 1) {
-            char buf[1024];
-            hvr_vertex_dump(&coupled_metric, buf, 1024, ctx);
-
-            char coupled_pes_str[1024];
-            hvr_set_to_string(ctx->coupled_pes, coupled_pes_str, 1024, NULL);
-
-            printf("PE %d - computed coupled value {%s} from %d coupled PEs "
-                    "(%s)\n", ctx->pe, buf, ncoupled, coupled_pes_str);
-        }
+        should_abort = update_coupled_values(ctx, &coupled_metric);
 
         const unsigned long long end_update_coupled = hvr_current_time_us();
 

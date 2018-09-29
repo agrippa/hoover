@@ -431,8 +431,7 @@ static unsigned long long last_time = 0;
  * Callback used by the HOOVER runtime to check if this PE can abort out of the
  * simulation.
  */
-int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_set_t *to_couple_with,
+void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
     size_t nset = 0;
@@ -453,7 +452,12 @@ int check_abort(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     last_time = this_time;
 
     hvr_vertex_set(0, (double)nset, out_coupled_metric, ctx);
-    if (nset == actors_per_cell) {
+}
+
+int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_vertex_t *local_coupled_metric, hvr_vertex_t *global_coupled_metric,
+        hvr_set_t *coupled_pes, int n_coupled_pes) {
+    if ((int)hvr_vertex_get(0, local_coupled_metric, ctx) == actors_per_cell) {
         return 0;
         // return 1;
     } else {
@@ -605,10 +609,11 @@ int main(int argc, char **argv) {
     hvr_init(TIME_PARTITION_DIM * Y_PARTITION_DIM * X_PARTITION_DIM,
             update_metadata,
             might_interact,
-            check_abort,
+            update_coupled_val,
             actor_to_partition,
             NULL, // start_time_step
             should_have_edge,
+            should_terminate,
             60, // max_elapsed_seconds
             1, // max_graph_traverse_depth
             hvr_ctx);
