@@ -8,7 +8,7 @@ int main(int argc, char **argv) {
     shmem_init();
 
     const int N = 2000;
-    hvr_dist_bitvec vec;
+    hvr_dist_bitvec_t vec;
     hvr_dist_bitvec_init(N, shmem_n_pes(), &vec);
 
     for (unsigned i = 0; i < N; i += 2) {
@@ -17,12 +17,12 @@ int main(int argc, char **argv) {
 
     shmem_barrier_all();
 
-    hvr_dist_bitvec_local_subcopy copy;
+    hvr_dist_bitvec_local_subcopy_t copy;
     hvr_dist_bitvec_local_subcopy_init(&vec, &copy);
 
     for (unsigned i = 0; i < N; i += 2) {
         for (int j = 0; j < shmem_n_pes(); j++) {
-            if (hvr_dist_bitvec_owning_pe(i, j, &vec) == shmem_my_pe()) {
+            if (hvr_dist_bitvec_owning_pe(i, &vec) == shmem_my_pe()) {
                 hvr_dist_bitvec_copy_locally(i, &vec, &copy);
                 assert(hvr_dist_bitvec_local_subcopy_contains(j, &copy));
             }
@@ -41,7 +41,7 @@ int main(int argc, char **argv) {
 
     for (unsigned i = 0; i < N; i += 2) {
         for (int j = 0; j < shmem_n_pes(); j++) {
-            if (hvr_dist_bitvec_owning_pe(i, j, &vec) == shmem_my_pe()) {
+            if (hvr_dist_bitvec_owning_pe(i, &vec) == shmem_my_pe()) {
                 hvr_dist_bitvec_copy_locally(i, &vec, &copy);
 
                 if (j % 2 == 0) {
@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
 
     for (unsigned i = 0; i < N; i += 2) {
         for (int j = 0; j < shmem_n_pes(); j++) {
-            if (hvr_dist_bitvec_owning_pe(i, j, &vec) == shmem_my_pe()) {
+            if (hvr_dist_bitvec_owning_pe(i, &vec) == shmem_my_pe()) {
                 hvr_dist_bitvec_copy_locally(i, &vec, &copy);
 
                 // Should all have been cleared

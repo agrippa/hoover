@@ -80,13 +80,13 @@ cd $SCRATCH
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/remove_vertices_test 40
 
-echo ""
-echo "RUNNING OWN EDGE TEST"
-echo ""
-export HVR_SYMM_POOL_SIZE=40000
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/own_edge_test
+# echo ""
+# echo "RUNNING OWN EDGE TEST"
+# echo ""
+# export HVR_SYMM_POOL_SIZE=40000
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/own_edge_test
 
 # echo ""
 # echo "RUNNING LOCK STRESS TEST"
@@ -95,17 +95,8 @@ srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
 #     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
 #     $HOME/hoover/bin/write_lock_stress
 
-# export HVR_SYMM_POOL_SIZE=40000
-# export HVR_VEC_CACHE_PREALLOCS=60000
-# export HVR_DISABLE_PROFILING_PRINTS=1
-# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/const_attr_test 20
-
-# srun --ntasks=4 $HOME/hoover/bin/neighbor_test_cross_pe
-
-# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-#     $HOME/hoover/bin/hvr_dist_bitvec_test
+srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+    $HOME/hoover/bin/hvr_dist_bitvec_test
 
 # srun --ntasks=1 $HOME/hoover/bin/vertex_test
