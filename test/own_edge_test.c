@@ -21,14 +21,13 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
 }
 
-int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
+void might_interact(const hvr_partition_t partition,
         hvr_partition_t *interacting_partitions,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity,
         hvr_ctx_t ctx) {
     interacting_partitions[0] = 0;
     *n_interacting_partitions = 1;
-    return 1;
 }
 
 void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
@@ -93,6 +92,7 @@ int main(int argc, char **argv) {
     } else {
         assert(count == 0);
     }
+    printf("%d: Success!\n", shmem_my_pe());
 
     hvr_finalize(hvr_ctx);
 

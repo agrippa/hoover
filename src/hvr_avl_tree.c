@@ -123,7 +123,7 @@ size_t hvr_tree_linearize(hvr_vertex_id_t **arr, hvr_edge_type_t **directions,
     static unsigned copy_capacity = 0;
 
     if (copy_capacity < curr->linearized_length) {
-        copy_capacity = curr->linearized_length;
+        copy_capacity = curr->linearized_length * 2;
         copy_arr = (hvr_vertex_id_t *)realloc(copy_arr,
                 copy_capacity * sizeof(*copy_arr));
         copy_directions = (hvr_edge_type_t *)realloc(copy_directions,

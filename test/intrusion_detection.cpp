@@ -17,6 +17,8 @@
 #include <hoover.h>
 #include <shmem_rw_lock.h>
 
+#define VERBOSE
+
 #define UNIFORM_DIST
 // #define POINT_DIST
 // #define GAUSSIAN_DIST
@@ -509,7 +511,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     unsigned n_remote_gets = 0;
     unsigned n_cached_remote_fetches = 0;
     unsigned n_uncached_remote_fetches = 0;
+#ifdef VERBOSE
     const unsigned long long start_search = hvr_current_time_us();
+#endif
     unsigned long long accum_local_get_neighbors_time = 0;
     unsigned long long accum_remote_get_neighbors_time = 0;
     unsigned long long accum_tracking_time = 0;
@@ -536,9 +540,12 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     }
 
     sort_patterns_by_score(known_local_patterns, n_known_local_patterns);
+#ifdef VERBOSE
     const unsigned long long end_search = hvr_current_time_us();
+#endif
 
     if (n_known_local_patterns > 0) {
+#ifdef VERBOSE
         printf("PE %d found %u patterns on iter %d using %d "
                 "visits, %f ms to search (%f ms spent on local and %f ms on "
                 "remote neighbor fetching, %f "
@@ -556,6 +563,15 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix),
                 n_local_gets, n_remote_gets, n_cached_remote_fetches,
                 n_uncached_remote_fetches);
+#else
+        printf("PE %d found %u patterns on iter %d using %d "
+                "visits, %f ms to search (%f ms spent on local and %f ms on "
+                "remote neighbor fetching, %f "
+                "counting patterns), %u local vertices in total.\n",
+                pe, n_known_local_patterns, ctx->iter,
+                n_explores, 0.0, 0.0, 0.0, 0.0,
+                n_local_vertices);
+#endif
     }
 
     /*
@@ -613,19 +629,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
     sort_patterns_by_score(sorted_best_patterns, n_sorted_best_patterns);
 }
 
-void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
-        hvr_ctx_t ctx) {
-    /*
-     * NOOP. Vertices never move, and so we never need to use this to update
-     * their features.
-     *
-     * Conceivably, HOOVER could use the fact that update_metadata is never used
-     * as an optimization to avoid re-checking vertices which haven't been
-     * updated.
-     */
-}
-
-int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
+void might_interact(const hvr_partition_t partition,
         hvr_partition_t *interacting_partitions,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity,
@@ -680,18 +684,13 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
                     partitions_by_dim[1] * partitions_by_dim[2] +
                     other_feat2_partition * partitions_by_dim[2] +
                     other_feat3_partition;
-                if (hvr_set_contains(this_part, partitions)) {
-                    assert(*n_interacting_partitions + 1 <=
-                            interacting_partitions_capacity);
-                    interacting_partitions[*n_interacting_partitions] =
-                        this_part;
-                    *n_interacting_partitions += 1;
-                }
+                assert(*n_interacting_partitions + 1 <=
+                        interacting_partitions_capacity);
+                interacting_partitions[*n_interacting_partitions] = this_part;
+                *n_interacting_partitions += 1;
             }
         }
     }
-
-    return (*n_interacting_partitions > 0);
 }
 
 void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
@@ -748,8 +747,10 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
             count_frequent_pattern_matches++;
         } else if (is_similar_to_a_frequent_pattern >= 0) {
             // char buf[1024];
+#ifdef VERBOSE
             printf("PE %d found potentially anomalous pattern on "
                     "iter %d!\n", pe, ctx->iter);
+#endif
 
             // if (pe_anomalies_fp == NULL) {
             //     sprintf(buf, "pe_%d.anomalies.txt", pe);
@@ -792,6 +793,7 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     // TODO anything useful we'd like to use the coupled metric for?
     hvr_vertex_set(0, 0.0, out_coupled_metric, ctx);
 
+#ifdef VERBOSE
     unsigned long long time_so_far = hvr_current_time_us() - start_time;
     printf("PE %d - elapsed time = %f s, time limit = "
             "%f s, # local vertices = %u, # local patterns = %u, # frequent "
@@ -805,6 +807,7 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
             count_frequent_pattern_matches,
             count_distance_too_high,
             avg_distance_too_high / (double)count_distance_too_high);
+#endif
 }
 
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
@@ -902,7 +905,7 @@ int main(int argc, char **argv) {
     srand(123 + pe);
 
     hvr_init(TOTAL_PARTITIONS, // # partitions
-            update_metadata,
+            NULL, // update_metadata
             might_interact,
             update_coupled_val,
             actor_to_partition,

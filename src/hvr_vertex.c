@@ -36,7 +36,9 @@ void hvr_vertex_init(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
         vert->id = HVR_INVALID_VERTEX_ID;
     }
     vert->creation_iter = ctx->iter;
-    vert->last_modify_iter = ctx->iter;
+    // Should be sent and processed
+    vert->needs_processing = 1;
+    vert->send = 1;
 }
 
 void hvr_vertex_set(const unsigned feature, const double val,
@@ -50,7 +52,8 @@ void hvr_vertex_set(const unsigned feature, const double val,
         if (vert->features[i] == feature) {
             // Replace
             if (val != vert->values[i]) {
-                vert->last_modify_iter = ctx->iter;
+                // Should be sent
+                vert->send = 1;
                 vert->values[i] = val;
             }
             return;
@@ -61,7 +64,8 @@ void hvr_vertex_set(const unsigned feature, const double val,
     vert->features[size] = feature;
     vert->values[size] = val;
     vert->size = size + 1;
-    vert->last_modify_iter = ctx->iter;
+    // Should be sent
+    vert->send = 1;
 }
 
 double hvr_vertex_get(const unsigned feature, hvr_vertex_t *vert,
@@ -182,5 +186,6 @@ int hvr_vertex_equal(hvr_vertex_t *a, hvr_vertex_t *b, hvr_ctx_t in_ctx) {
 
 void hvr_vertex_trigger_update(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    vert->last_modify_iter = ctx->iter;
+
+    vert->needs_processing = 1;
 }

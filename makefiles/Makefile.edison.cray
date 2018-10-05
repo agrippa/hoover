@@ -1,16 +1,16 @@
 # CFLAGS=-Wall -Werror -g -O2 -Iinc -std=c99
-CFLAGS=-g -O0 -Iinc -std=c99 -Wall
+CFLAGS=-g -O2 -Iinc -std=c99 -Wall
 SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -L$(OPENSHMEM_INSTALL)/lib64 -lsma
 
 all: bin/libhoover.so bin/interact_test bin/edge_set_test bin/own_edge_test bin/vertex_test bin/init_test \
 	bin/infectious_test bin/shmem_rw_lock bin/write_lock_stress \
 	bin/test_vertex_id bin/add_vertices_test \
-	bin/remove_vertices_test bin/intrusion_detection bin/hvr_dist_bitvec_test
+	bin/remove_vertices_test bin/intrusion_detection bin/hvr_dist_bitvec_test bin/pas
 
 bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c \
 	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c \
 	src/hvr_set.c src/hvr_edge_set.c src/hvr_vertex.c \
-	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c
+	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_vertex_ll.c
 	gcc $(CFLAGS) $^ -o $@ -shared -fPIC $(SHMEM_FLAGS)
 
 bin/init_test: test/init_test.c
@@ -54,6 +54,9 @@ bin/interact_test: test/interact_test.c
 
 bin/own_edge_test: test/own_edge_test.c
 	gcc $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+
+bin/pas: test/pas.cpp
+	g++ -std=c++11 $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
 clean:
 	rm -f bin/*

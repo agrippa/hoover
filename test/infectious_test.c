@@ -9,7 +9,7 @@
 
 #include <hoover.h>
 
-#define TIME_PARTITION_DIM 5
+#define TIME_PARTITION_DIM 40
 #define Y_PARTITION_DIM 200
 #define X_PARTITION_DIM 200
 
@@ -22,7 +22,6 @@
 #define DST_Y 6
 #define TIME_STEP 7
 #define ACTOR_ID 8
-#define HAVE_NEXT_TIME_STEP 9
 
 #define MAX_V 0.5
 
@@ -35,7 +34,7 @@
 #define CELL_COL(x_coord) ((x_coord) / cell_dim)
 #define CELL_INDEX(cell_row, cell_col) ((cell_row) * pe_cols + (cell_col))
 
-#define MAX_DST_DELTA 5.0
+#define MAX_DST_DELTA 10.0
 
 typedef struct _portal_t {
     int pes[2];
@@ -118,11 +117,11 @@ hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
 
 hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
     const double timestep = hvr_vertex_get(TIME_STEP, actor, ctx);
-    const double x = hvr_vertex_get(PX, actor, ctx);
     const double y = hvr_vertex_get(PY, actor, ctx);
+    const double x = hvr_vertex_get(PX, actor, ctx);
 
-    const double global_x_dim = (double)pe_cols * cell_dim;
     const double global_y_dim = (double)pe_rows * cell_dim;
+    const double global_x_dim = (double)pe_cols * cell_dim;
 
     assert((int)timestep < max_num_timesteps);
     assert(x < global_x_dim);
@@ -165,23 +164,25 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      * its infection state as our baseline (i.e. if it is uninfected, start with
      * the assumption that we are uninfected).
      */
+    hvr_vertex_t *prev = NULL;
     if ((int)hvr_vertex_get(TIME_STEP, vertex, ctx) > 0) {
-        int found_prev_state = 0;
         for (int i = 0; i < n_neighbors; i++) {
             if (directions[i] == DIRECTED_IN) {
                 hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i], ctx);
                 if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
                         (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
-                    assert(found_prev_state == 0);
+                    assert(prev == NULL);
                     assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
                             (int)hvr_vertex_get(TIME_STEP, vertex, ctx) - 1);
-                    int is_infected = hvr_vertex_get(INFECTED, neighbor, ctx);
-                    hvr_vertex_set(INFECTED, is_infected, vertex, ctx);
-                    found_prev_state = 1;
+                    prev = neighbor;
                 }
             }
         }
-        assert(found_prev_state);
+        assert(prev);
+    }
+
+    if (prev && hvr_vertex_get(INFECTED, prev, ctx) > 0) {
+        hvr_vertex_set(INFECTED, 1, vertex, ctx);
     }
 
     /*
@@ -208,120 +209,73 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         }
     }
 
-    /*
-     * If this vertex should have a next state because we haven't exceeded the
-     * target number of timesteps
-     */
+    // Update PX/PY, DST_X/DST_Y based on prev.
+    if (prev) {
+        const double global_x_dim = (double)pe_cols * cell_dim;
+        const double global_y_dim = (double)pe_rows * cell_dim;
+        const double expected_max_radius = sqrt(
+                MAX_DST_DELTA * MAX_DST_DELTA + MAX_DST_DELTA * MAX_DST_DELTA);
 
-    if ((int)hvr_vertex_get(TIME_STEP, vertex, ctx) < max_num_timesteps - 1) {
-        int have_next_timestep_already = (int)hvr_vertex_get(
-                HAVE_NEXT_TIME_STEP, vertex, ctx);
+        double dst_x = hvr_vertex_get(DST_X, prev, ctx);
+        double dst_y = hvr_vertex_get(DST_Y, prev, ctx);
+        double p_x = hvr_vertex_get(PX, prev, ctx);
+        double p_y = hvr_vertex_get(PY, prev, ctx);
+        const double home_x = hvr_vertex_get(HOME_X, prev, ctx);
+        const double home_y = hvr_vertex_get(HOME_Y, prev, ctx);
 
-        if (!have_next_timestep_already) {
-            hvr_vertex_set(HAVE_NEXT_TIME_STEP, 1, vertex, ctx);
+        const double home_distance = distance(home_x, home_y, p_x, p_y);
+        assert(home_distance <= expected_max_radius);
 
-            hvr_vertex_t *new_vert = hvr_vertex_create(ctx);
-            hvr_vertex_set(PX, hvr_vertex_get(PX, vertex, ctx), new_vert, ctx);
-            hvr_vertex_set(PY, hvr_vertex_get(PY, vertex, ctx), new_vert, ctx);
-            hvr_vertex_set(INFECTED, hvr_vertex_get(INFECTED, vertex, ctx),
-                    new_vert, ctx);
-            hvr_vertex_set(HOME_X, hvr_vertex_get(HOME_X, vertex, ctx),
-                    new_vert, ctx);
-            hvr_vertex_set(HOME_Y, hvr_vertex_get(HOME_Y, vertex, ctx),
-                    new_vert, ctx);
-            hvr_vertex_set(DST_X, hvr_vertex_get(DST_X, vertex, ctx),
-                    new_vert, ctx);
-            hvr_vertex_set(DST_Y, hvr_vertex_get(DST_Y, vertex, ctx),
-                    new_vert, ctx);
-            hvr_vertex_set(TIME_STEP, hvr_vertex_get(TIME_STEP, vertex, ctx) + 1,
-                    new_vert, ctx);
-            hvr_vertex_set(ACTOR_ID, hvr_vertex_get(ACTOR_ID, vertex, ctx),
-                    new_vert, ctx);
-            hvr_vertex_set(HAVE_NEXT_TIME_STEP, 0, new_vert, ctx);
-
-            // Update location of this cell
-            double dst_x = hvr_vertex_get(DST_X, vertex, ctx);
-            double dst_y = hvr_vertex_get(DST_Y, vertex, ctx);
-            const double p_x = hvr_vertex_get(PX, vertex, ctx);
-            const double p_y = hvr_vertex_get(PY, vertex, ctx);
-            const double global_x_dim = (double)pe_cols * cell_dim;
-            const double global_y_dim = (double)pe_rows * cell_dim;
-
-            const double expected_max_radius = sqrt(
-                    MAX_DST_DELTA * MAX_DST_DELTA + MAX_DST_DELTA * MAX_DST_DELTA);
-            const double home_distance = distance(
-                    hvr_vertex_get(HOME_X, vertex, ctx),
-                    hvr_vertex_get(HOME_Y, vertex, ctx), p_x, p_y);
-            if (home_distance > expected_max_radius) {
-                fprintf(stderr, "Expected point to not be farther than %f from home, "
-                        "is %f. pos = (%f, %f), home = (%f, %f)\n", expected_max_radius,
-                        home_distance, p_x, p_y,
-                        hvr_vertex_get(HOME_X, vertex, ctx),
-                        hvr_vertex_get(HOME_Y, vertex, ctx));
-                assert(0);
-            }
-
-            if (fabs(p_x - dst_x) < 1e-9 || fabs(p_y - dst_y) < 1e-9) {
-                /*
-                 * Seem to have reached destination, set new destination and start
-                 * moving there.
-                 */
-                dst_x = hvr_vertex_get(HOME_X, vertex, ctx) +
-                    random_double_in_range(-MAX_DST_DELTA, MAX_DST_DELTA);
-                dst_y = hvr_vertex_get(HOME_Y, vertex, ctx) +
-                    random_double_in_range(-MAX_DST_DELTA, MAX_DST_DELTA);
-
-                if (dst_x > global_x_dim) dst_x = global_x_dim - 1.0;
-                if (dst_y > global_y_dim) dst_y = global_y_dim - 1.0;
-                if (dst_x < 0.0) dst_x = 0.0;
-                if (dst_y < 0.0) dst_y = 0.0;
-
-                hvr_vertex_set(DST_X, dst_x, new_vert, ctx);
-                hvr_vertex_set(DST_Y, dst_y, new_vert, ctx);
-            }
-
-            double vx = dst_x - p_x;
-            double vy = dst_y - p_y;
-            const double mag = 5.0 * distance(p_x, p_y, dst_x, dst_y);
-            const double normalized_vx = vx / mag;
-            const double normalized_vy = vy / mag;
-            if (fabs(vx) > fabs(normalized_vx)) vx = normalized_vx;
-            if (fabs(vy) > fabs(normalized_vy)) vy = normalized_vy;
-
-            double new_x = p_x + vx;
-            double new_y = p_y + vy;
-
-            for (int p = 0; p < n_global_portals; p++) {
-                if (distance(new_x, new_y, portals[p].locations[0].x,
-                            portals[p].locations[0].y) < PORTAL_CAPTURE_RADIUS) {
-                    new_x = portals[p].locations[1].x +
-                        random_double_in_range(-10.0, 10.0);
-                    new_y = portals[p].locations[1].y +
-                        random_double_in_range(-10.0, 10.0);
-                    break;
-                }
-
-                if (distance(new_x, new_y, portals[p].locations[1].x,
-                            portals[p].locations[1].y) < PORTAL_CAPTURE_RADIUS) {
-                    new_x = portals[p].locations[0].x +
-                        random_double_in_range(-10.0, 10.0);
-                    new_y = portals[p].locations[0].y +
-                        random_double_in_range(-10.0, 10.0);
-                    break;
-                }
-            }
-
-            if (new_x >= global_x_dim) new_x -= global_x_dim;
-            if (new_y >= global_y_dim) new_y -= global_y_dim;
-            if (new_x < 0.0) new_x += global_x_dim;
-            if (new_y < 0.0) new_y += global_y_dim;
-
-            assert(new_x >= 0.0 && new_x < global_x_dim);
-            assert(new_y >= 0.0 && new_y < global_y_dim);
-
-            hvr_vertex_set(PX, new_x, new_vert, ctx);
-            hvr_vertex_set(PY, new_y, new_vert, ctx);
+        if (fabs(p_x - dst_x) < 1e-9 || fabs(p_y - dst_y) < 1e-9) {
+            /*
+             * Seem to have reached destination, set new destination and start
+             * moving there.
+             */
+            p_x = dst_x;
+            p_y = dst_y;
         }
+ 
+        double vx = dst_x - p_x;
+        double vy = dst_y - p_y;
+        const double mag = 5.0 * distance(p_x, p_y, dst_x, dst_y);
+        const double normalized_vx = vx / mag;
+        const double normalized_vy = vy / mag;
+        if (fabs(vx) > fabs(normalized_vx)) vx = normalized_vx;
+        if (fabs(vy) > fabs(normalized_vy)) vy = normalized_vy;
+
+        double new_x = p_x + vx;
+        double new_y = p_y + vy;
+
+        for (int p = 0; p < n_global_portals; p++) {
+            if (distance(new_x, new_y, portals[p].locations[0].x,
+                        portals[p].locations[0].y) < PORTAL_CAPTURE_RADIUS) {
+                new_x = portals[p].locations[1].x +
+                    random_double_in_range(-10.0, 10.0);
+                new_y = portals[p].locations[1].y +
+                    random_double_in_range(-10.0, 10.0);
+                break;
+            }
+
+            if (distance(new_x, new_y, portals[p].locations[1].x,
+                        portals[p].locations[1].y) < PORTAL_CAPTURE_RADIUS) {
+                new_x = portals[p].locations[0].x +
+                    random_double_in_range(-10.0, 10.0);
+                new_y = portals[p].locations[0].y +
+                    random_double_in_range(-10.0, 10.0);
+                break;
+            }
+        }
+
+        if (new_x >= global_x_dim) new_x -= global_x_dim;
+        if (new_y >= global_y_dim) new_y -= global_y_dim;
+        if (new_x < 0.0) new_x += global_x_dim;
+        if (new_y < 0.0) new_y += global_y_dim;
+
+        assert(new_x >= 0.0 && new_x < global_x_dim);
+        assert(new_y >= 0.0 && new_y < global_y_dim);
+
+        hvr_vertex_set(PX, new_x, vertex, ctx);
+        hvr_vertex_set(PY, new_y, vertex, ctx);
     }
 }
 
@@ -331,7 +285,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
  * If partition is neighboring any partition in partitions, they might
  * interact.
  */
-int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
+void might_interact(const hvr_partition_t partition,
         hvr_partition_t *interacting_partitions,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity,
@@ -342,9 +296,9 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
     const double global_y_dim = (double)pe_rows * cell_dim;
 
     // Dimension of each partition in the row, column, time directions
-    double time_dim = (double)max_num_timesteps / (double)TIME_PARTITION_DIM;
     double y_dim = global_y_dim / (double)Y_PARTITION_DIM;
     double x_dim = global_x_dim / (double)X_PARTITION_DIM;
+    double time_dim = (double)max_num_timesteps / (double)TIME_PARTITION_DIM;
 
     /*
      * For the given partition, the (time, row, column) coordinate of this
@@ -354,9 +308,10 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
     const int partition_y = (partition / X_PARTITION_DIM) % Y_PARTITION_DIM;
     const int partition_x = partition % X_PARTITION_DIM;
 
-    // Get bounding box of partitions in the grid coordinate system
     double min_time = (double)partition_time * time_dim;
     double max_time = min_time + time_dim;
+
+    // Get bounding box of partition in the grid coordinate system
     double min_y = (double)partition_y * y_dim;
     double max_y = min_y + y_dim;
     double min_x = (double)partition_x * x_dim;
@@ -365,8 +320,6 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
     /*
      * Expand partition bounding box to include any possible points within
      * infection_radius distance.
-     *
-     * TODO this is wayyyyy coarser than it should be.
      */
     min_time -= 1; // Only interact with previous and next timesteps
     max_time += 1;
@@ -383,7 +336,7 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
 
     if (min_x < 0.0) min_partition_x = 0;
     else min_partition_x = (int)(min_x / x_dim);
-
+ 
     if (min_time < 0.0) min_partition_time = 0;
     else min_partition_time = (int)(min_time / time_dim);
 
@@ -392,7 +345,7 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
 
     if (max_x >= (double)global_x_dim) max_partition_x = X_PARTITION_DIM - 1;
     else max_partition_x = (int)(max_x / x_dim);
-
+ 
     if (max_time >= (double)max_num_timesteps) max_partition_time = TIME_PARTITION_DIM - 1;
     else max_partition_time = (int)(max_time / time_dim);
 
@@ -400,29 +353,19 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
     assert(min_partition_x <= max_partition_x);
     assert(min_partition_time <= max_partition_time);
 
-    // fprintf(stderr, "interacting partitions = %lu (%lu %lu) (%lu %lu) (%lu %lu)\n",
-    //         (max_partition_time - min_partition_time + 1) *
-    //         (max_partition_y - min_partition_y + 1) *
-    //         (max_partition_x - min_partition_x + 1), min_partition_time,
-    //         max_partition_time, min_partition_y, max_partition_y,
-    //         min_partition_x, max_partition_x);
-
     unsigned count_interacting_partitions = 0;
     for (int t = min_partition_time; t <= max_partition_time; t++) {
         for (int r = min_partition_y; r <= max_partition_y; r++) {
             for (int c = min_partition_x; c <= max_partition_x; c++) {
                 const int part = t * Y_PARTITION_DIM * X_PARTITION_DIM +
                     r * X_PARTITION_DIM + c;
-                if (hvr_set_contains(part, partitions)) {
-                    assert(count_interacting_partitions <=
-                            interacting_partitions_capacity);
-                    interacting_partitions[count_interacting_partitions++] = part;
-                }
+                assert(count_interacting_partitions <=
+                        interacting_partitions_capacity);
+                interacting_partitions[count_interacting_partitions++] = part;
             }
         }
     }
     *n_interacting_partitions = count_interacting_partitions;
-    return count_interacting_partitions > 0;
 }
 
 static unsigned long long last_time = 0;
@@ -516,6 +459,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Creating %d portals\n", n_global_portals);
         fprintf(stderr, "%d actors per cell, %d actors in total\n",
                 actors_per_cell, actors_per_cell * npes);
+        fprintf(stderr, "%d timesteps, %f x %f grid\n", max_num_timesteps,
+                global_y_dim, global_x_dim);
         for (int p = 0; p < n_global_portals; p++) {
             const int pe0 = (rand() % npes);
             const int pe1 = (rand() % npes);
@@ -538,7 +483,8 @@ int main(int argc, char **argv) {
     assert((n_global_portals * sizeof(*portals)) % 4 == 0);
     if (n_global_portals > 0) {
         shmem_broadcast32(portals, portals,
-                (n_global_portals * sizeof(*portals)) / 4, 0, 0, 0, npes, p_sync);
+                (n_global_portals * sizeof(*portals)) / 4, 0, 0, 0, npes,
+                p_sync);
     }
     shmem_barrier_all();
 
@@ -557,22 +503,13 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     // Seed the location of local actors.
-    hvr_vertex_t *actors = hvr_vertex_create_n(actors_per_cell,
-            hvr_ctx);
+    hvr_vertex_t *actors = hvr_vertex_create_n(
+            actors_per_cell * max_num_timesteps, hvr_ctx);
     for (int a = 0; a < actors_per_cell; a++) {
         const double x = random_double_in_range(PE_COL_CELL_START(pe),
                 PE_COL_CELL_START(pe) + cell_dim);
         const double y = random_double_in_range(PE_ROW_CELL_START(pe),
                 PE_ROW_CELL_START(pe) + cell_dim);
-
-        hvr_vertex_set(PX, x, &actors[a], hvr_ctx);
-        hvr_vertex_set(PY, y, &actors[a], hvr_ctx);
-        hvr_vertex_set(HOME_X, x, &actors[a], hvr_ctx);
-        hvr_vertex_set(HOME_Y, y, &actors[a], hvr_ctx);
-        hvr_vertex_set(TIME_STEP, 0, &actors[a], hvr_ctx);
-        hvr_vertex_set(ACTOR_ID, shmem_my_pe() * actors_per_cell + a,
-                &actors[a], hvr_ctx);
-        hvr_vertex_set(HAVE_NEXT_TIME_STEP, 0, &actors[a], hvr_ctx);
 
         double dst_x = x + random_double_in_range(-MAX_DST_DELTA,
                 MAX_DST_DELTA);
@@ -582,8 +519,6 @@ int main(int argc, char **argv) {
         if (dst_y > global_y_dim) dst_y = global_y_dim - 1.0;
         if (dst_x < 0.0) dst_x = 0.0;
         if (dst_y < 0.0) dst_y = 0.0;
-        hvr_vertex_set(DST_X, dst_x, &actors[a], hvr_ctx);
-        hvr_vertex_set(DST_Y, dst_y, &actors[a], hvr_ctx);
 
         int is_infected = 0;
         for (int i = 0; i < n_initial_infected; i++) {
@@ -600,9 +535,29 @@ int main(int argc, char **argv) {
 
         if (is_infected) {
             fprintf(stderr, "PE %d - local offset %d infected\n", pe, a);
-            hvr_vertex_set(INFECTED, 1.0, &actors[a], hvr_ctx);
-        } else {
-            hvr_vertex_set(INFECTED, 0.0, &actors[a], hvr_ctx);
+        }
+
+        for (int t = 0; t < max_num_timesteps; t++) {
+            int index = a * max_num_timesteps + t;
+
+            hvr_vertex_set(PX, x, &actors[index], hvr_ctx);
+            hvr_vertex_set(PY, y, &actors[index], hvr_ctx);
+
+            if (is_infected) {
+                hvr_vertex_set(INFECTED, 1, &actors[index], hvr_ctx);
+            } else {
+                hvr_vertex_set(INFECTED, 0, &actors[index], hvr_ctx);
+            }
+
+            hvr_vertex_set(HOME_X, x, &actors[index], hvr_ctx);
+            hvr_vertex_set(HOME_Y, y, &actors[index], hvr_ctx);
+
+            hvr_vertex_set(DST_X, dst_x, &actors[index], hvr_ctx);
+            hvr_vertex_set(DST_Y, dst_y, &actors[index], hvr_ctx);
+
+            hvr_vertex_set(TIME_STEP, t, &actors[index], hvr_ctx);
+            hvr_vertex_set(ACTOR_ID, shmem_my_pe() * actors_per_cell + a,
+                    &actors[index], hvr_ctx);
         }
     }
 

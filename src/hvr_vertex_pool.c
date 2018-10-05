@@ -196,6 +196,7 @@ hvr_vertex_pool_t *hvr_vertex_pool_create(size_t pool_size) {
     pool->pool_size = pool_size;
     pool->free_list = create_node(0, pool_size);
     pool->used_list = NULL;
+    pool->nallocated = 0;
 
     return pool;
 }
@@ -233,6 +234,7 @@ hvr_vertex_t *hvr_alloc_vertices(unsigned nvecs, hvr_ctx_t in_ctx) {
     for (size_t i = 0; i < nvecs; i++) {
         hvr_vertex_init(&allocated[i], ctx);
     }
+    pool->nallocated += nvecs;
     return allocated;
 }
 
@@ -249,4 +251,10 @@ void hvr_free_vertices(hvr_vertex_t *vecs, unsigned nvecs,
     for (unsigned i = 0; i < nvecs; i++) {
         vecs[i].id = HVR_INVALID_VERTEX_ID;
     }
+    pool->nallocated -= nvecs;
+}
+
+size_t hvr_n_allocated(hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    return ctx->pool->nallocated;
 }

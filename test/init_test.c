@@ -98,7 +98,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
  * Callback used to check if this PE might interact with another PE based on the
  * maximums and minimums of all vertices owned by each PE.
  */
-int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
+void might_interact(const hvr_partition_t partition,
         hvr_partition_t *interacting_partitions,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity,
@@ -150,15 +150,12 @@ int might_interact(const hvr_partition_t partition, hvr_set_t *partitions,
     for (int r = min_partition_row; r <= max_partition_row; r++) {
         for (int c = min_partition_col; c <= max_partition_col; c++) {
             const int part = r * PARTITION_DIM + c;
-            if (hvr_set_contains(part, partitions)) {
-                assert(count_interacting_partitions + 1 <=
-                        interacting_partitions_capacity);
-                interacting_partitions[count_interacting_partitions++] = part;
-            }
+            assert(count_interacting_partitions + 1 <=
+                    interacting_partitions_capacity);
+            interacting_partitions[count_interacting_partitions++] = part;
         }
     }
     *n_interacting_partitions = count_interacting_partitions;
-    return count_interacting_partitions > 0;
 }
 
 /*

@@ -18,6 +18,7 @@ extern "C" {
 #include "hvr_mailbox.h"
 #include "hvr_set.h"
 #include "hvr_dist_bitvec.h"
+#include "hvr_vertex_ll.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -73,8 +74,8 @@ typedef int (*hvr_should_terminate_func)(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
  * API for checking if this PE might have any vertices that interact with
  * vertices on another PE.
  */
-typedef int (*hvr_might_interact_func)(const hvr_partition_t partition,
-        hvr_set_t *partitions, hvr_partition_t *interacting_partitions,
+typedef void (*hvr_might_interact_func)(const hvr_partition_t partition,
+        hvr_partition_t *interacting_partitions,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity, hvr_ctx_t ctx);
 
@@ -209,8 +210,6 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_dist_bitvec_local_subcopy_t *producer_info;
     hvr_dist_bitvec_local_subcopy_t *dead_info;
-
-    hvr_set_t *full_partition_set;
 
     // Edge from PE -> partitions we need to notify it about
     hvr_edge_set_t *pe_subscription_info;
