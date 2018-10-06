@@ -392,7 +392,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                     if (hvr_dist_bitvec_local_subcopy_contains(pe,
                                 ctx->producer_info + p)) {
                         hvr_mailbox_send(&change, sizeof(change), pe,
-                                &ctx->forward_mailbox);
+                                -1, &ctx->forward_mailbox);
                     }
                 }
 
@@ -434,7 +434,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                                 &ctx->tmp_local_partition_membership)) {
                         // New producer
                         hvr_mailbox_send(&change, sizeof(change), pe,
-                                &ctx->forward_mailbox);
+                                -1, &ctx->forward_mailbox);
                     }
                 }
 
@@ -482,7 +482,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                     if (hvr_dist_bitvec_local_subcopy_contains(pe,
                                 ctx->producer_info + p)) {
                         hvr_mailbox_send(&change, sizeof(change), pe,
-                                &ctx->forward_mailbox);
+                                -1, &ctx->forward_mailbox);
                     }
                 }
 
@@ -753,7 +753,7 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx) {
                     hvr_vertex_update_t msg;
                     vertex_update_msg_init(iter, 0, &msg);
                     hvr_mailbox_send(&msg, sizeof(msg), change->pe,
-                            &ctx->vertex_update_mailbox);
+                            -1, &ctx->vertex_update_mailbox);
                     iter = iter->next_in_partition;
                 }
                 hvr_add_edge(change->partition, change->pe, BIDIRECTIONAL,
@@ -1087,12 +1087,13 @@ static int update_vertices(hvr_set_t *to_couple_with,
 }
 
 void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert, int is_delete,
-        unsigned long long *time_sending,
-        hvr_internal_ctx_t *ctx) {
+        unsigned long long *time_sending, hvr_internal_ctx_t *ctx) {
     assert(VERTEX_ID_PE(vert->id) == ctx->pe);
 
     hvr_vertex_update_t msg;
     vertex_update_msg_init(vert, is_delete, &msg);
+    hvr_mailbox_t *mbox = (is_delete ? &ctx->vertex_delete_mailbox :
+            &ctx->vertex_update_mailbox);
 
     hvr_partition_t part = wrap_actor_to_partition(vert, ctx);
     // Find subscribers to part and send message to them
@@ -1108,13 +1109,7 @@ void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert, int is_delete,
         
         const unsigned long long start = hvr_current_time_us();
         for (unsigned s = 0; s < n_subscribers; s++) {
-            if (is_delete) {
-                hvr_mailbox_send(&msg, sizeof(msg), subscribers[s],
-                        &ctx->vertex_delete_mailbox);
-            } else {
-                hvr_mailbox_send(&msg, sizeof(msg), subscribers[s],
-                        &ctx->vertex_update_mailbox);
-            }
+            hvr_mailbox_send(&msg, sizeof(msg), subscribers[s], -1, mbox);
         }
         *time_sending += (hvr_current_time_us() - start);
     }

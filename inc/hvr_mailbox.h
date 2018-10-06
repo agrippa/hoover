@@ -2,9 +2,8 @@
 #define _HVR_MAILBOX
 
 typedef struct _hvr_mailbox_t {
-    uint64_t *write_index;
-    uint64_t *read_index;
-    size_t capacity_in_bytes;
+    uint64_t *indices;
+    uint32_t capacity_in_bytes;
     char *buf;
 } hvr_mailbox_t;
 
@@ -16,10 +15,12 @@ void hvr_mailbox_init(hvr_mailbox_t *mailbox, size_t capacity_in_bytes);
 
 /*
  * Place msg with length msg_len in bytes into the designated mailbox on the
- * designated PE.
+ * designated PE. Will retry max_tries time if the mailbox does not have enough
+ * space, or infinitely if max_tries is set to -1. Returns 1 if the send
+ * succeeds, 0 otherwise.
  */
-void hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
-        hvr_mailbox_t *mailbox);
+int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
+        int max_tries, hvr_mailbox_t *mailbox);
 
 /*
  * Check my local mailbox for a new message. If one is found, a pointer to it is
