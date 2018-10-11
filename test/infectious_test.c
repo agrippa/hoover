@@ -10,8 +10,8 @@
 #include <hoover.h>
 
 #define TIME_PARTITION_DIM 40
-#define Y_PARTITION_DIM 200
-#define X_PARTITION_DIM 200
+#define Y_PARTITION_DIM 150
+#define X_PARTITION_DIM 150
 
 #define PX 0
 #define PY 1

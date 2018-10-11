@@ -61,6 +61,7 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         unsigned long long *time_updating,
         unsigned long long *time_updating_edges,
         unsigned long long *time_creating_edges,
+        unsigned *count_new_should_have_edges,
         hvr_internal_ctx_t *ctx);
 
 #define USE_CSWAP_BITWISE_ATOMICS
@@ -300,8 +301,9 @@ static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
             if (curr->id != HVR_INVALID_VERTEX_ID) {
                 hvr_partition_t part = wrap_actor_to_partition(curr, ctx);
                 if (part == partition) {
-                    unsigned long long unused;
-                    handle_new_vertex(curr, &unused, &unused, &unused, ctx);
+                    unsigned long long unused; unsigned u_unused;
+                    handle_new_vertex(curr, &unused, &unused, &unused, &u_unused,
+                            ctx);
                 }
             }
         }
@@ -850,7 +852,9 @@ static int create_new_edges_helper(hvr_vertex_t *vert,
 */
 static unsigned create_new_edges(hvr_vertex_t *updated,
         hvr_partition_t *interacting, unsigned n_interacting,
-        hvr_internal_ctx_t *ctx) {
+        hvr_internal_ctx_t *ctx,
+        unsigned *count_new_should_have_edges) {
+    unsigned local_count_new_should_have_edges = 0;
     unsigned min_dist_from_local = UINT_MAX;
     for (unsigned i = 0; i < n_interacting; i++) {
         hvr_partition_t other_part = interacting[i];
@@ -865,9 +869,11 @@ static unsigned create_new_edges(hvr_vertex_t *updated,
                 min_dist_from_local = cache_iter->min_dist_from_local_vertex;
             }
             cache_iter = cache_iter->part_next;
+            local_count_new_should_have_edges++;
         }
     }
 
+    *count_new_should_have_edges += local_count_new_should_have_edges;
     return min_dist_from_local;
 }
 
@@ -907,6 +913,7 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         unsigned long long *time_updating,
         unsigned long long *time_updating_edges,
         unsigned long long *time_creating_edges,
+        unsigned *count_new_should_have_edges,
         hvr_internal_ctx_t *ctx) {
     hvr_partition_t partition = wrap_actor_to_partition(new_vert, ctx);
     hvr_vertex_id_t updated_vert_id = new_vert->id;
@@ -962,7 +969,8 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
 
         const unsigned long long done_updating_edges = hvr_current_time_us();
 
-        create_new_edges(&updated->vert, interacting, n_interacting, ctx);
+        create_new_edges(&updated->vert, interacting, n_interacting, ctx,
+                count_new_should_have_edges);
 
         const unsigned long long done = hvr_current_time_us();
 
@@ -972,7 +980,7 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
     } else {
         // A branch new vertex, or at least this is our first update on it
         unsigned min_dist_from_local = create_new_edges(new_vert,
-                interacting, n_interacting, ctx);
+                interacting, n_interacting, ctx, count_new_should_have_edges);
         updated = hvr_vertex_cache_add(new_vert, partition, min_dist_from_local,
                 &ctx->vec_cache);
     }
@@ -985,7 +993,8 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         unsigned long long *time_handling_news,
         unsigned long long *time_updating,
         unsigned long long *time_updating_edges, 
-        unsigned long long *time_creating_edges) {
+        unsigned long long *time_creating_edges,
+        unsigned *count_new_should_have_edges) {
     unsigned n_updates = 0;
     void *buf = NULL;
     size_t buf_capacity = 0;
@@ -1016,7 +1025,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
 
         assert(!msg->is_delete);
         handle_new_vertex(&msg->vert, time_updating, time_updating_edges,
-                time_creating_edges, ctx);
+                time_creating_edges, count_new_should_have_edges, ctx);
         n_updates++;
 
         success = hvr_mailbox_recv(&buf, &buf_capacity,
@@ -1026,8 +1035,8 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
 
     const unsigned long long done = hvr_current_time_us();
 
-    *time_handling_deletes = midpoint - start;
-    *time_handling_news = done - midpoint;
+    *time_handling_deletes += midpoint - start;
+    *time_handling_news += done - midpoint;
 
     return n_updates;
 }
@@ -1086,8 +1095,17 @@ static int update_vertices(hvr_set_t *to_couple_with,
     return count;
 }
 
-void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert, int is_delete,
-        unsigned long long *time_sending, hvr_internal_ctx_t *ctx) {
+void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
+        int is_delete,
+        unsigned long long *time_sending,
+        unsigned *n_received_updates,
+        unsigned long long *time_handling_deletes,
+        unsigned long long *time_handling_news,
+        unsigned long long *time_updating,
+        unsigned long long *time_updating_edges,
+        unsigned long long *time_creating_edges,
+        unsigned *count_new_should_have_edges,
+        hvr_internal_ctx_t *ctx) {
     assert(VERTEX_ID_PE(vert->id) == ctx->pe);
 
     hvr_vertex_update_t msg;
@@ -1109,14 +1127,36 @@ void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert, int is_delete,
         
         const unsigned long long start = hvr_current_time_us();
         for (unsigned s = 0; s < n_subscribers; s++) {
-            hvr_mailbox_send(&msg, sizeof(msg), subscribers[s], -1, mbox);
+            int success = hvr_mailbox_send(&msg, sizeof(msg), subscribers[s],
+                    100, mbox);
+            while (!success) {
+                // Try processing some inbound messages, then re-sending
+                if (time_handling_deletes) {
+                    *n_received_updates += process_vertex_updates(ctx,
+                            time_handling_deletes,
+                            time_handling_news,
+                            time_updating,
+                            time_updating_edges,
+                            time_creating_edges,
+                            count_new_should_have_edges);
+                }
+                success = hvr_mailbox_send(&msg, sizeof(msg),
+                        subscribers[s], 100, mbox);
+            }
         }
         *time_sending += (hvr_current_time_us() - start);
     }
 }
 
 static unsigned send_updates(hvr_internal_ctx_t *ctx,
-        unsigned long long *time_sending) {
+        unsigned long long *time_sending,
+        unsigned *n_received_updates,
+        unsigned long long *time_handling_deletes,
+        unsigned long long *time_handling_news,
+        unsigned long long *time_updating,
+        unsigned long long *time_updating_edges,
+        unsigned long long *time_creating_edges,
+        unsigned *count_new_should_have_edges) {
     unsigned n_updates_sent = 0;
 
     hvr_vertex_iter_t iter;
@@ -1125,8 +1165,10 @@ static unsigned send_updates(hvr_internal_ctx_t *ctx,
             curr = hvr_vertex_iter_next(&iter)) {
         // If this vertex was mutated on this iteration
         if (curr->send) {
-            send_updates_to_all_subscribed_pes(curr, 0, time_sending, ctx);
-
+            send_updates_to_all_subscribed_pes(curr, 0, time_sending,
+                    n_received_updates, time_handling_deletes,
+                    time_handling_news, time_updating, time_updating_edges,
+                    time_creating_edges, count_new_should_have_edges, ctx);
             n_updates_sent++;
             curr->send = 0;
         }
@@ -1226,6 +1268,89 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     return should_abort;
 }
 
+static void print_profiling_info(
+        unsigned long long start_iter,
+        unsigned long long end_start_time_step,
+        unsigned long long end_update_vertices,
+        unsigned long long end_update_partitions,
+        unsigned long long end_partition_window,
+        unsigned long long end_neighbor_updates,
+        unsigned long long end_send_updates,
+        unsigned long long end_vertex_updates,
+        unsigned long long end_update_coupled,
+        int count_updated,
+        unsigned n_updates_sent,
+        unsigned n_received_updates,
+        unsigned long long time_handling_deletes,
+        unsigned long long time_handling_news,
+        unsigned long long time_updating,
+        unsigned long long time_updating_edges,
+        unsigned long long time_creating_edges,
+        unsigned long long dead_pe_time,
+        unsigned long long time_sending,
+        int should_abort,
+        unsigned count_new_should_have_edges,
+        hvr_internal_ctx_t *ctx) {
+
+    char partition_time_window_str[2048] = {'\0'};
+#ifdef DETAILED_PRINTS
+    hvr_set_to_string(ctx->producer_partition_time_window,
+            partition_time_window_str, 2048, ctx->partition_lists_lengths);
+#endif
+
+    fprintf(profiling_fp, "PE %d - iter %d - total %f ms\n",
+            ctx->pe, ctx->iter,
+            (double)(end_update_coupled - start_iter) / 1000.0);
+    fprintf(profiling_fp, "  start time step %f\n",
+            (double)(end_start_time_step - start_iter) / 1000.0);
+    fprintf(profiling_fp, "  update vertices %f - %d updates\n",
+            (double)(end_update_vertices - end_start_time_step) / 1000.0,
+            count_updated);
+    fprintf(profiling_fp, "  update actor partitions %f\n",
+            (double)(end_update_partitions - end_update_vertices) / 1000.0);
+    fprintf(profiling_fp, "  update partition window %f - dead PE time %f\n",
+            (double)(end_partition_window - end_update_partitions) / 1000.0,
+            (double)dead_pe_time / 1000.0);
+    fprintf(profiling_fp, "  update neighbors %f\n",
+            (double)(end_neighbor_updates - end_partition_window) / 1000.0);
+    fprintf(profiling_fp, "  send updates %f - %u changes, %f ms sending\n",
+            (double)(end_send_updates - end_neighbor_updates) / 1000.0,
+            n_updates_sent, (double)time_sending / 1000.0);
+    fprintf(profiling_fp, "  process vertex updates %f - %u received\n",
+            (double)(end_vertex_updates - end_send_updates) / 1000.0,
+            n_received_updates);
+    fprintf(profiling_fp, "    %f on deletes\n",
+            (double)time_handling_deletes / 1000.0);
+    fprintf(profiling_fp, "    %f on news\n",
+            (double)time_handling_news / 1000.0);
+    fprintf(profiling_fp, "      %f s on updates - %f updating edges, "
+            "%f creating edges - %u should_have_edges\n",
+            (double)time_updating / 1000.0,
+            (double)time_updating_edges / 1000.0,
+            (double)time_creating_edges / 1000.0,
+            count_new_should_have_edges);
+    fprintf(profiling_fp, "  coupling %f\n",
+            (double)(end_update_coupled - end_vertex_updates) / 1000.0);
+    fprintf(profiling_fp, "  partition window = %s, %d / %d producer "
+            "partitions and %d / %d subscriber partitions for %lu "
+            "local vertices\n", partition_time_window_str,
+            hvr_set_count(ctx->producer_partition_time_window),
+            ctx->n_partitions,
+            hvr_set_count(ctx->subscriber_partition_time_window),
+            ctx->n_partitions, hvr_n_allocated(ctx));
+    fprintf(profiling_fp, "  aborting? %d - remote "
+            "cache hits=%llu misses=%llu, feature cache hits=%u misses=%u "
+            "quiets=%llu\n",
+            should_abort,
+            ctx->vec_cache.cache_perf_info.nhits,
+            ctx->vec_cache.cache_perf_info.nmisses,
+            ctx->n_vector_cache_hits,
+            ctx->n_vector_cache_misses,
+            ctx->vec_cache.cache_perf_info.quiet_counter);
+    fflush(profiling_fp);
+
+}
+
 hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     hvr_set_t *to_couple_with = hvr_create_empty_set(ctx->npes);
@@ -1249,11 +1374,14 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     // Initialize edges
     ctx->edges = hvr_create_empty_edge_set();
 
+    const unsigned long long start_body = hvr_current_time_us();
+
     /*
      * Find which partitions are locally active (either because a local vertex
      * is in them, or a locally mirrored vertex in them).
      */
     update_actor_partitions(ctx);
+    const unsigned long long end_update_partitions = hvr_current_time_us();
 
     /*
      * Compute a set of all partitions which locally active partitions might
@@ -1262,6 +1390,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      */
     unsigned long long dead_pe_time;
     update_partition_time_window(ctx, &dead_pe_time);
+    const unsigned long long end_partition_window = hvr_current_time_us();
 
     /*
      * Ensure everyone's partition windows are initialized before initializing
@@ -1276,34 +1405,68 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      * inside of ctx->pe_subscription_info.
      */
     process_neighbor_updates(ctx);
+    const unsigned long long end_neighbor_updates = hvr_current_time_us();
 
     /*
      * Process updates sent to us by neighbors via our main mailbox. Use these
      * updates to update edges for all vertices (both local and mirrored).
      */
+    unsigned n_received_updates = 0;
     unsigned long long time_sending = 0;
-    unsigned n_updates_sent = send_updates(ctx, &time_sending);
-
-    // Ensure all updates are sent before processing them during initialization
-    shmem_barrier_all();
-
+    unsigned long long time_handling_deletes = 0;
+    unsigned long long time_handling_news = 0;
     unsigned long long time_updating = 0;
     unsigned long long time_updating_edges = 0;
     unsigned long long time_creating_edges = 0;
-    unsigned long long time_handling_deletes, time_handling_news;
-    unsigned n_received_updates = process_vertex_updates(ctx,
+    unsigned count_new_should_have_edges = 0;
+    unsigned n_updates_sent = send_updates(ctx, &time_sending,
+            &n_received_updates, &time_handling_deletes, &time_handling_news,
+            &time_updating, &time_updating_edges, &time_creating_edges,
+            &count_new_should_have_edges);
+
+    // Ensure all updates are sent before processing them during initialization
+    shmem_barrier_all();
+    const unsigned long long end_send_updates = hvr_current_time_us();
+
+    n_received_updates += process_vertex_updates(ctx,
             &time_handling_deletes,
             &time_handling_news,
             &time_updating,
             &time_updating_edges,
-            &time_creating_edges);
+            &time_creating_edges, &count_new_should_have_edges);
+    const unsigned long long end_vertex_updates = hvr_current_time_us();
 
     hvr_vertex_t coupled_metric;
     int should_abort = update_coupled_values(ctx, &coupled_metric);
+    const unsigned long long end_update_coupled = hvr_current_time_us();
+
+    if (print_profiling) {
+        print_profiling_info(
+                start_body,
+                start_body,
+                start_body,
+                end_update_partitions,
+                end_partition_window,
+                end_neighbor_updates,
+                end_send_updates,
+                end_vertex_updates,
+                end_update_coupled,
+                0, // count_updated
+                n_updates_sent,
+                n_received_updates,
+                time_handling_deletes,
+                time_handling_news,
+                time_updating,
+                time_updating_edges,
+                time_creating_edges,
+                dead_pe_time,
+                time_sending,
+                should_abort,
+                count_new_should_have_edges,
+                ctx);
+    }
 
     ctx->iter += 1;
-
-    const unsigned long long start_body = hvr_current_time_us();
 
     while (!should_abort && hvr_current_time_us() - start_body <
             ctx->max_elapsed_seconds * 1000000ULL) {
@@ -1392,19 +1555,25 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long end_neighbor_updates = hvr_current_time_us();
 
         time_sending = 0;
-        n_updates_sent = send_updates(ctx, &time_sending);
-
-        const unsigned long long end_send_updates = hvr_current_time_us();
-
         time_updating = 0;
         time_updating_edges = 0;
         time_creating_edges = 0;
-        n_received_updates = process_vertex_updates(ctx,
+        n_received_updates = 0;
+        count_new_should_have_edges = 0;
+        n_updates_sent = send_updates(ctx, &time_sending, &n_received_updates,
+                &time_handling_deletes, &time_handling_news,
+                &time_updating, &time_updating_edges, &time_creating_edges,
+                &count_new_should_have_edges);
+
+        const unsigned long long end_send_updates = hvr_current_time_us();
+
+        n_received_updates += process_vertex_updates(ctx,
             &time_handling_deletes,
             &time_handling_news,
             &time_updating,
             &time_updating_edges,
-            &time_creating_edges);
+            &time_creating_edges,
+            &count_new_should_have_edges);
 
         const unsigned long long end_vertex_updates = hvr_current_time_us();
 
@@ -1412,61 +1581,30 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long end_update_coupled = hvr_current_time_us();
 
-        char partition_time_window_str[2048] = {'\0'};
-#ifdef DETAILED_PRINTS
-        hvr_set_to_string(ctx->producer_partition_time_window,
-                partition_time_window_str, 2048, ctx->partition_lists_lengths);
-#endif
-
         if (print_profiling) {
-            fprintf(profiling_fp, "PE %d - iter %d - total %f ms\n",
-                    ctx->pe, ctx->iter,
-                    (double)(end_update_coupled - start_iter) / 1000.0);
-            fprintf(profiling_fp, "  start time step %f\n",
-                    (double)(end_start_time_step - start_iter) / 1000.0);
-            fprintf(profiling_fp, "  update vertices %f - %d updates\n",
-                    (double)(end_update_vertices - end_start_time_step) / 1000.0,
-                    count_updated);
-            fprintf(profiling_fp, "  update actor partitions %f\n",
-                    (double)(end_update_partitions - end_update_vertices) / 1000.0);
-            fprintf(profiling_fp, "  update partition window %f - dead PE time %f\n",
-                    (double)(end_partition_window - end_update_partitions) / 1000.0,
-                    (double)dead_pe_time / 1000.0);
-            fprintf(profiling_fp, "  update neighbors %f\n",
-                    (double)(end_neighbor_updates - end_partition_window) / 1000.0);
-            fprintf(profiling_fp, "  send updates %f - %u changes, %f ms sending\n",
-                    (double)(end_send_updates - end_neighbor_updates) / 1000.0,
-                    n_updates_sent, (double)time_sending / 1000.0);
-            fprintf(profiling_fp, "  process vertex updates %f - %u received\n",
-                    (double)(end_vertex_updates - end_send_updates) / 1000.0,
-                    n_received_updates);
-            fprintf(profiling_fp, "    %f on deletes\n",
-                    (double)time_handling_deletes / 1000.0);
-            fprintf(profiling_fp, "    %f on news\n",
-                    (double)time_handling_news / 1000.0);
-            fprintf(profiling_fp, "      %f s on updates - %f updating edges, "
-                    "%f creating edges\n", (double)time_updating / 1000.0,
-                    (double)time_updating_edges / 1000.0,
-                    (double)time_creating_edges / 1000.0);
-            fprintf(profiling_fp, "  coupling %f\n",
-                    (double)(end_update_coupled - end_vertex_updates) / 1000.0);
-            fprintf(profiling_fp, "  partition window = %s, %d / %d producer "
-                    "partitions and %d / %d subscriber partitions for %lu "
-                    "local vertices\n", partition_time_window_str,
-                    hvr_set_count(ctx->producer_partition_time_window),
-                    ctx->n_partitions,
-                    hvr_set_count(ctx->subscriber_partition_time_window),
-                    ctx->n_partitions, hvr_n_allocated(ctx));
-            fprintf(profiling_fp, "  aborting? %d - remote "
-                    "cache hits=%llu misses=%llu, feature cache hits=%u misses=%u "
-                    "quiets=%llu\n",
+            print_profiling_info(
+                    start_iter,
+                    end_start_time_step,
+                    end_update_vertices,
+                    end_update_partitions,
+                    end_partition_window,
+                    end_neighbor_updates,
+                    end_send_updates,
+                    end_vertex_updates,
+                    end_update_coupled,
+                    count_updated,
+                    n_updates_sent,
+                    n_received_updates,
+                    time_handling_deletes,
+                    time_handling_news,
+                    time_updating,
+                    time_updating_edges,
+                    time_creating_edges,
+                    dead_pe_time,
+                    time_sending,
                     should_abort,
-                    ctx->vec_cache.cache_perf_info.nhits,
-                    ctx->vec_cache.cache_perf_info.nmisses,
-                    ctx->n_vector_cache_hits,
-                    ctx->n_vector_cache_misses,
-                    ctx->vec_cache.cache_perf_info.quiet_counter);
-            fflush(profiling_fp);
+                    count_new_should_have_edges,
+                    ctx);
         }
 
         if (ctx->strict_mode) {
