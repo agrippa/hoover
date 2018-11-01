@@ -536,6 +536,8 @@ void update_metadata(hvr_vertex_t *vec,
             hvr_vertex_set(6, stayed + 1.0, vec, ctx);
         }
     }
+
+    free(neighbors); free(directions);
 }
 
 

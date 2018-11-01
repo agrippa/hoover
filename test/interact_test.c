@@ -56,6 +56,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         assert(prev_n_neighbors == 1);
         assert(n_neighbors == 1);
     }
+    free(neighbors); free(directions);
 }
 
 /*

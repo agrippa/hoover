@@ -386,6 +386,7 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
                 }
             }
         }
+        free(neighbors); free(directions);
     }
 }
 

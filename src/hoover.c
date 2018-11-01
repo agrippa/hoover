@@ -24,7 +24,7 @@
 // #define DETAILED_PRINTS
 
 #define CACHED_TIMESTEPS_TOLERANCE 2
-#define MAX_INTERACTING_PARTITIONS 500
+#define MAX_INTERACTING_PARTITIONS 800
 #define N_PARTITION_NODES_PREALLOC 3000
 
 #define FINE_GRAIN_TIMING
@@ -891,9 +891,10 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
         if (vertex_edge_tree && vertex_edge_tree->linearized_length > 0) {
             hvr_vertex_id_t *neighbors = NULL;
             hvr_edge_type_t *edges = NULL;
+            unsigned capacity = 0;
             // Current neighbors for the updated vertex
             unsigned n_neighbors = hvr_tree_linearize(&neighbors, &edges,
-                    vertex_edge_tree);
+                    &capacity, vertex_edge_tree);
 
             for (unsigned n = 0; n < n_neighbors; n++) {
                 hvr_vertex_cache_node_t *cached_neighbor =
@@ -903,6 +904,7 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
 
                 update_edge_info(dead_vert, neighbor, NO_EDGE, edges[n], ctx);
             }
+            free(neighbors); free(edges);
         }
 
         hvr_vertex_cache_delete(dead_vert, &ctx->vec_cache);
@@ -946,9 +948,10 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         if (vertex_edge_tree && vertex_edge_tree->linearized_length > 0) {
             hvr_vertex_id_t *neighbors = NULL;
             hvr_edge_type_t *edges = NULL;
+            unsigned capacity = 0;
             // Current neighbors for the updated vertex
             unsigned n_neighbors = hvr_tree_linearize(&neighbors, &edges,
-                    vertex_edge_tree);
+                    &capacity, vertex_edge_tree);
 
             for (unsigned n = 0; n < n_neighbors; n++) {
                 hvr_vertex_cache_node_t *cached_neighbor =
@@ -965,6 +968,7 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
                             ctx);
                 }
             }
+            free(neighbors); free(edges);
         }
 
         const unsigned long long done_updating_edges = hvr_current_time_us();
@@ -1051,8 +1055,11 @@ void hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_id_t **out_neighbors,
     if (vertex_edge_tree == NULL || vertex_edge_tree->linearized_length == 0) {
         *out_n_neighbors = 0;
     } else {
+        *out_neighbors = NULL;
+        *out_directions = NULL;
+        unsigned capacity = 0;
         *out_n_neighbors = hvr_tree_linearize(out_neighbors, out_directions,
-                vertex_edge_tree);
+                &capacity, vertex_edge_tree);
     }
 }
 
@@ -1120,10 +1127,11 @@ void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
     if (pes_tree && pes_tree->linearized_length > 0) {
         hvr_vertex_id_t *subscribers = NULL;
         hvr_edge_type_t *edges = NULL;
+        unsigned capacity = 0;
         // Current neighbors for the updated vertex
 
         unsigned n_subscribers = hvr_tree_linearize(&subscribers,
-                &edges, pes_tree);
+                &edges, &capacity, pes_tree);
         
         const unsigned long long start = hvr_current_time_us();
         for (unsigned s = 0; s < n_subscribers; s++) {
@@ -1144,6 +1152,7 @@ void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
                         subscribers[s], 100, mbox);
             }
         }
+        free(subscribers); free(edges);
         *time_sending += (hvr_current_time_us() - start);
     }
 }
@@ -1517,6 +1526,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     fprintf(ctx->edges_dump_file, ":%lu", neighbors[n]);
                 }
                 fprintf(ctx->edges_dump_file, " ],,\n");
+                free(neighbors); free(directions);
             }
             fflush(ctx->dump_file);
             fflush(ctx->edges_dump_file);
@@ -1560,6 +1570,9 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         time_creating_edges = 0;
         n_received_updates = 0;
         count_new_should_have_edges = 0;
+        time_handling_deletes = 0;
+        time_handling_news = 0;
+
         n_updates_sent = send_updates(ctx, &time_sending, &n_received_updates,
                 &time_handling_deletes, &time_handling_news,
                 &time_updating, &time_updating_edges, &time_creating_edges,

@@ -89,6 +89,8 @@ int main(int argc, char **argv) {
 
         assert(n_neighbors == 1);
         assert(neighbors[0] == only->id);
+
+        free(neighbors); free(directions);
     } else {
         assert(count == 0);
     }

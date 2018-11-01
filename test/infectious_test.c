@@ -9,7 +9,7 @@
 
 #include <hoover.h>
 
-#define TIME_PARTITION_DIM 40
+#define TIME_PARTITION_DIM 100
 #define Y_PARTITION_DIM 150
 #define X_PARTITION_DIM 150
 
@@ -277,6 +277,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_vertex_set(PX, new_x, vertex, ctx);
         hvr_vertex_set(PY, new_y, vertex, ctx);
     }
+        free(neighbors); free(directions);
 }
 
 /*
@@ -359,7 +360,17 @@ void might_interact(const hvr_partition_t partition,
             for (int c = min_partition_x; c <= max_partition_x; c++) {
                 const int part = t * Y_PARTITION_DIM * X_PARTITION_DIM +
                     r * X_PARTITION_DIM + c;
-                assert(count_interacting_partitions <=
+                if (count_interacting_partitions >= interacting_partitions_capacity) {
+                    fprintf(stderr, "time = (%d, %d) y = (%d, %d) x = (%d, %d) "
+                            "current count = %u, capacity = %u\n",
+                            min_partition_time, max_partition_time,
+                            min_partition_y, max_partition_y,
+                            min_partition_x, max_partition_x,
+                            count_interacting_partitions,
+                            interacting_partitions_capacity);
+                    abort();
+                }
+                assert(count_interacting_partitions <
                         interacting_partitions_capacity);
                 interacting_partitions[count_interacting_partitions++] = part;
             }
@@ -569,7 +580,7 @@ int main(int argc, char **argv) {
             NULL, // start_time_step
             should_have_edge,
             should_terminate,
-            60, // max_elapsed_seconds
+            250, // max_elapsed_seconds
             1, // max_graph_traverse_depth
             hvr_ctx);
 

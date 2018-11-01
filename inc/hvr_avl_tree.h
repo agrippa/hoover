@@ -26,7 +26,7 @@ extern hvr_avl_tree_node_t *hvr_tree_find(hvr_avl_tree_node_t *curr,
         hvr_vertex_id_t key);
 
 extern size_t hvr_tree_linearize(hvr_vertex_id_t **vertices,
-        hvr_edge_type_t **directions,
+        hvr_edge_type_t **directions, unsigned *capacity,
         hvr_avl_tree_node_t *curr);
 
 extern void hvr_tree_destroy(hvr_avl_tree_node_t *curr);
