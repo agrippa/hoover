@@ -187,3 +187,10 @@ hvr_edge_type_t hvr_tree_lookup_in_node(hvr_vertex_id_t vert,
         return NO_EDGE;
     }
 }
+
+unsigned hvr_tree_size(hvr_avl_tree_node_t *curr) {
+    if (curr == NULL) {
+        return 0;
+    }
+    return 1 + hvr_tree_size(curr->left) + hvr_tree_size(curr->right);
+}

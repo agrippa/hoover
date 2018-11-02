@@ -40,4 +40,6 @@ extern void hvr_tree_append_to_node(hvr_vertex_id_t vert, hvr_edge_type_t dir,
 extern hvr_edge_type_t hvr_tree_lookup_in_node(hvr_vertex_id_t vert,
         hvr_avl_tree_node_t *curr);
 
+extern unsigned hvr_tree_size(hvr_avl_tree_node_t *curr);
+
 #endif

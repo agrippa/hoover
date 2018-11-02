@@ -188,6 +188,7 @@ static unsigned patterns_identical(adjacency_matrix_t *a,
     return 1;
 }
 
+#if 0
 static void adjacency_matrix_to_string(adjacency_matrix_t *a, char *buf,
         size_t buf_size) {
     unsigned buf_index = 0;
@@ -215,6 +216,7 @@ static void adjacency_matrix_to_string(adjacency_matrix_t *a, char *buf,
         buf_index += nwritten;
     }
 }
+#endif
 
 static unsigned adjacency_matrix_n_edges(adjacency_matrix_t *a) {
     unsigned count_edges = 0;

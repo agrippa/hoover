@@ -19,6 +19,7 @@ extern "C" {
 #include "hvr_set.h"
 #include "hvr_dist_bitvec.h"
 #include "hvr_vertex_ll.h"
+#include "hvr_sparse_arr.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -107,6 +108,7 @@ typedef struct _hvr_internal_ctx_t {
     int npes;
 
     hvr_vertex_pool_t *pool;
+    hvr_partition_t *vertex_partitions; // only set while exiting
 
     // Number of partitions passed in by the user
     hvr_partition_t n_partitions;
@@ -213,7 +215,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_local_subcopy_t *dead_info;
 
     // Edge from PE -> partitions we need to notify it about
-    hvr_edge_set_t *pe_subscription_info;
+    hvr_sparse_arr_t pe_subscription_info;
 
     unsigned max_graph_traverse_depth;
 } hvr_internal_ctx_t;

@@ -154,9 +154,9 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      * If vertex is not already infected, update it to be infected if any of its
      * neighbors are.
      */
-    hvr_vertex_id_t *neighbors;
-    hvr_edge_type_t *directions;
-    size_t n_neighbors;
+    hvr_vertex_id_t *neighbors = NULL;
+    hvr_edge_type_t *directions = NULL;
+    size_t n_neighbors = 0;
     hvr_get_neighbors(vertex, &neighbors, &directions, &n_neighbors, ctx);
 
     /*
@@ -412,8 +412,9 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *local_coupled_metric, hvr_vertex_t *global_coupled_metric,
         hvr_set_t *coupled_pes, int n_coupled_pes) {
     if ((int)hvr_vertex_get(0, local_coupled_metric, ctx) == actors_per_cell) {
-        return 0;
-        // return 1;
+        // return 0;
+        printf("PE %d leaving the simulation\n", shmem_my_pe());
+        return 1;
     } else {
         return 0;
     }
@@ -422,10 +423,11 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc != 10) {
+    if (argc != 11) {
         fprintf(stderr, "usage: %s <cell-dim> <# global portals> "
                 "<actors per cell> <pe-rows> <pe-cols> <n-initial-infected> "
-                "<max-num-timesteps> <infection-radius> <max-delta-velocity>\n",
+                "<max-num-timesteps> <infection-radius> <max-delta-velocity> "
+                "<time-limit>\n",
                 argv[0]);
         return 1;
     }
@@ -439,6 +441,7 @@ int main(int argc, char **argv) {
     max_num_timesteps = atoi(argv[7]);
     infection_radius = atof(argv[8]);
     max_delta_velocity = atof(argv[9]);
+    int time_limit = atoi(argv[10]);
 
     const double global_x_dim = (double)pe_cols * cell_dim;
     const double global_y_dim = (double)pe_rows * cell_dim;
@@ -580,7 +583,7 @@ int main(int argc, char **argv) {
             NULL, // start_time_step
             should_have_edge,
             should_terminate,
-            250, // max_elapsed_seconds
+            time_limit, // max_elapsed_seconds
             1, // max_graph_traverse_depth
             hvr_ctx);
 
