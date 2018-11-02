@@ -144,6 +144,7 @@ typedef struct _hvr_internal_ctx_t {
 
     // Used to write traces of the simulation out, for later visualization
     int dump_mode;
+    int only_last_iter_dump;
     FILE *dump_file;
     FILE *edges_dump_file;
 

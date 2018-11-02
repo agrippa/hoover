@@ -585,6 +585,10 @@ void hvr_init(const hvr_partition_t n_partitions,
         sprintf(dump_file_name, "%d.edges.csv", new_ctx->pe);
         new_ctx->edges_dump_file = fopen(dump_file_name, "w");
         assert(new_ctx->edges_dump_file);
+
+        if (getenv("HVR_TRACE_DUMP_ONLY_LAST")) {
+            new_ctx->only_last_iter_dump = 1;
+        }
     }
 
     if (getenv("HVR_DISABLE_PROFILING_PRINTS")) {
@@ -1360,6 +1364,58 @@ static void print_profiling_info(
 
 }
 
+static void save_current_state_to_dump_file(hvr_internal_ctx_t *ctx) {
+    // Assume that all vertices have the same features.
+    unsigned nfeatures;
+    unsigned features[HVR_MAX_VECTOR_SIZE];
+    hvr_vertex_unique_features(
+            ctx->pool->pool + ctx->pool->used_list->start_index,
+            features, &nfeatures);
+
+    hvr_vertex_iter_t iter;
+    hvr_vertex_iter_init(&iter, ctx);
+    for (hvr_vertex_t *curr = hvr_vertex_iter_next(&iter); curr;
+            curr = hvr_vertex_iter_next(&iter)) {
+        fprintf(ctx->dump_file, "%u,%d,%lu,%u", ctx->iter, ctx->pe,
+                curr->id, nfeatures);
+        for (unsigned f = 0; f < nfeatures; f++) {
+            fprintf(ctx->dump_file, ",%u,%f", features[f],
+                    hvr_vertex_get(features[f], curr, ctx));
+        }
+        fprintf(ctx->dump_file, "\n");
+
+        hvr_vertex_id_t *neighbors;
+        hvr_edge_type_t *directions;
+        size_t n_neighbors;
+        hvr_get_neighbors(curr, &neighbors, &directions, &n_neighbors,
+                ctx);
+
+        fprintf(ctx->edges_dump_file, "%u,%d,%lu,%lu,[", ctx->iter,
+                ctx->pe, curr->id, n_neighbors);
+        for (unsigned n = 0; n < n_neighbors; n++) {
+            fprintf(ctx->edges_dump_file, " ");
+            switch (directions[n]) {
+                case DIRECTED_IN:
+                    fprintf(ctx->edges_dump_file, "IN");
+                    break;
+                case DIRECTED_OUT:
+                    fprintf(ctx->edges_dump_file, "OUT");
+                    break;
+                case BIDIRECTIONAL:
+                    fprintf(ctx->edges_dump_file, "BI");
+                    break;
+                default:
+                    assert(0);
+            }
+            fprintf(ctx->edges_dump_file, ":%lu", neighbors[n]);
+        }
+        fprintf(ctx->edges_dump_file, " ],,\n");
+        free(neighbors); free(directions);
+    }
+    fflush(ctx->dump_file);
+    fflush(ctx->edges_dump_file);
+}
+
 hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     hvr_set_t *to_couple_with = hvr_create_empty_set(ctx->npes);
@@ -1480,56 +1536,9 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     while (!should_abort && hvr_current_time_us() - start_body <
             ctx->max_elapsed_seconds * 1000000ULL) {
 
-        if (ctx->dump_mode && ctx->pool->used_list) {
-            // Assume that all vertices have the same features.
-            unsigned nfeatures;
-            unsigned features[HVR_MAX_VECTOR_SIZE];
-            hvr_vertex_unique_features(
-                    ctx->pool->pool + ctx->pool->used_list->start_index,
-                    features, &nfeatures);
-
-            hvr_vertex_iter_t iter;
-            hvr_vertex_iter_init(&iter, ctx);
-            for (hvr_vertex_t *curr = hvr_vertex_iter_next(&iter); curr;
-                    curr = hvr_vertex_iter_next(&iter)) {
-                fprintf(ctx->dump_file, "%u,%d,%lu,%u", ctx->iter, ctx->pe,
-                        curr->id, nfeatures);
-                for (unsigned f = 0; f < nfeatures; f++) {
-                    fprintf(ctx->dump_file, ",%u,%f", features[f],
-                            hvr_vertex_get(features[f], curr, ctx));
-                }
-                fprintf(ctx->dump_file, ",,\n");
-
-                hvr_vertex_id_t *neighbors;
-                hvr_edge_type_t *directions;
-                size_t n_neighbors;
-                hvr_get_neighbors(curr, &neighbors, &directions, &n_neighbors,
-                        ctx);
-
-                fprintf(ctx->edges_dump_file, "%u,%d,%lu,%lu,[", ctx->iter,
-                        ctx->pe, curr->id, n_neighbors);
-                for (unsigned n = 0; n < n_neighbors; n++) {
-                    fprintf(ctx->edges_dump_file, " ");
-                    switch (directions[n]) {
-                        case DIRECTED_IN:
-                            fprintf(ctx->edges_dump_file, "IN");
-                            break;
-                        case DIRECTED_OUT:
-                            fprintf(ctx->edges_dump_file, "OUT");
-                            break;
-                        case BIDIRECTIONAL:
-                            fprintf(ctx->edges_dump_file, "BI");
-                            break;
-                        default:
-                            assert(0);
-                    }
-                    fprintf(ctx->edges_dump_file, ":%lu", neighbors[n]);
-                }
-                fprintf(ctx->edges_dump_file, " ],,\n");
-                free(neighbors); free(directions);
-            }
-            fflush(ctx->dump_file);
-            fflush(ctx->edges_dump_file);
+        if (ctx->dump_mode && ctx->pool->used_list &&
+                !ctx->only_last_iter_dump) {
+            save_current_state_to_dump_file(ctx);
         }
 
         const unsigned long long start_iter = hvr_current_time_us();
@@ -1654,6 +1663,10 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         if (ctx->local_partition_lists[p]) {
             hvr_dist_bitvec_set(p, ctx->pe, &ctx->terminated_pes);
         }
+    }
+
+    if (ctx->dump_mode && ctx->pool->used_list && ctx->only_last_iter_dump) {
+        save_current_state_to_dump_file(ctx);
     }
 
     hvr_exec_info info;
