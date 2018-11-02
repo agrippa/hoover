@@ -99,7 +99,7 @@ function readSingleFile(e) {
             if (evt.target.error == null) {
                 var contents = partialContents + evt.target.result;
                 console.log('read ' + evt.target.result.length + ' bytes.');
-                var last_line_sep = contents.lastIndexOf(',,');
+                var last_line_sep = contents.lastIndexOf('\n');
                 if (last_line_sep === -1) {
                     console.log('No line separator found?');
                     return;
@@ -111,13 +111,14 @@ function readSingleFile(e) {
                     contents += partialContents;
                 }
 
-                var lines = contents.split(',,');
+                var lines = contents.split('\n');
                 for (var i = 0; i < lines.length; i++) {
                     var line = lines[i].split(',');
-                    var id = parseInt(line[0]);
-                    var nfeatures = parseInt(line[1]);
-                    var timestep = parseInt(line[2]);
-                    var pe = parseInt(line[3]);
+
+                    var iter = parseInt(line[0]);
+                    var pe = parseInt(line[1]);
+                    var id = parseInt(line[2]);
+                    var nfeatures = parseInt(line[3]);
 
                     var features = {};
                     for (var j = 0; j < nfeatures; j++) {
@@ -125,11 +126,15 @@ function readSingleFile(e) {
                             parseFloat(line[4 + 2 * j + 1]);
                     }
 
-                    addPE(pe);
-                    addState(features[2]);
-
+                    var timestep = parseInt(features[7]);
+                    var state = parseInt(features[2]);
                     var x = features[0];
                     var y = features[1];
+                    var id = parseInt(features[8]);
+
+                    addPE(pe);
+                    addState(state);
+
                     if (min_x === null || x < min_x) min_x = x;
                     if (min_y === null || y < min_y) min_y = y;
                     if (max_x === null || x > max_x) max_x = x;
@@ -139,7 +144,7 @@ function readSingleFile(e) {
                         simulation_data[timestep] = {};
                     }
                     simulation_data[timestep][id] = new Particle(x, y, pe,
-                            features[2]);
+                            state);
 
                     if (timestep < curr_simulation_step) {
                         curr_simulation_step = timestep;
