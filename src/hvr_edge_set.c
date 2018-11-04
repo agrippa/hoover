@@ -12,7 +12,7 @@ static inline int valid_vertex_id(const hvr_vertex_id_t id) {
 hvr_edge_set_t *hvr_create_empty_edge_set() {
     hvr_edge_set_t *new_set = (hvr_edge_set_t *)malloc(sizeof(*new_set));
     assert(new_set);
-    new_set->tree = NULL;
+    hvr_map_init(&new_set->map);
     return new_set;
 }
 
@@ -27,44 +27,30 @@ void hvr_add_edge(const hvr_vertex_id_t local_vertex_id,
      * If it already exists, just returns existing node in tree. Direction here
      * doesn't matter.
      */
-    set->tree = hvr_tree_insert(set->tree, local_vertex_id);
-    hvr_avl_tree_node_t *inserted = hvr_tree_find(set->tree, local_vertex_id);
-    assert(inserted && inserted->key == local_vertex_id);
-
-    hvr_tree_append_to_node(global_vertex_id, direction, inserted);
+    hvr_map_add(local_vertex_id, global_vertex_id, direction, &set->map);
 }
 
 void hvr_remove_edge(const hvr_vertex_id_t local_vertex_id,
         const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
-    hvr_avl_tree_node_t *found = hvr_tree_find(set->tree, local_vertex_id);
-    assert(found);
-    hvr_tree_remove_from_node(global_vertex_id, found);
+    hvr_map_remove(local_vertex_id, global_vertex_id, &set->map);
 }
 
 hvr_edge_type_t hvr_have_edge(const hvr_vertex_id_t local_vertex_id,
         const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
-    hvr_avl_tree_node_t *inserted = hvr_tree_find(set->tree, local_vertex_id);
-    if (inserted == NULL) {
-        return NO_EDGE;
-    }
-
-    return hvr_tree_lookup_in_node(global_vertex_id, inserted);
+    return hvr_map_contains(local_vertex_id, global_vertex_id, &set->map);
 }
 
 size_t hvr_count_edges(const hvr_vertex_id_t local_vertex_id,
         hvr_edge_set_t *set) {
-    hvr_avl_tree_node_t *found = hvr_tree_find(set->tree, local_vertex_id);
-    if (found == NULL) return 0;
-    else return found->linearized_length;
+    return hvr_map_count_values(local_vertex_id, &set->map);
 }
 
 void hvr_clear_edge_set(hvr_edge_set_t *set) {
-    hvr_tree_destroy(set->tree);
-    set->tree = NULL;
+    hvr_map_clear(&set->map);
 }
 
 void hvr_release_edge_set(hvr_edge_set_t *set) {
-    hvr_tree_destroy(set->tree);
+    hvr_map_clear(&set->map);
     free(set);
 }
 
