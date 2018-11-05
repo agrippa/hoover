@@ -9,7 +9,7 @@
 
 #include <hoover.h>
 
-#define TIME_PARTITION_DIM 200
+#define TIME_PARTITION_DIM 270
 #define Y_PARTITION_DIM 150
 #define X_PARTITION_DIM 150
 

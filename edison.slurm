@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:12:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -49,7 +49,8 @@ export BASE_ACTORS_PER_CELL=10
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 1 node
     export CELL_DIM=4000.0
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 1024))
+    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 1024))
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 512))
     export PE_ROWS=4
     export PE_COLS=6
 elif [[ $SLURM_NNODES -eq 4 ]]; then
@@ -62,19 +63,22 @@ elif [[ $SLURM_NNODES -eq 4 ]]; then
 elif [[ $SLURM_NNODES -eq 16 ]]; then
     # 16 nodes, big run
     export CELL_DIM=1000.0
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 64))
+    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 64))
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 32))
     export PE_ROWS=16
     export PE_COLS=24
 elif [[ $SLURM_NNODES -eq 64 ]]; then
     # For 64 nodes, big run
     export CELL_DIM=500.0
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 16))
+    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 16))
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 8))
     export PE_ROWS=32
     export PE_COLS=48
 elif [[ $SLURM_NNODES -eq 256 ]]; then
     # For 256 nodes, big run
     export CELL_DIM=250.0
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 4))
+    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 4))
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 2))
     export PE_ROWS=64
     export PE_COLS=96
 elif [[ $SLURM_NNODES -eq 1024 ]]; then
@@ -91,18 +95,19 @@ fi
 export N_PORTALS=0
 export N_INFECTED=1
 # export MAX_NUM_TIMESTEPS=100
-export MAX_NUM_TIMESTEPS=200
+export MAX_NUM_TIMESTEPS=270
 # export INFECTION_RADIUS=10.0
 export INFECTION_RADIUS=100
 export MAX_DELTA_VELOCITY=0.01
 
-export HVR_SYMM_POOL_SIZE=2457600
+# export HVR_SYMM_POOL_SIZE=2457600
+export HVR_SYMM_POOL_SIZE=384000
 export HVR_VEC_CACHE_PREALLOCS=1000000
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
-export HVR_DISABLE_DEAD_PE_PROCESSING=1
+# export HVR_DISABLE_DEAD_PE_PROCESSING=1
 export HVR_UPDATED_CAPACITY=50000
 # export HVR_HANG_ABORT=150
 
@@ -114,4 +119,4 @@ srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
     $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    $MAX_DELTA_VELOCITY 300
+    $MAX_DELTA_VELOCITY 660
