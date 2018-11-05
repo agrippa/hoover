@@ -4,6 +4,7 @@
 #define _HVR_EDGE_SET_H
 
 #include "hvr_avl_tree.h"
+#include "hvr_map.h"
 
 #ifdef __cplusplus
 extern "C" {

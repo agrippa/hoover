@@ -1,13 +1,16 @@
 #include "hvr_map.h"
 
+#include <string.h>
+
 #define INIT_VAL_CAPACITY 16
+#define HVR_MAP_BUCKET(my_key) ((my_key) % HVR_MAP_BUCKETS)
 
 static void hvr_map_seg_init(hvr_map_seg_t *s) {
     memset(s, 0x00, sizeof(*s));
 }
 
 // Add a new key with one initial value
-static void hvr_map_seg_add(hvr_vertex_id key, hvr_vertex_id_t val,
+static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_vertex_id_t val,
         hvr_edge_type_t edge_type, hvr_map_seg_t *s) {
     const unsigned insert_index = s->nkeys;
     assert(insert_index < HVR_MAP_SEG_SIZE);
@@ -20,76 +23,16 @@ static void hvr_map_seg_add(hvr_vertex_id key, hvr_vertex_id_t val,
     assert(s->edge_types[insert_index]);
 
     s->values[insert_index][0] = val;
-    s->edge_Types[insert_index][0] = edge_type;
+    s->edge_types[insert_index][0] = edge_type;
 
     s->capacity[insert_index] = INIT_VAL_CAPACITY;
     s->length[insert_index] = 1;
     s->nkeys++;
 }
 
-void hvr_map_init(hvr_map_t *m) {
-    memset(m, 0x00, sizeof(*m));
-}
-
-void hvr_map_add(hvr_vertex_id_t key, hvr_vertex_id_t val,
-        hvr_edge_type_t edge_type, hvr_map_t *m) {
-    unsigned bucket = key % HVR_MAP_BUCKETS;
-
-    hvr_map_seg_t *prev = NULL;
-    hvr_map_seg_t *seg = m->buckets[bucket];
-    while (seg) {
-        for (unsigned i = 0; i < seg->nkeys; i++) {
-            if (seg->keys[i] == key) {
-                if (seg->length[i] == seg->capacity[i]) {
-                    unsigned new_capacity = 2 * seg->capacity[i];
-                    seg->values[i] = (hvr_vertex_id_t *)realloc(seg->values[i],
-                            new_capacity * sizeof(hvr_vertex_id_t));
-                    assert(seg->values[i]);
-
-                    seg->edge_types[i] = (hvr_edge_type_t *)realloc(
-                            seg->edge_types[i],
-                            new_capacity * sizeof(hvr_edge_type_t));
-                    seg->capacity[i] = new_capacity;
-                }
-                seg->values[i][seg->length[i]] = val;
-                seg->edge_types[i][seg->length[i]] = edge_type;
-                seg->length[i] += 1;
-                return;
-            }
-        }
-        prev = seg;
-        seg = seg->next;
-    }
-
-    // Have to add as new key
-    if (prev == NULL) {
-        // First segment created
-        hvr_map_seg_t *new_seg = (hvr_map_seg_t *)malloc(sizeof(*new_seg));
-        assert(new_seg);
-        hvr_map_seg_init(new_seg);
-
-        hvr_map_seg_add(key, val, edge_type, new_seg);
-        assert(m->buckets[bucket] == NULL);
-        m->buckets[bucket] = new_seg;
-    } else {
-        if (prev->nkeys == HVR_MAP_SEG_SIZE) {
-            // Have to append new segment
-            hvr_map_seg_t *new_seg = (hvr_map_seg_t *)malloc(sizeof(*new_seg));
-            assert(new_seg);
-            hvr_map_seg_init(new_seg);
-            hvr_map_seg_add(key, val, edge_type, new_seg);
-            assert(prev->next == NULL);
-            prev->next = new_seg;
-        } else {
-            // Insert in existing segment
-            hvr_map_seg_add(key, val, edge_type, prev);
-        }
-    }
-}
-
 static int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
         hvr_map_seg_t **out_seg, unsigned *out_index) {
-    unsigned bucket = key % HVR_MAP_BUCKETS;
+    unsigned bucket = HVR_MAP_BUCKET(key);
 
     hvr_map_seg_t *seg = m->buckets[bucket];
     while (seg) {
@@ -103,6 +46,79 @@ static int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
         seg = seg->next;
     }
     return 0;
+}
+
+void hvr_map_init(hvr_map_t *m) {
+    memset(m, 0x00, sizeof(*m));
+}
+
+void hvr_map_add(hvr_vertex_id_t key, hvr_vertex_id_t val,
+        hvr_edge_type_t edge_type, hvr_map_t *m) {
+
+    hvr_map_seg_t *seg;
+    unsigned seg_index;
+    int success = hvr_map_find(key, m, &seg, &seg_index);
+    if (success) {
+        // Key already exists, add it to existing values
+        unsigned nvals = seg->length[seg_index];
+        hvr_vertex_id_t *vals = seg->values[seg_index];
+        hvr_edge_type_t *edges = seg->edge_types[seg_index];
+        for (unsigned i = 0; i < nvals; i++) {
+            if (vals[i] == val) {
+                assert(edges[i] == edge_type);
+                return;
+            }
+        }
+
+        if (nvals == seg->capacity[seg_index]) {
+            // Need to resize
+            unsigned new_capacity = 2 * seg->capacity[seg_index];
+            seg->values[seg_index] = (hvr_vertex_id_t *)realloc(vals,
+                    new_capacity * sizeof(hvr_vertex_id_t));
+            assert(seg->values[seg_index]);
+
+            seg->edge_types[seg_index] = (hvr_edge_type_t *)realloc(edges,
+                    new_capacity * sizeof(hvr_edge_type_t));
+            seg->capacity[seg_index] = new_capacity;
+        }
+
+        seg->values[seg_index][seg->length[seg_index]] = val;
+        seg->edge_types[seg_index][seg->length[seg_index]] = edge_type;
+        seg->length[seg_index] += 1;
+    } else {
+        const unsigned bucket = HVR_MAP_BUCKET(key);
+
+        // Have to add as new key
+        if (m->buckets[bucket] == NULL) {
+            // First segment created
+            hvr_map_seg_t *new_seg = (hvr_map_seg_t *)malloc(sizeof(*new_seg));
+            assert(new_seg);
+            hvr_map_seg_init(new_seg);
+
+            hvr_map_seg_add(key, val, edge_type, new_seg);
+            assert(m->buckets[bucket] == NULL);
+            m->buckets[bucket] = new_seg;
+        } else {
+            hvr_map_seg_t *last_seg_in_bucket = m->buckets[bucket];
+            while (last_seg_in_bucket->next) {
+                last_seg_in_bucket = last_seg_in_bucket->next;
+            }
+
+            if (last_seg_in_bucket->nkeys == HVR_MAP_SEG_SIZE) {
+                // Have to append new segment
+                hvr_map_seg_t *new_seg = (hvr_map_seg_t *)malloc(
+                        sizeof(*new_seg));
+                assert(new_seg);
+                hvr_map_seg_init(new_seg);
+                hvr_map_seg_add(key, val, edge_type, new_seg);
+                assert(last_seg_in_bucket->next == NULL);
+                last_seg_in_bucket->next = new_seg;
+            } else {
+                // Insert in existing segment
+                hvr_map_seg_add(key, val, edge_type, last_seg_in_bucket);
+            }
+        }
+    }
 }
 
 void hvr_map_remove(hvr_vertex_id_t key, hvr_vertex_id_t val,
@@ -175,7 +191,7 @@ unsigned hvr_map_linearize(hvr_vertex_id_t key,
         memcpy(*directions, edges, nvals * sizeof(hvr_edge_type_t));
         return nvals;
     } else {
-        assert(0);
+        return 0;
     }
 }
 
@@ -191,7 +207,7 @@ void hvr_map_clear(hvr_map_t *m) {
     }
 }
 
-void hvr_map_count_values(hvr_vertex_id_t key, hvr_map_t *m) {
+size_t hvr_map_count_values(hvr_vertex_id_t key, hvr_map_t *m) {
     hvr_map_seg_t *seg;
     unsigned seg_index;
 

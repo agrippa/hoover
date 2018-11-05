@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define HVR_CACHE_BUCKETS 2048
+#define HVR_CACHE_BUCKETS 8192
 #define CACHE_BUCKET(vert_id) ((vert_id) % HVR_CACHE_BUCKETS)
 
 /*

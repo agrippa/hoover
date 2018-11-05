@@ -55,10 +55,5 @@ void hvr_release_edge_set(hvr_edge_set_t *set) {
 }
 
 void hvr_print_edge_set(hvr_edge_set_t *set) {
-    if (set->tree == NULL) {
-        printf("Empty set\n");
-    } else {
-        printf("hvr_print_edge_set unsupported at the moment\n");
-        // hvr_print_edge_set_helper(set->tree, 1);
-    }
+    printf("hvr_print_edge_set unsupported at the moment\n");
 }
