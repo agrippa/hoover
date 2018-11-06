@@ -9,7 +9,7 @@
 
 #include <hoover.h>
 
-#define TIME_PARTITION_DIM 270
+#define TIME_PARTITION_DIM 290
 #define Y_PARTITION_DIM 150
 #define X_PARTITION_DIM 150
 
@@ -408,14 +408,20 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     hvr_vertex_set(0, (double)nset, out_coupled_metric, ctx);
 }
 
+int previous_ninfected = -1;
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *local_coupled_metric, hvr_vertex_t *global_coupled_metric,
         hvr_set_t *coupled_pes, int n_coupled_pes) {
-    if ((int)hvr_vertex_get(0, local_coupled_metric, ctx) == actors_per_cell) {
+    int ninfected = (int)hvr_vertex_get(0, local_coupled_metric, ctx);
+    int delta_ninfected = ninfected - previous_ninfected;
+    double percent_infected = (double)ninfected / (double)actors_per_cell;
+    if (delta_ninfected == 0 && percent_infected > 0.8) {
         // return 0;
-        printf("PE %d leaving the simulation\n", shmem_my_pe());
+        printf("PE %d leaving the simulation, %% infected = %f\n", shmem_my_pe(), 100.0 * percent_infected);
         return 1;
     } else {
+        previous_ninfected = ninfected;
+        // printf("PE %d not leaving the simulation, %% infected = %f, delta = %d\n", shmem_my_pe(), 100.0 * percent_infected, delta_ninfected);
         return 0;
     }
 }
@@ -519,40 +525,51 @@ int main(int argc, char **argv) {
     // Seed the location of local actors.
     hvr_vertex_t *actors = hvr_vertex_create_n(
             actors_per_cell * max_num_timesteps, hvr_ctx);
-    for (int a = 0; a < actors_per_cell; a++) {
-        const double x = random_double_in_range(PE_COL_CELL_START(pe),
-                PE_COL_CELL_START(pe) + cell_dim);
-        const double y = random_double_in_range(PE_ROW_CELL_START(pe),
-                PE_ROW_CELL_START(pe) + cell_dim);
 
-        double dst_x = x + random_double_in_range(-MAX_DST_DELTA,
-                MAX_DST_DELTA);
-        double dst_y = y + random_double_in_range(-MAX_DST_DELTA,
-                MAX_DST_DELTA);
-        if (dst_x > global_x_dim) dst_x = global_x_dim - 1.0;
-        if (dst_y > global_y_dim) dst_y = global_y_dim - 1.0;
-        if (dst_x < 0.0) dst_x = 0.0;
-        if (dst_y < 0.0) dst_y = 0.0;
+    for (int t = 0; t < max_num_timesteps; t++) {
+        for (int a = 0; a < actors_per_cell; a++) {
+            double x, y, dst_x, dst_y;
+            int is_infected = 0;
 
-        int is_infected = 0;
-        for (int i = 0; i < n_initial_infected; i++) {
-            int owner_pe = initial_infected[i] / actors_per_cell;
-            if (owner_pe == pe) {
-                int local_offset = initial_infected[i] % actors_per_cell;
-                assert(local_offset < actors_per_cell);
-                if (local_offset == a)  {
-                    is_infected = 1;
-                    break;
+            if (t == 0) {
+                x = random_double_in_range(PE_COL_CELL_START(pe),
+                        PE_COL_CELL_START(pe) + cell_dim);
+                y = random_double_in_range(PE_ROW_CELL_START(pe),
+                        PE_ROW_CELL_START(pe) + cell_dim);
+
+                dst_x = x + random_double_in_range(-MAX_DST_DELTA,
+                        MAX_DST_DELTA);
+                dst_y = y + random_double_in_range(-MAX_DST_DELTA,
+                        MAX_DST_DELTA);
+                if (dst_x > global_x_dim) dst_x = global_x_dim - 1.0;
+                if (dst_y > global_y_dim) dst_y = global_y_dim - 1.0;
+                if (dst_x < 0.0) dst_x = 0.0;
+                if (dst_y < 0.0) dst_y = 0.0;
+
+                for (int i = 0; i < n_initial_infected; i++) {
+                    int owner_pe = initial_infected[i] / actors_per_cell;
+                    if (owner_pe == pe) {
+                        int local_offset = initial_infected[i] % actors_per_cell;
+                        assert(local_offset < actors_per_cell);
+                        if (local_offset == a)  {
+                            is_infected = 1;
+                            break;
+                        }
+                    }
                 }
+
+                if (is_infected) {
+                    fprintf(stderr, "PE %d - local offset %d infected\n", pe, a);
+                }
+            } else {
+                hvr_vertex_t *init_actor = actors + a;
+                x = hvr_vertex_get(PX, init_actor, hvr_ctx);
+                y = hvr_vertex_get(PY, init_actor, hvr_ctx);
+                dst_x = hvr_vertex_get(DST_X, init_actor, hvr_ctx);
+                dst_y = hvr_vertex_get(DST_Y, init_actor, hvr_ctx);
             }
-        }
 
-        if (is_infected) {
-            fprintf(stderr, "PE %d - local offset %d infected\n", pe, a);
-        }
-
-        for (int t = 0; t < max_num_timesteps; t++) {
-            int index = a * max_num_timesteps + t;
+            int index = t * actors_per_cell + a;
 
             hvr_vertex_set(PX, x, &actors[index], hvr_ctx);
             hvr_vertex_set(PY, y, &actors[index], hvr_ctx);

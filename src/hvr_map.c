@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-#define INIT_VAL_CAPACITY 16
+#define INIT_VAL_CAPACITY 64
 #define HVR_MAP_BUCKET(my_key) ((my_key) % HVR_MAP_BUCKETS)
 
 static void hvr_map_seg_init(hvr_map_seg_t *s) {
@@ -82,8 +82,8 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_vertex_id_t val,
             seg->capacity[seg_index] = new_capacity;
         }
 
-        seg->values[seg_index][seg->length[seg_index]] = val;
-        seg->edge_types[seg_index][seg->length[seg_index]] = edge_type;
+        seg->values[seg_index][nvals] = val;
+        seg->edge_types[seg_index][nvals] = edge_type;
         seg->length[seg_index] += 1;
     } else {
         const unsigned bucket = HVR_MAP_BUCKET(key);

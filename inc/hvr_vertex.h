@@ -19,7 +19,7 @@ typedef struct _hvr_vertex_t {
     struct _hvr_vertex_t *next_in_partition;
 
     hvr_time_t creation_iter;
-    unsigned char send;
+    unsigned char needs_send;
     unsigned char needs_processing;
 } hvr_vertex_t;
 

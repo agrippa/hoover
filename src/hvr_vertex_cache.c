@@ -106,13 +106,6 @@ void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
             node->part_next ? &(node->part_next->part_prev) : NULL,
             &(cache->partitions[node->part]));
 
-    // Remove from LRU list
-    if (cache->lru_tail == node) cache->lru_tail = node->lru_prev;
-    linked_list_remove_helper(node, node->lru_prev, node->lru_next,
-            node->lru_prev ? &(node->lru_prev->lru_next) : NULL,
-            node->lru_next ? &(node->lru_next->lru_prev) : NULL,
-            &(cache->lru_head));
-
     // Insert into pool using bucket pointers
     if (cache->pool_head) {
         cache->pool_head->bucket_prev = node;
@@ -134,17 +127,6 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         if (cache->pool_head) {
             cache->pool_head->bucket_prev = NULL;
         }
-#if 0
-    } else if (cache->lru_tail) { 
-        /*
-         * Find the oldest requested node, check it isn't pending communication,
-         * and if so use it.
-         */
-        new_node = cache->lru_tail;
-
-        // Removes node from bucket and LRU lists
-        remove_node_from_cache(new_node, cache);
-#endif
     } else {
         // No valid node found, print an error
         fprintf(stderr, "ERROR: PE %d exhausted %u cache slots\n",
@@ -172,17 +154,6 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     new_node->part_next = cache->partitions[part];
     new_node->part_prev = NULL;
     cache->partitions[part] = new_node;
-
-    // Insert into the LRU list
-    new_node->lru_prev = NULL;
-    new_node->lru_next = cache->lru_head;
-    if (cache->lru_head) {
-        cache->lru_head->lru_prev = new_node;
-        cache->lru_head = new_node;
-    } else {
-        assert(cache->lru_tail == NULL);
-        cache->lru_head = cache->lru_tail = new_node;
-    }
 
     return new_node;
 }

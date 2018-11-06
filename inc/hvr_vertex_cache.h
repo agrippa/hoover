@@ -44,14 +44,6 @@ typedef struct _hvr_vertex_cache_node_t {
      */
     struct _hvr_vertex_cache_node_t *part_next;
     struct _hvr_vertex_cache_node_t *part_prev;
-
-    /*
-     * For allocated nodes, construct a doubly-linked list with a total ordering
-     * determined by the order in which a node was created (such that the least
-     * recently allocated is at the tail).
-     */
-    struct _hvr_vertex_cache_node_t *lru_prev;
-    struct _hvr_vertex_cache_node_t *lru_next;
 } hvr_vertex_cache_node_t;
 
 /*

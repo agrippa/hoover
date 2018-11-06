@@ -15,6 +15,7 @@ extern void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
         unsigned long long *time_updating_edges,
         unsigned long long *time_creating_edges,
         unsigned *count_new_should_have_edges,
+        unsigned long long *time_creating,
         hvr_internal_ctx_t *ctx);
 
 hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
@@ -31,7 +32,7 @@ void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     // Notify others of the deletion
     unsigned long long unused;
     send_updates_to_all_subscribed_pes(vert, 1, &unused, NULL, NULL, NULL, NULL,
-            NULL, NULL, NULL, ctx);
+            NULL, NULL, NULL, NULL, ctx);
 
     hvr_free_vertices(vert, 1, ctx);
 }
@@ -49,7 +50,7 @@ void hvr_vertex_init(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     vert->creation_iter = ctx->iter;
     // Should be sent and processed
     vert->needs_processing = 1;
-    vert->send = 1;
+    vert->needs_send = 1;
 }
 
 void hvr_vertex_set(const unsigned feature, const double val,
@@ -64,7 +65,7 @@ void hvr_vertex_set(const unsigned feature, const double val,
             // Replace
             if (val != vert->values[i]) {
                 // Should be sent
-                vert->send = 1;
+                vert->needs_send = 1;
                 vert->values[i] = val;
             }
             return;
@@ -76,7 +77,7 @@ void hvr_vertex_set(const unsigned feature, const double val,
     vert->values[size] = val;
     vert->size = size + 1;
     // Should be sent
-    vert->send = 1;
+    vert->needs_send = 1;
 }
 
 double hvr_vertex_get(const unsigned feature, hvr_vertex_t *vert,
