@@ -1554,113 +1554,113 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     ctx->iter += 1;
 
-    while (!should_abort && hvr_current_time_us() - start_body <
-            ctx->max_elapsed_seconds * 1000000ULL) {
+    // while (!should_abort && hvr_current_time_us() - start_body <
+    //         ctx->max_elapsed_seconds * 1000000ULL) {
 
-        if (ctx->dump_mode && ctx->pool->used_list &&
-                !ctx->only_last_iter_dump) {
-            save_current_state_to_dump_file(ctx);
-        }
+    //     if (ctx->dump_mode && ctx->pool->used_list &&
+    //             !ctx->only_last_iter_dump) {
+    //         save_current_state_to_dump_file(ctx);
+    //     }
 
-        const unsigned long long start_iter = hvr_current_time_us();
+    //     const unsigned long long start_iter = hvr_current_time_us();
 
-        memset(&(ctx->vec_cache.cache_perf_info), 0x00,
-                sizeof(ctx->vec_cache.cache_perf_info));
+    //     memset(&(ctx->vec_cache.cache_perf_info), 0x00,
+    //             sizeof(ctx->vec_cache.cache_perf_info));
 
-        hvr_set_wipe(to_couple_with);
+    //     hvr_set_wipe(to_couple_with);
 
-        if (ctx->start_time_step) {
-            hvr_vertex_iter_t iter;
-            hvr_vertex_iter_init(&iter, ctx);
-            ctx->start_time_step(&iter, ctx);
-        }
+    //     if (ctx->start_time_step) {
+    //         hvr_vertex_iter_t iter;
+    //         hvr_vertex_iter_init(&iter, ctx);
+    //         ctx->start_time_step(&iter, ctx);
+    //     }
 
-        const unsigned long long end_start_time_step = hvr_current_time_us();
+    //     const unsigned long long end_start_time_step = hvr_current_time_us();
 
-        // Must come before everything else
-        int count_updated = update_vertices(to_couple_with, ctx);
+    //     // Must come before everything else
+    //     int count_updated = update_vertices(to_couple_with, ctx);
 
-        const unsigned long long end_update_vertices = hvr_current_time_us();
+    //     const unsigned long long end_update_vertices = hvr_current_time_us();
 
-        update_actor_partitions(ctx);
+    //     update_actor_partitions(ctx);
 
-        const unsigned long long end_update_partitions = hvr_current_time_us();
+    //     const unsigned long long end_update_partitions = hvr_current_time_us();
 
-        update_partition_time_window(ctx, &dead_pe_time);
+    //     update_partition_time_window(ctx, &dead_pe_time);
 
-        const unsigned long long end_partition_window = hvr_current_time_us();
+    //     const unsigned long long end_partition_window = hvr_current_time_us();
 
-        process_neighbor_updates(ctx);
+    //     process_neighbor_updates(ctx);
 
-        const unsigned long long end_neighbor_updates = hvr_current_time_us();
+    //     const unsigned long long end_neighbor_updates = hvr_current_time_us();
 
-        time_sending = 0;
-        time_updating = 0;
-        time_updating_edges = 0;
-        time_creating_edges = 0;
-        n_received_updates = 0;
-        count_new_should_have_edges = 0;
-        time_handling_deletes = 0;
-        time_handling_news = 0;
+    //     time_sending = 0;
+    //     time_updating = 0;
+    //     time_updating_edges = 0;
+    //     time_creating_edges = 0;
+    //     n_received_updates = 0;
+    //     count_new_should_have_edges = 0;
+    //     time_handling_deletes = 0;
+    //     time_handling_news = 0;
 
-        n_updates_sent = send_updates(ctx, &time_sending, &n_received_updates,
-                &time_handling_deletes, &time_handling_news,
-                &time_updating, &time_updating_edges, &time_creating_edges,
-                &count_new_should_have_edges, &time_creating);
+    //     n_updates_sent = send_updates(ctx, &time_sending, &n_received_updates,
+    //             &time_handling_deletes, &time_handling_news,
+    //             &time_updating, &time_updating_edges, &time_creating_edges,
+    //             &count_new_should_have_edges, &time_creating);
 
-        const unsigned long long end_send_updates = hvr_current_time_us();
+    //     const unsigned long long end_send_updates = hvr_current_time_us();
 
-        n_received_updates += process_vertex_updates(ctx,
-            &time_handling_deletes,
-            &time_handling_news,
-            &time_updating,
-            &time_updating_edges,
-            &time_creating_edges,
-            &count_new_should_have_edges, &time_creating);
+    //     n_received_updates += process_vertex_updates(ctx,
+    //         &time_handling_deletes,
+    //         &time_handling_news,
+    //         &time_updating,
+    //         &time_updating_edges,
+    //         &time_creating_edges,
+    //         &count_new_should_have_edges, &time_creating);
 
-        const unsigned long long end_vertex_updates = hvr_current_time_us();
+    //     const unsigned long long end_vertex_updates = hvr_current_time_us();
 
-        should_abort = update_coupled_values(ctx, &coupled_metric);
+    //     should_abort = update_coupled_values(ctx, &coupled_metric);
 
-        const unsigned long long end_update_coupled = hvr_current_time_us();
+    //     const unsigned long long end_update_coupled = hvr_current_time_us();
 
-        if (print_profiling) {
-            print_profiling_info(
-                    start_iter,
-                    end_start_time_step,
-                    end_update_vertices,
-                    end_update_partitions,
-                    end_partition_window,
-                    end_neighbor_updates,
-                    end_send_updates,
-                    end_vertex_updates,
-                    end_update_coupled,
-                    count_updated,
-                    n_updates_sent,
-                    n_received_updates,
-                    time_handling_deletes,
-                    time_handling_news,
-                    time_updating,
-                    time_updating_edges,
-                    time_creating_edges,
-                    dead_pe_time,
-                    time_sending,
-                    should_abort,
-                    count_new_should_have_edges,
-                    time_creating,
-                    ctx);
-        }
+    //     if (print_profiling) {
+    //         print_profiling_info(
+    //                 start_iter,
+    //                 end_start_time_step,
+    //                 end_update_vertices,
+    //                 end_update_partitions,
+    //                 end_partition_window,
+    //                 end_neighbor_updates,
+    //                 end_send_updates,
+    //                 end_vertex_updates,
+    //                 end_update_coupled,
+    //                 count_updated,
+    //                 n_updates_sent,
+    //                 n_received_updates,
+    //                 time_handling_deletes,
+    //                 time_handling_news,
+    //                 time_updating,
+    //                 time_updating_edges,
+    //                 time_creating_edges,
+    //                 dead_pe_time,
+    //                 time_sending,
+    //                 should_abort,
+    //                 count_new_should_have_edges,
+    //                 time_creating,
+    //                 ctx);
+    //     }
 
-        if (ctx->strict_mode) {
-            *(ctx->strict_counter_src) = 0;
-            shmem_int_sum_to_all(ctx->strict_counter_dest,
-                    ctx->strict_counter_src, 1, 0, 0, ctx->npes, ctx->p_wrk_int,
-                    ctx->p_sync);
-            shmem_barrier_all();
-        }
+    //     if (ctx->strict_mode) {
+    //         *(ctx->strict_counter_src) = 0;
+    //         shmem_int_sum_to_all(ctx->strict_counter_dest,
+    //                 ctx->strict_counter_src, 1, 0, 0, ctx->npes, ctx->p_wrk_int,
+    //                 ctx->p_sync);
+    //         shmem_barrier_all();
+    //     }
 
-        ctx->iter += 1;
-    }
+    //     ctx->iter += 1;
+    // }
 
     shmem_quiet();
 
@@ -1700,6 +1700,11 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     if (ctx->dump_mode && ctx->pool->used_list && ctx->only_last_iter_dump) {
         save_current_state_to_dump_file(ctx);
     }
+
+    size_t min_bucket_len, max_bucket_len;
+    hvr_vertex_cache_metrics(&ctx->vec_cache, &min_bucket_len, &max_bucket_len);
+    printf("PE %d min bucket len = %lu max bucket len = %lu\n", shmem_my_pe(),
+            min_bucket_len, max_bucket_len);
 
     hvr_exec_info info;
     info.executed_iters = ctx->iter;

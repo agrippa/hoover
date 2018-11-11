@@ -109,6 +109,9 @@ extern hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 extern void hvr_vertex_cache_delete(hvr_vertex_t *vert,
         hvr_vertex_cache_t *cache);
 
+extern void hvr_vertex_cache_metrics(hvr_vertex_cache_t *cache,
+        size_t *min_bucket_len, size_t *max_bucket_len);
+
 #ifdef __cplusplus
 }
 #endif

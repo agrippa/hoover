@@ -3,7 +3,7 @@
 
 #include "hvr_common.h"
 
-#define HVR_MAP_SEG_SIZE 2048
+#define HVR_MAP_SEG_SIZE 16384
 #define HVR_MAP_BUCKETS 2048
 
 typedef struct _hvr_map_seg_t {

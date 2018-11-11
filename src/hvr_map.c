@@ -5,10 +5,6 @@
 #define INIT_VAL_CAPACITY 64
 #define HVR_MAP_BUCKET(my_key) ((my_key) % HVR_MAP_BUCKETS)
 
-static void hvr_map_seg_init(hvr_map_seg_t *s) {
-    memset(s, 0x00, sizeof(*s));
-}
-
 // Add a new key with one initial value
 static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_vertex_id_t val,
         hvr_edge_type_t edge_type, hvr_map_seg_t *s) {
@@ -91,9 +87,8 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_vertex_id_t val,
         // Have to add as new key
         if (m->buckets[bucket] == NULL) {
             // First segment created
-            hvr_map_seg_t *new_seg = (hvr_map_seg_t *)malloc(sizeof(*new_seg));
+            hvr_map_seg_t *new_seg = (hvr_map_seg_t *)calloc(1, sizeof(*new_seg));
             assert(new_seg);
-            hvr_map_seg_init(new_seg);
 
             hvr_map_seg_add(key, val, edge_type, new_seg);
             assert(m->buckets[bucket] == NULL);
@@ -106,10 +101,9 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_vertex_id_t val,
 
             if (last_seg_in_bucket->nkeys == HVR_MAP_SEG_SIZE) {
                 // Have to append new segment
-                hvr_map_seg_t *new_seg = (hvr_map_seg_t *)malloc(
+                hvr_map_seg_t *new_seg = (hvr_map_seg_t *)calloc(1,
                         sizeof(*new_seg));
                 assert(new_seg);
-                hvr_map_seg_init(new_seg);
                 hvr_map_seg_add(key, val, edge_type, new_seg);
                 assert(last_seg_in_bucket->next == NULL);
                 last_seg_in_bucket->next = new_seg;

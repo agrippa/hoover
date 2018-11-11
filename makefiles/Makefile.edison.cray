@@ -1,71 +1,91 @@
 # CFLAGS=-Wall -Werror -g -O2 -Iinc -std=c99
 CFLAGS=-g -O2 -Iinc -std=c99 -Wall
 SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -L$(OPENSHMEM_INSTALL)/lib64 -lsma
+CC=cc
+CXX=cc
 
-all: bin/libhoover.so bin/test_map bin/test_sparse_arr bin/interact_test bin/edge_set_test bin/own_edge_test bin/vertex_test bin/init_test \
+all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge_set_test bin/own_edge_test bin/vertex_test bin/init_test \
 	bin/infectious_test bin/shmem_rw_lock bin/write_lock_stress \
 	bin/test_vertex_id bin/add_vertices_test bin/mailbox_test \
 	bin/remove_vertices_test bin/intrusion_detection bin/hvr_dist_bitvec_test bin/pas
 
-bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c \
+bin/libhoover.a: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c \
 	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c \
 	src/hvr_set.c src/hvr_edge_set.c src/hvr_vertex.c \
 	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_vertex_ll.c src/hvr_sparse_arr.c src/hvr_map.c
-	gcc $(CFLAGS) $^ -o $@ -shared -fPIC $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hoover.o src/hoover.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_avl_tree.o src/hvr_avl_tree.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/shmem_rw_lock.o src/shmem_rw_lock.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_pool.o src/hvr_vertex_pool.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_iter.o src/hvr_vertex_iter.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_mailbox.o src/hvr_mailbox.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_set.o src/hvr_set.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_edge_set.o src/hvr_edge_set.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex.o src/hvr_vertex.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_cache.o src/hvr_vertex_cache.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_dist_bitvec.o src/hvr_dist_bitvec.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_ll.o src/hvr_vertex_ll.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_sparse_arr.o src/hvr_sparse_arr.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_map.o src/hvr_map.c
+	ar rcs bin/libhoover.a bin/hoover.o bin/hvr_avl_tree.o bin/shmem_rw_lock.o \
+		bin/hvr_vertex_pool.o bin/hvr_vertex_iter.o bin/hvr_mailbox.o bin/hvr_set.o \
+		bin/hvr_edge_set.o bin/hvr_vertex.o bin/hvr_vertex_cache.o \
+		bin/hvr_dist_bitvec.o bin/hvr_vertex_ll.o bin/hvr_sparse_arr.o bin/hvr_map.o
 
 bin/init_test: test/init_test.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
 bin/test_sparse_arr: test/test_sparse_arr.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
 bin/infectious_test: test/infectious_test.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/infectious_test.c -o bin/infectious_test.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/infectious_test.o -o $@ -lhoover -lm
 
 bin/edge_set_test: test/edge_set_test.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/vertex_test: test/vertex_test.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/pe_neighbors_set_test: test/pe_neighbors_set_test.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/shmem_rw_lock: test/shmem_rw_lock.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/write_lock_stress: test/write_lock_stress.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/test_vertex_id: test/test_vertex_id.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/add_vertices_test: test/add_vertices_test.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/remove_vertices_test: test/remove_vertices_test.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/intrusion_detection: test/intrusion_detection.cpp
-	g++ $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+	$(CXX) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/hvr_dist_bitvec_test: test/hvr_dist_bitvec_test.c
-	g++ $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+	$(CXX) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/interact_test: test/interact_test.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
 bin/own_edge_test: test/own_edge_test.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
 bin/mailbox_test: test/mailbox_test.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
 bin/pas: test/pas.cpp
-	g++ -std=c++11 $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+	$(CXX) -std=c++11 $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
 bin/test_map: test/test_map.c
-	gcc $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -Lbin -lhoover -lm $(SHMEM_FLAGS)
 
 clean:
 	rm -f bin/*

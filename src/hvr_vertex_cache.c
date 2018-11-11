@@ -157,3 +157,23 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
     return new_node;
 }
+
+void hvr_vertex_cache_metrics(hvr_vertex_cache_t *cache, size_t *min_bucket_len,
+        size_t *max_bucket_len) {
+    for (unsigned i = 0; i < HVR_CACHE_BUCKETS; i++) {
+        size_t count = 0;
+        hvr_vertex_cache_node_t *iter = cache->buckets[i];
+        while (iter) {
+            iter = iter->bucket_next;
+            count++;
+        }
+
+        if (i == 0) {
+            *min_bucket_len = count;
+            *max_bucket_len = count;
+        } else {
+            if (count < *min_bucket_len) *min_bucket_len = count;
+            if (count > *max_bucket_len) *max_bucket_len = count;
+        }
+    }
+}
