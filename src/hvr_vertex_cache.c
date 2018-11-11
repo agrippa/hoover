@@ -8,6 +8,8 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
         hvr_partition_t npartitions) {
     memset(cache, 0x00, sizeof(*cache));
 
+    hvr_map_init(&cache->cache_map);
+
     cache->partitions = (hvr_vertex_cache_node_t **)malloc(
             npartitions * sizeof(hvr_vertex_cache_node_t *));
     assert(cache->partitions);
@@ -93,6 +95,9 @@ void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
     hvr_vertex_cache_node_t *node = hvr_vertex_cache_lookup(vert->id, cache);
     assert(node);
 
+    hvr_map_val_t to_remove = {.cached_vert = node};
+    hvr_map_remove(vert->id, to_remove, 0, &cache->cache_map);
+
     // Remove from buckets list
     unsigned bucket = CACHE_BUCKET(vert->id);
     linked_list_remove_helper(node, node->bucket_prev, node->bucket_next,
@@ -154,6 +159,9 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     new_node->part_next = cache->partitions[part];
     new_node->part_prev = NULL;
     cache->partitions[part] = new_node;
+
+    hvr_map_val_t to_insert = {.cached_vert = new_node};
+    hvr_map_add(vert->id, to_insert, 0, &cache->cache_map);
 
     return new_node;
 }

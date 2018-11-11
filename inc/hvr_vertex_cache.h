@@ -2,6 +2,7 @@
 #define _HVR_VERTEX_CACHE_H
 
 #include "hvr_vertex.h"
+#include "hvr_map.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,6 +58,8 @@ typedef struct _hvr_vertex_cache_t {
 
     hvr_vertex_cache_node_t **partitions;
     hvr_partition_t npartitions;
+
+    hvr_map_t cache_map;
 
     /*
      * Pool of pre-allocated but unused vertex data structures. Used

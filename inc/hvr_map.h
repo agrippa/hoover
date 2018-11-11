@@ -6,18 +6,27 @@
 #define HVR_MAP_SEG_SIZE 16384
 #define HVR_MAP_BUCKETS 2048
 
-typedef struct _hvr_map_val_t {
-    hvr_vertex_id_t id;
-    hvr_edge_type_t edge;
+typedef union _hvr_map_val_t {
+    struct {
+        hvr_vertex_id_t id;
+        hvr_edge_type_t edge;
+    } edge_info;
+
+    void *cached_vert;
 } hvr_map_val_t;
 
 typedef struct _hvr_map_seg_t {
     hvr_vertex_id_t keys[HVR_MAP_SEG_SIZE];
     hvr_map_val_t *vals[HVR_MAP_SEG_SIZE];
+
+    // Allocated capacity of each key's values array
     unsigned capacity[HVR_MAP_SEG_SIZE];
+    // Actual length of each values array
     unsigned length[HVR_MAP_SEG_SIZE];
+    // Number of keys in this map segment
     unsigned nkeys;
 
+    // Next map segment in this bucket
     struct _hvr_map_seg_t *next;
 } hvr_map_seg_t;
 
@@ -27,11 +36,11 @@ typedef struct _hvr_map_t {
 
 extern void hvr_map_init(hvr_map_t *m);
 
-extern void hvr_map_add(hvr_vertex_id_t key, hvr_vertex_id_t val,
-        hvr_edge_type_t edge_type, hvr_map_t *m);
+extern void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
+        int is_edge_info, hvr_map_t *m);
 
-extern void hvr_map_remove(hvr_vertex_id_t key, hvr_vertex_id_t val,
-        hvr_map_t *m);
+extern void hvr_map_remove(hvr_vertex_id_t key, hvr_map_val_t val,
+        int is_edge_info, hvr_map_t *m);
 
 extern hvr_edge_type_t hvr_map_contains(hvr_vertex_id_t key,
         hvr_vertex_id_t val, hvr_map_t *m);
