@@ -6,11 +6,14 @@
 #define HVR_MAP_SEG_SIZE 16384
 #define HVR_MAP_BUCKETS 2048
 
+typedef struct _hvr_map_val_t {
+    hvr_vertex_id_t id;
+    hvr_edge_type_t edge;
+} hvr_map_val_t;
+
 typedef struct _hvr_map_seg_t {
     hvr_vertex_id_t keys[HVR_MAP_SEG_SIZE];
-    hvr_vertex_id_t *values[HVR_MAP_SEG_SIZE];
-    hvr_edge_type_t *edge_types[HVR_MAP_SEG_SIZE];
-
+    hvr_map_val_t *vals[HVR_MAP_SEG_SIZE];
     unsigned capacity[HVR_MAP_SEG_SIZE];
     unsigned length[HVR_MAP_SEG_SIZE];
     unsigned nkeys;
