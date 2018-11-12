@@ -87,19 +87,13 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
         uint32_t read_index, write_index;
         unpack_indices(indices, &read_index, &write_index);
 
-        // fprintf(stderr, "sender: unpacked read=%u write=%u\n", read_index, write_index);
-
         uint32_t consumed = used_bytes(read_index, write_index, mailbox);
         uint32_t free_bytes = mailbox->capacity_in_bytes - consumed;
-        // fprintf(stderr, "sender: free_bytes=%u\n", free_bytes);
         if (free_bytes >= full_msg_len) {
             // Enough room to try
             uint32_t new_write_index = (write_index + full_msg_len) %
                 mailbox->capacity_in_bytes;
-            // fprintf(stderr, "sender: packing read=%u write=%u\n", read_index,
-            //         new_write_index);
             uint64_t new = pack_indices(read_index, new_write_index);
-            // fprintf(stderr, "sender: new=%lu\n", new);
             uint64_t old = shmem_uint64_atomic_compare_swap(mailbox->indices,
                     indices, new, target_pe);
             if (old == indices) {

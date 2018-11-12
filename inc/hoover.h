@@ -94,6 +94,12 @@ typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_vertex_t *actor,
 typedef hvr_edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
         hvr_vertex_t *candidate, hvr_ctx_t ctx);
 
+#define VERT_PER_UPDATE 4
+typedef struct _hvr_vertex_update_t {
+    hvr_vertex_t verts[VERT_PER_UPDATE];
+    unsigned len;
+} hvr_vertex_update_t;
+
 /*
  * Per-PE data structure for storing all information about the running problem
  * so we don't have file scope variables. Enables the possibility in the future
@@ -218,6 +224,9 @@ typedef struct _hvr_internal_ctx_t {
     hvr_sparse_arr_t pe_subscription_info;
 
     unsigned max_graph_traverse_depth;
+
+    hvr_vertex_update_t *buffered_updates;
+    hvr_vertex_update_t *buffered_deletes;
 } hvr_internal_ctx_t;
 
 /*

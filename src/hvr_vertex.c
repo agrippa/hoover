@@ -7,15 +7,8 @@
 
 extern void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
         int is_delete,
+        process_perf_info_t *perf_info,
         unsigned long long *time_sending,
-        unsigned *n_received_updates,
-        unsigned long long *time_handling_deletes,
-        unsigned long long *time_handling_news,
-        unsigned long long *time_updating,
-        unsigned long long *time_updating_edges,
-        unsigned long long *time_creating_edges,
-        unsigned *count_new_should_have_edges,
-        unsigned long long *time_creating,
         hvr_internal_ctx_t *ctx);
 
 hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
@@ -31,8 +24,7 @@ void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
 
     // Notify others of the deletion
     unsigned long long unused;
-    send_updates_to_all_subscribed_pes(vert, 1, &unused, NULL, NULL, NULL, NULL,
-            NULL, NULL, NULL, NULL, ctx);
+    send_updates_to_all_subscribed_pes(vert, 1, NULL, &unused, ctx);
 
     hvr_free_vertices(vert, 1, ctx);
 }

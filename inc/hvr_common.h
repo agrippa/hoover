@@ -94,4 +94,15 @@ typedef struct _hvr_edge_info_t {
     hvr_edge_type_t edge;
 } hvr_edge_info_t;
 
+typedef struct _process_perf_info_t {
+    unsigned n_received_updates;
+    unsigned long long time_handling_deletes;
+    unsigned long long time_handling_news;
+    unsigned long long time_updating;
+    unsigned long long time_updating_edges;
+    unsigned long long time_creating_edges;
+    unsigned count_new_should_have_edges;
+    unsigned long long time_creating;
+} process_perf_info_t;
+
 #endif
