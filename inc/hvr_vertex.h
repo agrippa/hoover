@@ -55,7 +55,7 @@ static inline double hvr_vertex_get(const unsigned feature,
             return vert->values[i];
         }
     }
-    assert(0);
+    abort();
 }
 
 

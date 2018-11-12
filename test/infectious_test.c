@@ -9,7 +9,7 @@
 
 #include <hoover.h>
 
-#define TIME_PARTITION_DIM 290
+#define TIME_PARTITION_DIM 300
 #define Y_PARTITION_DIM 150
 #define X_PARTITION_DIM 150
 
@@ -276,7 +276,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_vertex_set(PX, new_x, vertex, ctx);
         hvr_vertex_set(PY, new_y, vertex, ctx);
     }
-        free(neighbors);
+    free(neighbors);
 }
 
 /*
