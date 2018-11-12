@@ -170,8 +170,7 @@ hvr_edge_type_t hvr_map_contains(hvr_vertex_id_t key,
 }
 
 unsigned hvr_map_linearize(hvr_vertex_id_t key,
-        hvr_vertex_id_t **vertices, hvr_edge_type_t **directions,
-        unsigned *capacity, hvr_map_t *m) {
+        hvr_map_val_t **out_vals, unsigned *capacity, hvr_map_t *m) {
     hvr_map_seg_t *seg;
     unsigned seg_index;
 
@@ -182,20 +181,13 @@ unsigned hvr_map_linearize(hvr_vertex_id_t key,
         hvr_map_val_t *vals = seg->vals[seg_index];
 
         if (*capacity < nvals) {
-            *vertices = (hvr_vertex_id_t *)realloc(*vertices,
-                    nvals * sizeof(hvr_vertex_id_t));
-            assert(*vertices);
-            *directions = (hvr_edge_type_t *)realloc(*directions,
-                    nvals * sizeof(hvr_edge_type_t));
-            assert(*directions);
+            *out_vals = (hvr_map_val_t *)realloc(*out_vals,
+                    nvals * sizeof(hvr_map_val_t));
+            assert(*out_vals);
             *capacity = nvals;
         }
 
-        for (unsigned i = 0; i < nvals; i++) {
-            (*vertices)[i] = vals[i].edge_info.id;
-            (*directions)[i] = vals[i].edge_info.edge;
-        }
-
+        memcpy(*out_vals, vals, nvals * sizeof(*vals));
         return nvals;
     } else {
         return 0;

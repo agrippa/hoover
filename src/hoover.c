@@ -63,8 +63,7 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         unsigned long long *time_creating_edges,
         unsigned *count_new_should_have_edges,
         unsigned long long *time_creating,
-        hvr_vertex_id_t **neighbors,
-        hvr_edge_type_t **edges,
+        hvr_map_val_t **neighbors,
         unsigned *capacity,
         hvr_internal_ctx_t *ctx);
 
@@ -289,8 +288,7 @@ static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
         assert(vert_partition_buf);
     }
 
-    hvr_vertex_id_t *neighbors = NULL;
-    hvr_edge_type_t *edges = NULL;
+    hvr_map_val_t *neighbors = NULL;
     unsigned capacity = 0;
 
     /*
@@ -313,11 +311,11 @@ static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
 
                 unsigned long long unused; unsigned u_unused;
                 handle_new_vertex(&tmp_vert, &unused, &unused, &unused,
-                        &u_unused, &unused, &neighbors, &edges, &capacity, ctx);
+                        &u_unused, &unused, &neighbors, &capacity, ctx);
             }
         }
     }
-    free(neighbors); free(edges);
+    free(neighbors);
 }
 
 /*
@@ -903,21 +901,22 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
 
     // If we were caching this node, delete the mirrored version
     if (hvr_vertex_cache_lookup(dead_vert->id, &ctx->vec_cache)) {
-        hvr_vertex_id_t *neighbors = NULL;
-        hvr_edge_type_t *edges = NULL;
+        hvr_map_val_t *neighbors = NULL;
         unsigned capacity = 0;
         unsigned n_neighbors = hvr_map_linearize(dead_vert->id, &neighbors,
-                &edges, &capacity, &ctx->edges->map);
+                &capacity, &ctx->edges->map);
 
         for (unsigned n = 0; n < n_neighbors; n++) {
             hvr_vertex_cache_node_t *cached_neighbor =
-                hvr_vertex_cache_lookup(neighbors[n], &ctx->vec_cache);
+                hvr_vertex_cache_lookup(neighbors[n].edge_info.id,
+                        &ctx->vec_cache);
             assert(cached_neighbor);
             hvr_vertex_t *neighbor = &(cached_neighbor->vert);
 
-            update_edge_info(dead_vert, neighbor, NO_EDGE, edges[n], ctx);
+            update_edge_info(dead_vert, neighbor, NO_EDGE,
+                    neighbors[n].edge_info.edge, ctx);
         }
-        free(neighbors); free(edges);
+        free(neighbors);
 
         hvr_vertex_cache_delete(dead_vert, &ctx->vec_cache);
     }
@@ -929,8 +928,7 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         unsigned long long *time_creating_edges,
         unsigned *count_new_should_have_edges,
         unsigned long long *time_creating,
-        hvr_vertex_id_t **neighbors,
-        hvr_edge_type_t **edges,
+        hvr_map_val_t **neighbors,
         unsigned *capacity,
         hvr_internal_ctx_t *ctx) {
     hvr_partition_t partition = wrap_actor_to_partition(new_vert, ctx);
@@ -960,24 +958,24 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
          * this update to the local mirror.
          */
         unsigned n_neighbors = hvr_map_linearize(updated_vert_id, neighbors,
-                edges, capacity, &ctx->edges->map);
+                capacity, &ctx->edges->map);
 
         for (unsigned n = 0; n < n_neighbors; n++) {
             hvr_vertex_cache_node_t *cached_neighbor =
-                hvr_vertex_cache_lookup((*neighbors)[n], &ctx->vec_cache);
+                hvr_vertex_cache_lookup((*neighbors)[n].edge_info.id,
+                        &ctx->vec_cache);
             assert(cached_neighbor);
             hvr_vertex_t *neighbor = &(cached_neighbor->vert);
 
             // Check this edge should still exist
             hvr_edge_type_t edge = ctx->should_have_edge(
                     &updated->vert, neighbor, ctx);
-            int changed = (edge != (*edges)[n]);
+            int changed = (edge != (*neighbors)[n].edge_info.edge);
             if (changed) {
-                update_edge_info(&updated->vert, neighbor, edge, (*edges)[n],
-                        ctx);
+                update_edge_info(&updated->vert, neighbor, edge,
+                        (*neighbors)[n].edge_info.edge, ctx);
             }
         }
-        // free(neighbors); free(edges);
 
         const unsigned long long done_updating_edges = hvr_current_time_us();
 
@@ -1031,8 +1029,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
                 &msg_len, &ctx->vertex_delete_mailbox);
     }
 
-    hvr_vertex_id_t *neighbors = NULL;
-    hvr_edge_type_t *edges = NULL;
+    hvr_map_val_t *neighbors = NULL;
     unsigned capacity = 0;
 
     const unsigned long long midpoint = hvr_current_time_us();
@@ -1045,7 +1042,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         assert(!msg->is_delete);
         handle_new_vertex(&(msg->vert), time_updating,
                 time_updating_edges, time_creating_edges,
-                count_new_should_have_edges, time_creating, &neighbors, &edges,
+                count_new_should_have_edges, time_creating, &neighbors,
                 &capacity, ctx);
         n_updates++;
 
@@ -1054,7 +1051,6 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
     }
     free(buf);
     free(neighbors);
-    free(edges);
 
     const unsigned long long done = hvr_current_time_us();
 
@@ -1064,17 +1060,16 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
     return n_updates;
 }
 
-void hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_id_t **out_neighbors,
-        hvr_edge_type_t **out_directions, size_t *out_n_neighbors,
-        hvr_ctx_t in_ctx) {
+void hvr_get_neighbors(hvr_vertex_t *vert, hvr_edge_info_t **out_neighbors,
+        size_t *out_n_neighbors, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    assert(sizeof(hvr_edge_info_t) == sizeof(hvr_map_val_t));
 
     *out_neighbors = NULL;
-    *out_directions = NULL;
 
     unsigned capacity = 0;
-    *out_n_neighbors = hvr_map_linearize(vert->id, out_neighbors,
-            out_directions, &capacity, &ctx->edges->map);
+    *out_n_neighbors = hvr_map_linearize(vert->id,
+            (hvr_map_val_t **)out_neighbors, &capacity, &ctx->edges->map);
 }
 
 hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t in_ctx) {
@@ -1403,17 +1398,16 @@ static void save_current_state_to_dump_file(hvr_internal_ctx_t *ctx) {
         }
         fprintf(ctx->dump_file, "\n");
 
-        hvr_vertex_id_t *neighbors;
-        hvr_edge_type_t *directions;
+        hvr_edge_info_t *neighbors;
         size_t n_neighbors;
-        hvr_get_neighbors(curr, &neighbors, &directions, &n_neighbors,
+        hvr_get_neighbors(curr, &neighbors, &n_neighbors,
                 ctx);
 
         fprintf(ctx->edges_dump_file, "%u,%d,%lu,%lu,[", ctx->iter,
                 ctx->pe, curr->id, n_neighbors);
         for (unsigned n = 0; n < n_neighbors; n++) {
             fprintf(ctx->edges_dump_file, " ");
-            switch (directions[n]) {
+            switch (neighbors[n].edge) {
                 case DIRECTED_IN:
                     fprintf(ctx->edges_dump_file, "IN");
                     break;
@@ -1426,10 +1420,10 @@ static void save_current_state_to_dump_file(hvr_internal_ctx_t *ctx) {
                 default:
                     assert(0);
             }
-            fprintf(ctx->edges_dump_file, ":%lu", neighbors[n]);
+            fprintf(ctx->edges_dump_file, ":%lu", neighbors[n].id);
         }
         fprintf(ctx->edges_dump_file, " ],,\n");
-        free(neighbors); free(directions);
+        free(neighbors);
     }
     fflush(ctx->dump_file);
     fflush(ctx->edges_dump_file);

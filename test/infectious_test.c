@@ -154,10 +154,9 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      * If vertex is not already infected, update it to be infected if any of its
      * neighbors are.
      */
-    hvr_vertex_id_t *neighbors = NULL;
-    hvr_edge_type_t *directions = NULL;
+    hvr_edge_info_t *neighbors = NULL;
     size_t n_neighbors = 0;
-    hvr_get_neighbors(vertex, &neighbors, &directions, &n_neighbors, ctx);
+    hvr_get_neighbors(vertex, &neighbors, &n_neighbors, ctx);
 
     /*
      * Scan over in edges to find the same actor on the previous timestep. Use
@@ -167,8 +166,8 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     hvr_vertex_t *prev = NULL;
     if ((int)hvr_vertex_get(TIME_STEP, vertex, ctx) > 0) {
         for (int i = 0; i < n_neighbors; i++) {
-            if (directions[i] == DIRECTED_IN) {
-                hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i], ctx);
+            if (neighbors[i].edge == DIRECTED_IN) {
+                hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
                 if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
                         (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
                     assert(prev == NULL);
@@ -191,8 +190,8 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      */
     if ((int)hvr_vertex_get(INFECTED, vertex, ctx) == 0) {
         for (int i = 0; i < n_neighbors; i++) {
-            if (directions[i] == DIRECTED_IN) {
-                hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i], ctx);
+            if (neighbors[i].edge == DIRECTED_IN) {
+                hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
                 if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) !=
                         (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
                     assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
@@ -277,7 +276,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_vertex_set(PX, new_x, vertex, ctx);
         hvr_vertex_set(PY, new_y, vertex, ctx);
     }
-        free(neighbors); free(directions);
+        free(neighbors);
 }
 
 /*

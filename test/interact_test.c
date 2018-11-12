@@ -38,10 +38,9 @@ static unsigned prev_n_neighbors = 0;
  */
 void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
-    hvr_vertex_id_t *neighbors;
-    hvr_edge_type_t *directions;
+    hvr_edge_info_t *neighbors;
     size_t n_neighbors;
-    hvr_get_neighbors(vertex, &neighbors, &directions, &n_neighbors, ctx);
+    hvr_get_neighbors(vertex, &neighbors, &n_neighbors, ctx);
 
     // printf("%llu\n", hvr_current_time_us() - start_time);
     if (hvr_current_time_us() - start_time > 10ULL * 1000ULL * 1000ULL) {
@@ -56,7 +55,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         assert(prev_n_neighbors == 1);
         assert(n_neighbors == 1);
     }
-    free(neighbors); free(directions);
+    free(neighbors);
 }
 
 /*
@@ -127,12 +126,11 @@ int main(int argc, char **argv) {
     start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);
 
-    hvr_vertex_id_t *neighbors;
-    hvr_edge_type_t *directions;
+    hvr_edge_info_t *neighbors;
     size_t n_neighbors;
-    hvr_get_neighbors(vert, &neighbors, &directions, &n_neighbors, hvr_ctx);
+    hvr_get_neighbors(vert, &neighbors, &n_neighbors, hvr_ctx);
     assert(n_neighbors == 1);
-    assert(VERTEX_ID_PE(neighbors[0]) == (pe + (npes / 2)) % npes);
+    assert(VERTEX_ID_PE(neighbors[0].id) == (pe + (npes / 2)) % npes);
 
     char buf[2048];
     hvr_vertex_dump(vert, buf, 2048, hvr_ctx);

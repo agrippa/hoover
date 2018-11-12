@@ -82,15 +82,14 @@ int main(int argc, char **argv) {
         hvr_vertex_iter_init(&iter, hvr_ctx);
         hvr_vertex_t *only = hvr_vertex_iter_next(&iter);
 
-        hvr_vertex_id_t *neighbors;
-        hvr_edge_type_t *directions;
+        hvr_edge_info_t *neighbors;
         size_t n_neighbors;
-        hvr_get_neighbors(only, &neighbors, &directions, &n_neighbors, hvr_ctx);
+        hvr_get_neighbors(only, &neighbors, &n_neighbors, hvr_ctx);
 
         assert(n_neighbors == 1);
-        assert(neighbors[0] == only->id);
+        assert(neighbors[0].id == only->id);
 
-        free(neighbors); free(directions);
+        free(neighbors);
     } else {
         assert(count == 0);
     }

@@ -89,4 +89,9 @@ static inline size_t get_symm_pool_nelements() {
 
 typedef struct _hvr_vertex_update_t hvr_vertex_update_t;
 
+typedef struct _hvr_edge_info_t {
+    hvr_vertex_id_t id;
+    hvr_edge_type_t edge;
+} hvr_edge_info_t;
+
 #endif

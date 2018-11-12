@@ -7,11 +7,7 @@
 #define HVR_MAP_BUCKETS 2048
 
 typedef union _hvr_map_val_t {
-    struct {
-        hvr_vertex_id_t id;
-        hvr_edge_type_t edge;
-    } edge_info;
-
+    hvr_edge_info_t edge_info;
     void *cached_vert;
 } hvr_map_val_t;
 
@@ -46,8 +42,7 @@ extern hvr_edge_type_t hvr_map_contains(hvr_vertex_id_t key,
         hvr_vertex_id_t val, hvr_map_t *m);
 
 extern unsigned hvr_map_linearize(hvr_vertex_id_t key,
-        hvr_vertex_id_t **vertices, hvr_edge_type_t **directions,
-        unsigned *capacity, hvr_map_t *m);
+        hvr_map_val_t **vals, unsigned *capacity, hvr_map_t *m);
 
 extern void hvr_map_clear(hvr_map_t *m);
 

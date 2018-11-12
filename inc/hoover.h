@@ -263,7 +263,7 @@ extern int hvr_my_pe(hvr_ctx_t ctx);
 extern unsigned long long hvr_current_time_us();
 
 extern void hvr_get_neighbors(hvr_vertex_t *vert,
-        hvr_vertex_id_t **out_neighbors, hvr_edge_type_t **out_directions,
+        hvr_edge_info_t **out_neighbors,
         size_t *out_n_neighbors, hvr_ctx_t in_ctx);
 
 extern hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t ctx);

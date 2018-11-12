@@ -337,13 +337,12 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
          * structure (addition of a vertex and/or edge). If it does, make that
          * change and explore further.
          */
-        hvr_vertex_id_t *neighbors;
-        hvr_edge_type_t *directions;
+        hvr_edge_info_t *neighbors;
         size_t n_neighbors;
-        hvr_get_neighbors(last_added, &neighbors, &directions, &n_neighbors, ctx);
+        hvr_get_neighbors(last_added, &neighbors, &n_neighbors, ctx);
 
         for (unsigned j = 0; j < n_neighbors; j++) {
-            hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[j], ctx);
+            hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[j].id, ctx);
 
             if (already_in_subgraph(neighbor->id, curr_state)) {
                 /*
@@ -388,7 +387,7 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
                 }
             }
         }
-        free(neighbors); free(directions);
+        free(neighbors);
     }
 }
 
