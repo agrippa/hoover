@@ -12,7 +12,7 @@ static inline int valid_vertex_id(const hvr_vertex_id_t id) {
 hvr_edge_set_t *hvr_create_empty_edge_set() {
     hvr_edge_set_t *new_set = (hvr_edge_set_t *)malloc(sizeof(*new_set));
     assert(new_set);
-    hvr_map_init(&new_set->map);
+    hvr_map_init(&new_set->map, 64);
     return new_set;
 }
 

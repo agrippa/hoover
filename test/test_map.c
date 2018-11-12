@@ -6,7 +6,7 @@
 
 int main(int argc, char **argv) {
     hvr_map_t map;
-    hvr_map_init(&map);
+    hvr_map_init(&map, 1);
 
     assert(hvr_map_contains(3, 3, &map) == NO_EDGE);
 

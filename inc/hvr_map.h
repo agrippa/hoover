@@ -28,9 +28,10 @@ typedef struct _hvr_map_seg_t {
 
 typedef struct _hvr_map_t {
     hvr_map_seg_t *buckets[HVR_MAP_BUCKETS];
+    unsigned init_val_capacity;
 } hvr_map_t;
 
-extern void hvr_map_init(hvr_map_t *m);
+extern void hvr_map_init(hvr_map_t *m, unsigned init_val_capacity);
 
 extern void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
         int is_edge_info, hvr_map_t *m);

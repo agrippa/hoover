@@ -2,22 +2,21 @@
 
 #include <string.h>
 
-#define INIT_VAL_CAPACITY 64
 #define HVR_MAP_BUCKET(my_key) ((my_key) % HVR_MAP_BUCKETS)
 
 // Add a new key with one initial value
 static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_map_val_t val,
-        hvr_map_seg_t *s) {
+        hvr_map_seg_t *s, unsigned init_val_capacity) {
     const unsigned insert_index = s->nkeys;
     assert(insert_index < HVR_MAP_SEG_SIZE);
     s->keys[insert_index] = key;
     s->vals[insert_index] = (hvr_map_val_t *)malloc(
-            INIT_VAL_CAPACITY * sizeof(hvr_map_val_t));
+            init_val_capacity * sizeof(hvr_map_val_t));
     assert(s->vals[insert_index]);
 
     s->vals[insert_index][0] = val;
 
-    s->capacity[insert_index] = INIT_VAL_CAPACITY;
+    s->capacity[insert_index] = init_val_capacity;
     s->length[insert_index] = 1;
     s->nkeys++;
 }
@@ -40,8 +39,9 @@ static int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
     return 0;
 }
 
-void hvr_map_init(hvr_map_t *m) {
+void hvr_map_init(hvr_map_t *m, unsigned init_val_capacity) {
     memset(m, 0x00, sizeof(*m));
+    m->init_val_capacity = init_val_capacity;
 }
 
 void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert, int is_edge_info,
@@ -91,7 +91,7 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert, int is_edge_info,
                     sizeof(*new_seg));
             assert(new_seg);
 
-            hvr_map_seg_add(key, to_insert, new_seg);
+            hvr_map_seg_add(key, to_insert, new_seg, m->init_val_capacity);
             assert(m->buckets[bucket] == NULL);
             m->buckets[bucket] = new_seg;
         } else {
@@ -105,12 +105,12 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert, int is_edge_info,
                 hvr_map_seg_t *new_seg = (hvr_map_seg_t *)calloc(1,
                         sizeof(*new_seg));
                 assert(new_seg);
-                hvr_map_seg_add(key, to_insert, new_seg);
+                hvr_map_seg_add(key, to_insert, new_seg, m->init_val_capacity);
                 assert(last_seg_in_bucket->next == NULL);
                 last_seg_in_bucket->next = new_seg;
             } else {
                 // Insert in existing segment
-                hvr_map_seg_add(key, to_insert, last_seg_in_bucket);
+                hvr_map_seg_add(key, to_insert, last_seg_in_bucket, m->init_val_capacity);
             }
         }
     }
