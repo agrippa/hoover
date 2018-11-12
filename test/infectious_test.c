@@ -13,15 +13,15 @@
 #define Y_PARTITION_DIM 150
 #define X_PARTITION_DIM 150
 
-#define PX 0
-#define PY 1
-#define INFECTED 2
-#define HOME_X 3
-#define HOME_Y 4
-#define DST_X 5
-#define DST_Y 6
-#define TIME_STEP 7
-#define ACTOR_ID 8
+#define TIME_STEP 0
+#define ACTOR_ID 1
+#define PX 2
+#define PY 3
+#define INFECTED 4
+#define HOME_X 5
+#define HOME_Y 6
+#define DST_X 7
+#define DST_Y 8
 
 #define MAX_V 0.5
 

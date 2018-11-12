@@ -48,8 +48,16 @@ extern void hvr_vertex_set(const unsigned feature, const double val,
 /*
  * Get the value for the specified feature in the provided vector.
  */
-extern double hvr_vertex_get(const unsigned feature, hvr_vertex_t *vert,
-        hvr_ctx_t in_ctx);
+static inline double hvr_vertex_get(const unsigned feature,
+        const hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
+    for (unsigned i = 0; i < vert->size; i++) {
+        if (vert->features[i] == feature) {
+            return vert->values[i];
+        }
+    }
+    assert(0);
+}
+
 
 /*
  * Returns a sorted array of the features in this vertex. n_out_features must be

@@ -80,16 +80,6 @@ void hvr_vertex_set(const unsigned feature, const double val,
     vert->needs_send = 1;
 }
 
-double hvr_vertex_get(const unsigned feature, hvr_vertex_t *vert,
-        hvr_ctx_t in_ctx) {
-    for (unsigned i = 0; i < vert->size; i++) {
-        if (vert->features[i] == feature) {
-            return vert->values[i];
-        }
-    }
-    assert(0);
-}
-
 static int uint_compare(const void *_a, const void *_b) {
     unsigned a = *((unsigned *)_a);
     unsigned b = *((unsigned *)_b);
