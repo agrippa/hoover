@@ -49,20 +49,22 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
  */
 hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
         hvr_vertex_cache_t *cache) {
-    const unsigned bucket = CACHE_BUCKET(vert);
-
-    hvr_vertex_cache_node_t *iter = cache->buckets[bucket];
-    while (iter) {
-        if (iter->vert.id == vert) break;
-        iter = iter->bucket_next;
+    static hvr_map_val_t *nodes = NULL;
+    if (nodes == NULL) {
+        nodes = (hvr_map_val_t *)malloc(sizeof(*nodes));
+        assert(nodes);
     }
+    unsigned capacity = 1;
+    unsigned n = hvr_map_linearize(vert, &nodes, &capacity, &cache->cache_map);
+    assert(n <= 1);
 
-    if (iter == NULL) {
+    if (n == 0) {
         cache->cache_perf_info.nmisses++;
+        return NULL;
     } else {
         cache->cache_perf_info.nhits++;
+        return nodes[0].cached_vert;
     }
-    return iter;
 }
 
 static void linked_list_remove_helper(hvr_vertex_cache_node_t *to_remove,
