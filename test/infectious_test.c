@@ -144,6 +144,61 @@ hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
         y_partition * X_PARTITION_DIM + x_partition;
 }
 
+static void compute_next_pos(double p_x, double p_y,
+        double dst_x, double dst_y,
+        double *next_p_x, double *next_p_y) {
+    if (fabs(p_x - dst_x) < 1e-9 || fabs(p_y - dst_y) < 1e-9) {
+        /*
+         * Seem to have reached destination, set new destination and start
+         * moving there.
+         */
+        p_x = dst_x;
+        p_y = dst_y;
+    }
+
+    double vx = dst_x - p_x;
+    double vy = dst_y - p_y;
+    const double mag = 5.0 * distance(p_x, p_y, dst_x, dst_y);
+    const double normalized_vx = vx / mag;
+    const double normalized_vy = vy / mag;
+    if (fabs(vx) > fabs(normalized_vx)) vx = normalized_vx;
+    if (fabs(vy) > fabs(normalized_vy)) vy = normalized_vy;
+
+    double new_x = p_x + vx;
+    double new_y = p_y + vy;
+
+    for (int p = 0; p < n_global_portals; p++) {
+        if (distance(new_x, new_y, portals[p].locations[0].x,
+                    portals[p].locations[0].y) < PORTAL_CAPTURE_RADIUS) {
+            new_x = portals[p].locations[1].x +
+                random_double_in_range(-10.0, 10.0);
+            new_y = portals[p].locations[1].y +
+                random_double_in_range(-10.0, 10.0);
+            break;
+        }
+
+        if (distance(new_x, new_y, portals[p].locations[1].x,
+                    portals[p].locations[1].y) < PORTAL_CAPTURE_RADIUS) {
+            new_x = portals[p].locations[0].x +
+                random_double_in_range(-10.0, 10.0);
+            new_y = portals[p].locations[0].y +
+                random_double_in_range(-10.0, 10.0);
+            break;
+        }
+    }
+
+    if (new_x >= global_x_dim) new_x -= global_x_dim;
+    if (new_y >= global_y_dim) new_y -= global_y_dim;
+    if (new_x < 0.0) new_x += global_x_dim;
+    if (new_y < 0.0) new_y += global_y_dim;
+
+    assert(new_x >= 0.0 && new_x < global_x_dim);
+    assert(new_y >= 0.0 && new_y < global_y_dim);
+
+    *next_p_x = p_x;
+    *next_p_y = p_y;
+}
+
 /*
  * Callback for the HOOVER runtime for updating positional or logical metadata
  * attached to each vertex based on the updated neighbors on each time step.
@@ -164,19 +219,30 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      * the assumption that we are uninfected).
      */
     hvr_vertex_t *prev = NULL;
-    if ((int)hvr_vertex_get(TIME_STEP, vertex, ctx) > 0) {
-        for (int i = 0; i < n_neighbors; i++) {
-            if (neighbors[i].edge == DIRECTED_IN) {
-                hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
-                if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
-                        (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
-                    assert(prev == NULL);
-                    assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
-                            (int)hvr_vertex_get(TIME_STEP, vertex, ctx) - 1);
-                    prev = neighbor;
-                }
+    hvr_vertex_t *next = NULL;
+    for (int i = 0; i < n_neighbors; i++) {
+        if (neighbors[i].edge == DIRECTED_IN) {
+            hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
+            if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
+                    (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
+                assert(prev == NULL);
+                assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
+                        (int)hvr_vertex_get(TIME_STEP, vertex, ctx) - 1);
+                prev = neighbor;
             }
         }
+        if (neighbors[i].edge == DIRECTED_OUT) {
+            hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
+            assert((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
+                    (int)hvr_vertex_get(ACTOR_ID, vertex, ctx));
+            assert(next == NULL);
+            assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
+                    (int)hvr_vertex_get(TIME_STEP, vertex, ctx) + 1);
+            next = neighbor;
+        }
+    }
+
+    if ((int)hvr_vertex_get(TIME_STEP, vertex, ctx) > 0) {
         assert(prev);
     }
 
@@ -219,63 +285,43 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         double dst_y = hvr_vertex_get(DST_Y, prev, ctx);
         double p_x = hvr_vertex_get(PX, prev, ctx);
         double p_y = hvr_vertex_get(PY, prev, ctx);
-        const double home_x = hvr_vertex_get(HOME_X, prev, ctx);
-        const double home_y = hvr_vertex_get(HOME_Y, prev, ctx);
 
-        const double home_distance = distance(home_x, home_y, p_x, p_y);
-        assert(home_distance <= expected_max_radius);
-
-        if (fabs(p_x - dst_x) < 1e-9 || fabs(p_y - dst_y) < 1e-9) {
-            /*
-             * Seem to have reached destination, set new destination and start
-             * moving there.
-             */
-            p_x = dst_x;
-            p_y = dst_y;
-        }
- 
-        double vx = dst_x - p_x;
-        double vy = dst_y - p_y;
-        const double mag = 5.0 * distance(p_x, p_y, dst_x, dst_y);
-        const double normalized_vx = vx / mag;
-        const double normalized_vy = vy / mag;
-        if (fabs(vx) > fabs(normalized_vx)) vx = normalized_vx;
-        if (fabs(vy) > fabs(normalized_vy)) vy = normalized_vy;
-
-        double new_x = p_x + vx;
-        double new_y = p_y + vy;
-
-        for (int p = 0; p < n_global_portals; p++) {
-            if (distance(new_x, new_y, portals[p].locations[0].x,
-                        portals[p].locations[0].y) < PORTAL_CAPTURE_RADIUS) {
-                new_x = portals[p].locations[1].x +
-                    random_double_in_range(-10.0, 10.0);
-                new_y = portals[p].locations[1].y +
-                    random_double_in_range(-10.0, 10.0);
-                break;
-            }
-
-            if (distance(new_x, new_y, portals[p].locations[1].x,
-                        portals[p].locations[1].y) < PORTAL_CAPTURE_RADIUS) {
-                new_x = portals[p].locations[0].x +
-                    random_double_in_range(-10.0, 10.0);
-                new_y = portals[p].locations[0].y +
-                    random_double_in_range(-10.0, 10.0);
-                break;
-            }
-        }
-
-        if (new_x >= global_x_dim) new_x -= global_x_dim;
-        if (new_y >= global_y_dim) new_y -= global_y_dim;
-        if (new_x < 0.0) new_x += global_x_dim;
-        if (new_y < 0.0) new_y += global_y_dim;
-
-        assert(new_x >= 0.0 && new_x < global_x_dim);
-        assert(new_y >= 0.0 && new_y < global_y_dim);
+        double new_x, new_y;
+        compute_next_pos(p_x, p_y, dst_x, dst_y, &new_x, &new_y);
 
         hvr_vertex_set(PX, new_x, vertex, ctx);
         hvr_vertex_set(PY, new_y, vertex, ctx);
     }
+
+    if (next == NULL &&
+            (int)hvr_vertex_get(TIME_STEP, vertex, ctx) <
+            max_num_timesteps - 1) {
+        // Add a next
+        hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
+
+        double x = hvr_vertex_get(PX, vertex, ctx);
+        double y = hvr_vertex_get(PY, vertex, ctx);
+        double dst_x = hvr_vertex_get(DST_X, vertex, ctx);
+        double dst_y = hvr_vertex_get(DST_Y, vertex, ctx);
+
+        hvr_vertex_set(INFECTED, hvr_vertex_get(INFECTED, vertex, ctx), next,
+                ctx);
+        hvr_vertex_set(HOME_X, x, next, ctx);
+        hvr_vertex_set(HOME_Y, y, next, ctx);
+        hvr_vertex_set(DST_X, dst_x, next, ctx);
+        hvr_vertex_set(DST_Y, dst_y, next, ctx);
+        hvr_vertex_set(TIME_STEP,
+                (int)hvr_vertex_get(TIME_STEP, vertex, ctx) + 1, next, ctx);
+        hvr_vertex_set(ACTOR_ID, hvr_vertex_get(ACTOR_ID, vertex, ctx), next,
+                ctx);
+
+        double new_x, new_y;
+        compute_next_pos(p_x, p_y, dst_x, dst_y, &new_x, &new_y);
+
+        hvr_vertex_set(PX, new_x, next, ctx);
+        hvr_vertex_set(PY, new_y, next, ctx);
+    }
+
     free(neighbors);
 }
 
@@ -522,10 +568,13 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     // Seed the location of local actors.
+    // hvr_vertex_t *actors = hvr_vertex_create_n(
+    //         actors_per_cell * max_num_timesteps, hvr_ctx);
     hvr_vertex_t *actors = hvr_vertex_create_n(
-            actors_per_cell * max_num_timesteps, hvr_ctx);
+            actors_per_cell, hvr_ctx);
 
-    for (int t = 0; t < max_num_timesteps; t++) {
+    // for (int t = 0; t < max_num_timesteps; t++) {
+    for (int t = 0; t < 1; t++) {
         for (int a = 0; a < actors_per_cell; a++) {
             double x, y, dst_x, dst_y;
             int is_infected = 0;
