@@ -227,8 +227,6 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_vertex_update_t *buffered_updates;
     hvr_vertex_update_t *buffered_deletes;
-
-    hvr_map_t might_interact_cache;
 } hvr_internal_ctx_t;
 
 /*
