@@ -735,7 +735,6 @@ void hvr_init(const hvr_partition_t n_partitions,
 
     // Print the number of bytes allocated
     // shmem_malloc_wrapper(0);
-
     shmem_barrier_all();
 }
 
@@ -1583,33 +1582,16 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     //     const unsigned long long end_partition_window = hvr_current_time_us();
 
-    //     process_neighbor_updates(ctx);
+    //     memset(&perf_info, 0x00, sizeof(perf_info));
+    //     process_neighbor_updates(ctx, &perf_info);
 
     //     const unsigned long long end_neighbor_updates = hvr_current_time_us();
 
-    //     time_sending = 0;
-    //     time_updating = 0;
-    //     time_updating_edges = 0;
-    //     time_creating_edges = 0;
-    //     n_received_updates = 0;
-    //     count_new_should_have_edges = 0;
-    //     time_handling_deletes = 0;
-    //     time_handling_news = 0;
-
-    //     n_updates_sent = send_updates(ctx, &time_sending, &n_received_updates,
-    //             &time_handling_deletes, &time_handling_news,
-    //             &time_updating, &time_updating_edges, &time_creating_edges,
-    //             &count_new_should_have_edges, &time_creating);
+    //     n_updates_sent = send_updates(ctx, &time_sending, &perf_info);
 
     //     const unsigned long long end_send_updates = hvr_current_time_us();
 
-    //     n_received_updates += process_vertex_updates(ctx,
-    //         &time_handling_deletes,
-    //         &time_handling_news,
-    //         &time_updating,
-    //         &time_updating_edges,
-    //         &time_creating_edges,
-    //         &count_new_should_have_edges, &time_creating);
+    //     perf_info.n_received_updates += process_vertex_updates(ctx, &perf_info);
 
     //     const unsigned long long end_vertex_updates = hvr_current_time_us();
 
@@ -1630,17 +1612,10 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     //                 end_update_coupled,
     //                 count_updated,
     //                 n_updates_sent,
-    //                 n_received_updates,
-    //                 time_handling_deletes,
-    //                 time_handling_news,
-    //                 time_updating,
-    //                 time_updating_edges,
-    //                 time_creating_edges,
+    //                 &perf_info,
     //                 dead_pe_time,
     //                 time_sending,
     //                 should_abort,
-    //                 count_new_should_have_edges,
-    //                 time_creating,
     //                 ctx);
     //     }
 

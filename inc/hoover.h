@@ -94,7 +94,7 @@ typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_vertex_t *actor,
 typedef hvr_edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
         hvr_vertex_t *candidate, hvr_ctx_t ctx);
 
-#define VERT_PER_UPDATE 4
+#define VERT_PER_UPDATE 16
 typedef struct _hvr_vertex_update_t {
     hvr_vertex_t verts[VERT_PER_UPDATE];
     unsigned len;
