@@ -36,6 +36,8 @@
 
 #define MAX_DST_DELTA 10.0
 
+unsigned max_modeled_timestep = 0;
+
 typedef struct _portal_t {
     int pes[2];
     struct {
@@ -187,6 +189,8 @@ static void compute_next_pos(double p_x, double p_y,
         }
     }
 
+    const double global_x_dim = (double)pe_cols * cell_dim;
+    const double global_y_dim = (double)pe_rows * cell_dim;
     if (new_x >= global_x_dim) new_x -= global_x_dim;
     if (new_y >= global_y_dim) new_y -= global_y_dim;
     if (new_x < 0.0) new_x += global_x_dim;
@@ -195,8 +199,8 @@ static void compute_next_pos(double p_x, double p_y,
     assert(new_x >= 0.0 && new_x < global_x_dim);
     assert(new_y >= 0.0 && new_y < global_y_dim);
 
-    *next_p_x = p_x;
-    *next_p_y = p_y;
+    *next_p_x = new_x;
+    *next_p_y = new_y;
 }
 
 /*
@@ -233,12 +237,13 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         }
         if (neighbors[i].edge == DIRECTED_OUT) {
             hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
-            assert((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
-                    (int)hvr_vertex_get(ACTOR_ID, vertex, ctx));
-            assert(next == NULL);
-            assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
-                    (int)hvr_vertex_get(TIME_STEP, vertex, ctx) + 1);
-            next = neighbor;
+            if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
+                    (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
+                assert(next == NULL);
+                assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
+                        (int)hvr_vertex_get(TIME_STEP, vertex, ctx) + 1);
+                next = neighbor;
+            }
         }
     }
 
@@ -276,11 +281,6 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
 
     // Update PX/PY, DST_X/DST_Y based on prev.
     if (prev) {
-        const double global_x_dim = (double)pe_cols * cell_dim;
-        const double global_y_dim = (double)pe_rows * cell_dim;
-        const double expected_max_radius = sqrt(
-                MAX_DST_DELTA * MAX_DST_DELTA + MAX_DST_DELTA * MAX_DST_DELTA);
-
         double dst_x = hvr_vertex_get(DST_X, prev, ctx);
         double dst_y = hvr_vertex_get(DST_Y, prev, ctx);
         double p_x = hvr_vertex_get(PX, prev, ctx);
@@ -303,20 +303,23 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         double y = hvr_vertex_get(PY, vertex, ctx);
         double dst_x = hvr_vertex_get(DST_X, vertex, ctx);
         double dst_y = hvr_vertex_get(DST_Y, vertex, ctx);
+        int next_timestep = (int)hvr_vertex_get(TIME_STEP, vertex, ctx) + 1;
+        if (next_timestep > max_modeled_timestep) {
+            max_modeled_timestep = next_timestep;
+        }
 
         hvr_vertex_set(INFECTED, hvr_vertex_get(INFECTED, vertex, ctx), next,
                 ctx);
-        hvr_vertex_set(HOME_X, x, next, ctx);
-        hvr_vertex_set(HOME_Y, y, next, ctx);
-        hvr_vertex_set(DST_X, dst_x, next, ctx);
-        hvr_vertex_set(DST_Y, dst_y, next, ctx);
-        hvr_vertex_set(TIME_STEP,
-                (int)hvr_vertex_get(TIME_STEP, vertex, ctx) + 1, next, ctx);
+        hvr_vertex_set(HOME_X, hvr_vertex_get(HOME_X, vertex, ctx), next, ctx);
+        hvr_vertex_set(HOME_Y, hvr_vertex_get(HOME_Y, vertex, ctx), next, ctx);
+        hvr_vertex_set(DST_X, hvr_vertex_get(DST_X, vertex, ctx), next, ctx);
+        hvr_vertex_set(DST_Y, hvr_vertex_get(DST_Y, vertex, ctx), next, ctx);
+        hvr_vertex_set(TIME_STEP, next_timestep, next, ctx);
         hvr_vertex_set(ACTOR_ID, hvr_vertex_get(ACTOR_ID, vertex, ctx), next,
                 ctx);
 
         double new_x, new_y;
-        compute_next_pos(p_x, p_y, dst_x, dst_y, &new_x, &new_y);
+        compute_next_pos(x, y, dst_x, dst_y, &new_x, &new_y);
 
         hvr_vertex_set(PX, new_x, next, ctx);
         hvr_vertex_set(PY, new_y, next, ctx);
@@ -669,6 +672,8 @@ int main(int argc, char **argv) {
                 "iters\n", npes, max_num_timesteps, infection_radius,
                 (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
                 actors_per_cell, hvr_ctx->iter);
+        printf("Max modeled timestep = %d, # vertices = %lu\n",
+                max_modeled_timestep, hvr_n_allocated(hvr_ctx));
     }
 
     hvr_finalize(hvr_ctx);

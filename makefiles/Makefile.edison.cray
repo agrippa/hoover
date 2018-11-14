@@ -65,8 +65,9 @@ bin/add_vertices_test: test/add_vertices_test.c
 bin/remove_vertices_test: test/remove_vertices_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
-bin/intrusion_detection: test/intrusion_detection.cpp
-	$(CXX) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+bin/intrusion_detection: test/intrusion_detection.cpp bin/libhoover.a
+	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/intrusion_detection.cpp -o bin/intrusion_detection.o
+	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/intrusion_detection.o -o $@ -lhoover -lm -lpthread -lstdc++
 
 bin/hvr_dist_bitvec_test: test/hvr_dist_bitvec_test.c
 	$(CXX) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
