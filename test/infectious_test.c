@@ -155,7 +155,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      * neighbors are.
      */
     hvr_edge_info_t *neighbors = NULL;
-    size_t n_neighbors = 0;
+    int n_neighbors = 0;
     hvr_get_neighbors(vertex, &neighbors, &n_neighbors, ctx);
 
     /*

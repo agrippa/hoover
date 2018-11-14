@@ -55,10 +55,10 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
         assert(nodes);
     }
     unsigned capacity = 1;
-    unsigned n = hvr_map_linearize(vert, &nodes, &capacity, &cache->cache_map);
-    assert(n <= 1);
+    int n = hvr_map_linearize(vert, &nodes, &capacity, &cache->cache_map);
+    assert(n == -1 || n == 1);
 
-    if (n == 0) {
+    if (n == -1) {
         cache->cache_perf_info.nmisses++;
         return NULL;
     } else {
@@ -98,7 +98,7 @@ void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
     assert(node);
 
     hvr_map_val_t to_remove = {.cached_vert = node};
-    hvr_map_remove(vert->id, to_remove, 0, &cache->cache_map);
+    hvr_map_remove(vert->id, to_remove, CACHED_VERT_INFO, &cache->cache_map);
 
     // Remove from buckets list
     unsigned bucket = CACHE_BUCKET(vert->id);
@@ -163,7 +163,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     cache->partitions[part] = new_node;
 
     hvr_map_val_t to_insert = {.cached_vert = new_node};
-    hvr_map_add(vert->id, to_insert, 0, &cache->cache_map);
+    hvr_map_add(vert->id, to_insert, CACHED_VERT_INFO, &cache->cache_map);
 
     return new_node;
 }

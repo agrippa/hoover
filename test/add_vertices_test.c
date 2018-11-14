@@ -90,7 +90,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      */
     if (hvr_vertex_get(2, vertex, ctx) == 0.0) {
         hvr_edge_info_t *neighbors;
-        size_t n_neighbors;
+        int n_neighbors;
         hvr_get_neighbors(vertex, &neighbors, &n_neighbors, ctx);
 
         for (int i = 0; i < n_neighbors; i++) {

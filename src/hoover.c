@@ -149,6 +149,34 @@ static inline void *shmem_malloc_wrapper(size_t nbytes) {
     }
 }
 
+// Capacity of interacting must always be at least MAX_INTERACTING_PARTITIONS
+static inline void might_interact_wrapper(hvr_partition_t p,
+        hvr_partition_t *interacting, unsigned *n_interacting,
+        hvr_internal_ctx_t *ctx) {
+    static hvr_map_val_t *tmp_vals = NULL;
+    static unsigned tmp_vals_capacity = 0;
+
+    int nvals = hvr_map_linearize(p, &tmp_vals, &tmp_vals_capacity,
+            &ctx->might_interact_cache);
+    if (nvals == -1) {
+        // Don't have this partition cached yet
+        ctx->might_interact(p, interacting, n_interacting,
+                MAX_INTERACTING_PARTITIONS, ctx);
+
+        hvr_map_val_t to_insert;
+        for (unsigned i = 0; i < *n_interacting; i++) {
+            to_insert.interact = interacting[i];
+            hvr_map_add(p, to_insert, INTERACT_INFO,
+                    &ctx->might_interact_cache);
+        }
+    } else {
+        for (unsigned i = 0; i < nvals; i++) {
+            interacting[i] = tmp_vals[i].interact;
+        }
+        *n_interacting = nvals;
+    }
+}
+
 static void flush_buffered_updates(hvr_internal_ctx_t *ctx) {
     for (int i = 0; i < ctx->npes; i++) {
         if (ctx->buffered_updates[i].len > 0) {
@@ -362,8 +390,9 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
             // Subscriber to any interacting partitions with p
             hvr_partition_t interacting[MAX_INTERACTING_PARTITIONS];
             unsigned n_interacting;
-            ctx->might_interact(p, interacting, &n_interacting,
-                    MAX_INTERACTING_PARTITIONS, ctx);
+            // ctx->might_interact(p, interacting, &n_interacting,
+            //         MAX_INTERACTING_PARTITIONS, ctx);
+            might_interact_wrapper(p, interacting, &n_interacting, ctx);
 
             /*
              * Mark any partitions which this locally active partition might
@@ -733,6 +762,8 @@ void hvr_init(const hvr_partition_t n_partitions,
     memset(new_ctx->buffered_deletes, 0x00,
             new_ctx->npes * sizeof(hvr_vertex_update_t));
 
+    hvr_map_init(&new_ctx->might_interact_cache, 128);
+
     // Print the number of bytes allocated
     // shmem_malloc_wrapper(0);
     shmem_barrier_all();
@@ -944,10 +975,10 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
     if (hvr_vertex_cache_lookup(dead_vert->id, &ctx->vec_cache)) {
         hvr_map_val_t *neighbors = NULL;
         unsigned capacity = 0;
-        unsigned n_neighbors = hvr_map_linearize(dead_vert->id, &neighbors,
+        int n_neighbors = hvr_map_linearize(dead_vert->id, &neighbors,
                 &capacity, &ctx->edges->map);
 
-        for (unsigned n = 0; n < n_neighbors; n++) {
+        for (int n = 0; n < n_neighbors; n++) {
             hvr_vertex_cache_node_t *cached_neighbor =
                 hvr_vertex_cache_lookup(neighbors[n].edge_info.id,
                         &ctx->vec_cache);
@@ -977,8 +1008,9 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
 
     hvr_partition_t interacting[MAX_INTERACTING_PARTITIONS];
     unsigned n_interacting;
-    ctx->might_interact(partition, interacting, &n_interacting,
-            MAX_INTERACTING_PARTITIONS, ctx);
+    // ctx->might_interact(partition, interacting, &n_interacting,
+    //         MAX_INTERACTING_PARTITIONS, ctx);
+    might_interact_wrapper(partition, interacting, &n_interacting, ctx);
 
     hvr_vertex_cache_node_t *updated = hvr_vertex_cache_lookup(
             updated_vert_id, &ctx->vec_cache);
@@ -998,10 +1030,10 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
          * Look for existing edges and verify they should still exist with
          * this update to the local mirror.
          */
-        unsigned n_neighbors = hvr_map_linearize(updated_vert_id, neighbors,
+        int n_neighbors = hvr_map_linearize(updated_vert_id, neighbors,
                 capacity, &ctx->edges->map);
 
-        for (unsigned n = 0; n < n_neighbors; n++) {
+        for (int n = 0; n < n_neighbors; n++) {
             hvr_vertex_cache_node_t *cached_neighbor =
                 hvr_vertex_cache_lookup((*neighbors)[n].edge_info.id,
                         &ctx->vec_cache);
@@ -1102,15 +1134,16 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
 }
 
 void hvr_get_neighbors(hvr_vertex_t *vert, hvr_edge_info_t **out_neighbors,
-        size_t *out_n_neighbors, hvr_ctx_t in_ctx) {
+        int *out_n_neighbors, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     assert(sizeof(hvr_edge_info_t) == sizeof(hvr_map_val_t));
 
     *out_neighbors = NULL;
 
     unsigned capacity = 0;
-    *out_n_neighbors = hvr_map_linearize(vert->id,
+    int n_neighbors = hvr_map_linearize(vert->id,
             (hvr_map_val_t **)out_neighbors, &capacity, &ctx->edges->map);
+    *out_n_neighbors = (n_neighbors < 0 ? 0 : n_neighbors);
 }
 
 hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t in_ctx) {
@@ -1418,7 +1451,7 @@ static void save_current_state_to_dump_file(hvr_internal_ctx_t *ctx) {
         fprintf(ctx->dump_file, "\n");
 
         hvr_edge_info_t *neighbors;
-        size_t n_neighbors;
+        int n_neighbors;
         hvr_get_neighbors(curr, &neighbors, &n_neighbors,
                 ctx);
 

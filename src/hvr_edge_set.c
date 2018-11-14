@@ -30,13 +30,13 @@ void hvr_add_edge(const hvr_vertex_id_t local_vertex_id,
     hvr_map_val_t val;
     val.edge_info.id = global_vertex_id;
     val.edge_info.edge = direction;
-    hvr_map_add(local_vertex_id, val, 1, &set->map);
+    hvr_map_add(local_vertex_id, val, EDGE_INFO, &set->map);
 }
 
 void hvr_remove_edge(const hvr_vertex_id_t local_vertex_id,
         const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
     hvr_map_val_t val = {.edge_info = {.id = global_vertex_id}};
-    hvr_map_remove(local_vertex_id, val, 1, &set->map);
+    hvr_map_remove(local_vertex_id, val, EDGE_INFO, &set->map);
 }
 
 hvr_edge_type_t hvr_have_edge(const hvr_vertex_id_t local_vertex_id,

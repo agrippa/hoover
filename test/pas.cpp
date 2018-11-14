@@ -368,7 +368,7 @@ void update_metadata(hvr_vertex_t *vec,
     // Only useful for printing debug info about # of neighbors
     hvr_vertex_id_t *neighbors;
     hvr_edge_type_t *directions;
-    size_t n_neighbors;
+    int n_neighbors;
     hvr_get_neighbors(vec, &neighbors, &directions, &n_neighbors, ctx);
 
     if ((int)hvr_vertex_get(GRAPH_FEAT, vec, ctx) == PATCH_GRAPH) { // This is a patch

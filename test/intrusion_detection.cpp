@@ -338,7 +338,7 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
          * change and explore further.
          */
         hvr_edge_info_t *neighbors;
-        size_t n_neighbors;
+        int n_neighbors;
         hvr_get_neighbors(last_added, &neighbors, &n_neighbors, ctx);
 
         for (unsigned j = 0; j < n_neighbors; j++) {

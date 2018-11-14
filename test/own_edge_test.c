@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
         hvr_vertex_t *only = hvr_vertex_iter_next(&iter);
 
         hvr_edge_info_t *neighbors;
-        size_t n_neighbors;
+        int n_neighbors;
         hvr_get_neighbors(only, &neighbors, &n_neighbors, hvr_ctx);
 
         assert(n_neighbors == 1);

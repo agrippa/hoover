@@ -39,7 +39,7 @@ static unsigned prev_n_neighbors = 0;
 void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
     hvr_edge_info_t *neighbors;
-    size_t n_neighbors;
+    int n_neighbors;
     hvr_get_neighbors(vertex, &neighbors, &n_neighbors, ctx);
 
     // printf("%llu\n", hvr_current_time_us() - start_time);
@@ -127,7 +127,7 @@ int main(int argc, char **argv) {
     hvr_body(hvr_ctx);
 
     hvr_edge_info_t *neighbors;
-    size_t n_neighbors;
+    int n_neighbors;
     hvr_get_neighbors(vert, &neighbors, &n_neighbors, hvr_ctx);
     assert(n_neighbors == 1);
     assert(VERTEX_ID_PE(neighbors[0].id) == (pe + (npes / 2)) % npes);
