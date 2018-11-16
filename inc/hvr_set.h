@@ -5,9 +5,6 @@
 extern "C" {
 #endif
 
-// Number of elements to cache in a hvr_set_t
-#define PE_SET_CACHE_SIZE 100
-
 typedef unsigned long long bit_vec_element_type;
 
 /*
@@ -15,23 +12,13 @@ typedef unsigned long long bit_vec_element_type;
  * sets of PEs, of partitions, and is flexible enough to store anything
  * integer-valued.
  *
- * Under the covers, hvr_set_t at its core is a bit vector, but also uses a
- * small fixed-size cache to enable quick iteration over all elements in the set
- * when only a few elements are set in a large bit vector.
+ * Under the covers, hvr_set_t at its core is a bit vector.
  *
  * HOOVER user code is never expected to create sets, but may be required to
  * manipulate them.
  */
 typedef struct _hvr_set_t {
-    /*
-     * A fixed-size list of elements set in this cache, enabling quick iteration
-     * over contained elements as long as there are <= PE_SET_CACHE_SIZE
-     * elements contained. When we can use cache, using it means we don't have
-     * to iterate over the full bit_vector to look for all contained elements.
-     */
-    uint64_t cache[PE_SET_CACHE_SIZE];
-
-    // Number of elements in the cache
+    // Number of elements in the set
     uint64_t nelements;
 
     // Total number of elements inserted in this cache

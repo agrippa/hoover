@@ -64,9 +64,6 @@ static int hvr_set_insert_internal(uint64_t val,
 int hvr_set_insert(uint64_t val, hvr_set_t *set) {
     const int changed = hvr_set_insert_internal(val, set->bit_vector);
     if (changed) {
-        if (set->n_contained < PE_SET_CACHE_SIZE) {
-            (set->cache)[set->n_contained] = val;
-        }
         set->n_contained++;
     }
     return changed;
@@ -142,39 +139,6 @@ void hvr_set_merge_atomic(hvr_set_t *set, hvr_set_t *other) {
     for (int i = 0; i < set->nelements; i++) {
         shmem_ulonglong_atomic_or(set->bit_vector + i, (other->bit_vector)[i],
                 shmem_my_pe());
-    }
-}
-
-uint64_t *hvr_set_non_zeros(hvr_set_t *set,
-        uint64_t *n_non_zeros, int *user_must_free) {
-    *n_non_zeros = set->n_contained;
-    if (set->n_contained <= PE_SET_CACHE_SIZE) {
-        *user_must_free = 0;
-        return set->cache;
-    } else {
-        uint64_t count_non_zeros = 0;
-        uint64_t *non_zeros = (uint64_t *)malloc(
-                set->n_contained * sizeof(*non_zeros));
-        assert(non_zeros);
-        *user_must_free = 1;
-
-        for (uint64_t i = 0; i < set->nelements; i++) {
-            const bit_vec_element_type ele = set->bit_vector[i];
-            for (unsigned bit = 0; bit < sizeof(ele) * BITS_PER_BYTE; bit++) {
-                if ((ele & ((bit_vec_element_type)1 << bit)) != 0) {
-                    non_zeros[count_non_zeros++] =
-                        i * sizeof(ele) * BITS_PER_BYTE + bit;
-                }
-            }
-        }
-
-        if (count_non_zeros != set->n_contained) {
-            fprintf(stderr, "Unexpected nnz: count_non_zeros = %lu, "
-                    "n_contained = %lu\n", count_non_zeros, set->n_contained);
-            abort();
-        }
-
-        return non_zeros;
     }
 }
 

@@ -139,6 +139,20 @@ static double randn(double mu, double sigma) {
 }
 #endif // GAUSSIAN_DIST
 
+static unsigned int g_seed;
+
+// Used to seed the generator.
+inline void fast_srand(int seed) {
+    g_seed = seed;
+}
+
+// Compute a pseudorandom integer.
+// Output value in range [0, 32767]
+inline int fast_rand(void) {
+    g_seed = (214013*g_seed+2531011);
+    return (g_seed>>16)&0x7FFF;
+}
+
 static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
 #ifdef GAUSSIAN_DIST
     *f0 = (int)randn((double)(min_point[0] + max_point[0]) / 2.0,
@@ -148,9 +162,9 @@ static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
     *f2 = (unsigned)randn((double)(min_point[2] + max_point[2]) / 2.0,
             (max_point[2] - min_point[2]) / 3.0);
 #elif defined(UNIFORM_DIST)
-    *f0 = min_point[0] + (rand() % (max_point[0] - min_point[0]));
-    *f1 = min_point[1] + (rand() % (max_point[1] - min_point[1]));
-    *f2 = min_point[2] + (rand() % (max_point[2] - min_point[2]));
+    *f0 = min_point[0] + (fast_rand() % (max_point[0] - min_point[0]));
+    *f1 = min_point[1] + (fast_rand() % (max_point[1] - min_point[1]));
+    *f2 = min_point[2] + (fast_rand() % (max_point[2] - min_point[2]));
 #elif defined(POINT_DIST)
     *f0 = min_point[0] + (max_point[0] - min_point[0]) / 2;
     *f1 = min_point[1] + (max_point[1] - min_point[1]) / 2;
@@ -472,7 +486,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
      * vertices on this node (but possibly with vertices on other nodes).
      */
     const unsigned n_vertices_to_add = min_n_vertices_to_add +
-        (rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
+        (fast_rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
 
     hvr_vertex_t *new_vertices = hvr_vertex_create_n(n_vertices_to_add,
             ctx);
@@ -904,7 +918,7 @@ int main(int argc, char **argv) {
 
     hvr_ctx_create(&hvr_ctx);
 
-    srand(123 + pe);
+    fast_srand(123 + pe);
 
     hvr_init(TOTAL_PARTITIONS, // # partitions
             NULL, // update_metadata
