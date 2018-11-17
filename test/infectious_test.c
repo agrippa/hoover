@@ -9,9 +9,9 @@
 
 #include <hoover.h>
 
-#define TIME_PARTITION_DIM 300
-#define Y_PARTITION_DIM 150
-#define X_PARTITION_DIM 150
+#define TIME_PARTITION_DIM 100
+#define Y_PARTITION_DIM 10 // 150
+#define X_PARTITION_DIM 10 // 150
 
 #define TIME_STEP 0
 #define ACTOR_ID 1
@@ -34,7 +34,7 @@
 #define CELL_COL(x_coord) ((x_coord) / cell_dim)
 #define CELL_INDEX(cell_row, cell_col) ((cell_row) * pe_cols + (cell_col))
 
-#define MAX_DST_DELTA 10.0
+#define MAX_DST_DELTA 300.0
 
 unsigned max_modeled_timestep = 0;
 
@@ -225,20 +225,16 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     hvr_vertex_t *prev = NULL;
     hvr_vertex_t *next = NULL;
     for (int i = 0; i < n_neighbors; i++) {
-        if (neighbors[i].edge == DIRECTED_IN) {
-            hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
-            if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
-                    (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
+        hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
+        if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
+                (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
+            if (neighbors[i].edge == DIRECTED_IN) {
                 assert(prev == NULL);
                 assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
                         (int)hvr_vertex_get(TIME_STEP, vertex, ctx) - 1);
                 prev = neighbor;
             }
-        }
-        if (neighbors[i].edge == DIRECTED_OUT) {
-            hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
-            if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
-                    (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
+            if (neighbors[i].edge == DIRECTED_OUT) {
                 assert(next == NULL);
                 assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
                         (int)hvr_vertex_get(TIME_STEP, vertex, ctx) + 1);
@@ -465,7 +461,9 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     double percent_infected = (double)ninfected / (double)actors_per_cell;
     if (delta_ninfected == 0 && percent_infected > 0.8) {
         // return 0;
-        printf("PE %d leaving the simulation, %% infected = %f\n", shmem_my_pe(), 100.0 * percent_infected);
+        printf("PE %d leaving the simulation, %% infected = %f (%d / %d)\n",
+                shmem_my_pe(), 100.0 * percent_infected, ninfected,
+                actors_per_cell);
         return 1;
     } else {
         previous_ninfected = ninfected;

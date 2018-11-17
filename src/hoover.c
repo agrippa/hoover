@@ -1383,11 +1383,12 @@ static void print_profiling_info(
             (double)(end_update_coupled - end_vertex_updates) / 1000.0);
     fprintf(profiling_fp, "  partition window = %s, %d / %d producer "
             "partitions and %d / %d subscriber partitions for %lu "
-            "local vertices\n", partition_time_window_str,
+            "local vertices, %lu mirrored vertices\n", partition_time_window_str,
             hvr_set_count(ctx->producer_partition_time_window),
             ctx->n_partitions,
             hvr_set_count(ctx->subscriber_partition_time_window),
-            ctx->n_partitions, hvr_n_allocated(ctx));
+            ctx->n_partitions, hvr_n_allocated(ctx),
+            ctx->vec_cache.n_cached_vertices);
     fprintf(profiling_fp, "  aborting? %d - remote "
             "cache hits=%llu misses=%llu, feature cache hits=%u misses=%u "
             "quiets=%llu\n",

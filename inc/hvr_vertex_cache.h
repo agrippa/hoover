@@ -76,6 +76,8 @@ typedef struct _hvr_vertex_cache_t {
     hvr_vertex_cache_node_t *lru_head;
     hvr_vertex_cache_node_t *lru_tail;
 
+    unsigned long long n_cached_vertices;
+
     struct {
         unsigned long long quiet_counter;
         unsigned long long fetch_neighbors_time;

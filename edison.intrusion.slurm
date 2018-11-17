@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 2
+#SBATCH -N 4
 #SBATCH -C haswell
 #SBATCH -t 00:02:00
 #SBATCH -J hoover

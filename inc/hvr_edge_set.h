@@ -15,16 +15,9 @@ extern "C" {
  *
  * An edge set is simply a space efficient data structure for storing edges
  * between vertices in the graph.
- *
- * We use an AVL tree of AVL trees to keep lookups O(logN). The AVL tree
- * directly reference from hvr_edge_set_t has a node per local vertex, for any
- * local vertex that has any edges. Each node in this top-level AVL tree itself
- * references an AVL subtree which stores the vertices that the local vertex has
- * edges with.
  */
 typedef struct _hvr_edge_set_t {
     hvr_map_t map;
-    // hvr_avl_tree_node_t *tree;
 } hvr_edge_set_t;
 
 extern hvr_edge_set_t *hvr_create_empty_edge_set();

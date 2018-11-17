@@ -37,6 +37,8 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
     }
     cache->pool_head = prealloc + 0;
     cache->pool_size = n_preallocs;
+
+    cache->n_cached_vertices = 0;
 }
 
 /*
@@ -120,6 +122,8 @@ void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
     node->bucket_next = cache->pool_head;
     node->bucket_prev = NULL;
     cache->pool_head = node;
+
+    cache->n_cached_vertices--;
 }
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
@@ -164,6 +168,8 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
     hvr_map_val_t to_insert = {.cached_vert = new_node};
     hvr_map_add(vert->id, to_insert, CACHED_VERT_INFO, &cache->cache_map);
+
+    cache->n_cached_vertices++;
 
     return new_node;
 }

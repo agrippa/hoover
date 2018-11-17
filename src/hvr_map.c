@@ -21,7 +21,7 @@ static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_map_val_t val,
     s->nkeys++;
 }
 
-static int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
+static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
         hvr_map_seg_t **out_seg, unsigned *out_index) {
     unsigned bucket = HVR_MAP_BUCKET(key);
 
@@ -244,4 +244,37 @@ size_t hvr_map_count_values(hvr_vertex_id_t key, hvr_map_t *m) {
     } else {
         return 0;
     }
+}
+
+void hvr_map_size_in_bytes(hvr_map_t *m, size_t *out_capacity,
+        size_t *out_used, double *avg_val_capacity, double *avg_val_length) {
+    size_t capacity = sizeof(*m);
+    size_t used = sizeof(*m);
+    uint64_t sum_val_capacity = 0;
+    uint64_t sum_val_length = 0;
+    uint64_t count_vals = 0;
+
+    for (unsigned b = 0; b < HVR_MAP_BUCKETS; b++) {
+        hvr_map_seg_t *bucket = m->buckets[b];
+        while (bucket) {
+            capacity += sizeof(*bucket);
+            for (unsigned v = 0; v < HVR_MAP_SEG_SIZE; v++) {
+                capacity += bucket->capacity[v] * sizeof(hvr_map_val_t);
+                used += bucket->length[v] * sizeof(hvr_map_val_t);
+
+                if (bucket->capacity[v] > 0) {
+                    sum_val_capacity += bucket->capacity[v];
+                    sum_val_length += bucket->length[v];
+                    count_vals++;
+                }
+            }
+
+            bucket = bucket->next;
+        }
+    }
+
+    *out_capacity = capacity;
+    *out_used = used;
+    *avg_val_capacity = (double)sum_val_capacity / (double)count_vals;
+    *avg_val_length = (double)sum_val_length / (double)count_vals;
 }
