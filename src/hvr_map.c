@@ -258,6 +258,8 @@ void hvr_map_size_in_bytes(hvr_map_t *m, size_t *out_capacity,
         hvr_map_seg_t *bucket = m->buckets[b];
         while (bucket) {
             capacity += sizeof(*bucket);
+            used += sizeof(*bucket);
+
             for (unsigned v = 0; v < HVR_MAP_SEG_SIZE; v++) {
                 capacity += bucket->capacity[v] * sizeof(hvr_map_val_t);
                 used += bucket->length[v] * sizeof(hvr_map_val_t);

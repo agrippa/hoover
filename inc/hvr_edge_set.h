@@ -3,7 +3,6 @@
 #ifndef _HVR_EDGE_SET_H
 #define _HVR_EDGE_SET_H
 
-#include "hvr_avl_tree.h"
 #include "hvr_map.h"
 
 #ifdef __cplusplus
@@ -20,7 +19,7 @@ typedef struct _hvr_edge_set_t {
     hvr_map_t map;
 } hvr_edge_set_t;
 
-extern hvr_edge_set_t *hvr_create_empty_edge_set();
+extern void hvr_edge_set_init(hvr_edge_set_t *e);
 
 extern void hvr_add_edge(const hvr_vertex_id_t local_vertex_id,
         const hvr_vertex_id_t global_vertex_id, hvr_edge_type_t direction,
@@ -43,6 +42,20 @@ typedef struct _hvr_partition_list_node_t {
     hvr_partition_t part;
     struct _hvr_partition_list_node_t *next;
 } hvr_partition_list_node_t;
+
+static inline hvr_edge_type_t flip_edge_direction(hvr_edge_type_t dir) {
+    switch (dir) {
+        case (DIRECTED_IN):
+            return DIRECTED_OUT;
+        case (DIRECTED_OUT):
+            return DIRECTED_IN;
+        case (BIDIRECTIONAL):
+            return BIDIRECTIONAL;
+        default:
+            abort();
+    }
+}
+
 
 #ifdef __cplusplus
 }

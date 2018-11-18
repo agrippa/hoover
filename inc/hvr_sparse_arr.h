@@ -1,6 +1,8 @@
 #ifndef _HVR_SPARSE_ARR_H
 #define _HVR_SPARSE_ARR_H
 
+#include <stdlib.h>
+
 #define HVR_SPARSE_ARR_SEGMENT_SIZE 1024
 
 typedef struct _hvr_sparse_arr_seg_t {
@@ -30,5 +32,7 @@ extern unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
         unsigned *capacity, hvr_sparse_arr_t *arr);
 
 extern unsigned hvr_sparse_arr_row_length(unsigned i, hvr_sparse_arr_t *arr);
+
+extern size_t hvr_sparse_arr_used_bytes(hvr_sparse_arr_t *arr);
 
 #endif

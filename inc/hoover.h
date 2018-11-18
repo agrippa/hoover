@@ -13,7 +13,6 @@ extern "C" {
 #include "hvr_vertex_cache.h"
 #include "hvr_common.h"
 #include "hvr_edge_set.h"
-#include "hvr_avl_tree.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
 #include "hvr_set.h"
@@ -120,7 +119,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_partition_t n_partitions;
 
     // Set of edges for our local vertices
-    hvr_edge_set_t *edges;
+    hvr_edge_set_t edges;
 
     // Current iter
     hvr_time_t iter;

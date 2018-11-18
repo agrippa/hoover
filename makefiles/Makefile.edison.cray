@@ -8,12 +8,11 @@ all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge
 	bin/test_vertex_id bin/add_vertices_test bin/mailbox_test \
 	bin/remove_vertices_test bin/intrusion_detection bin/hvr_dist_bitvec_test bin/pas
 
-bin/libhoover.a: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c \
+bin/libhoover.a: src/hoover.c src/shmem_rw_lock.c \
 	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c \
 	src/hvr_set.c src/hvr_edge_set.c src/hvr_vertex.c \
 	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_vertex_ll.c src/hvr_sparse_arr.c src/hvr_map.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hoover.o src/hoover.c
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_avl_tree.o src/hvr_avl_tree.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/shmem_rw_lock.o src/shmem_rw_lock.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_pool.o src/hvr_vertex_pool.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_iter.o src/hvr_vertex_iter.c
@@ -26,7 +25,7 @@ bin/libhoover.a: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c \
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_ll.o src/hvr_vertex_ll.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_sparse_arr.o src/hvr_sparse_arr.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_map.o src/hvr_map.c
-	ar rcs bin/libhoover.a bin/hoover.o bin/hvr_avl_tree.o bin/shmem_rw_lock.o \
+	ar rcs bin/libhoover.a bin/hoover.o bin/shmem_rw_lock.o \
 		bin/hvr_vertex_pool.o bin/hvr_vertex_iter.o bin/hvr_mailbox.o bin/hvr_set.o \
 		bin/hvr_edge_set.o bin/hvr_vertex.o bin/hvr_vertex_cache.o \
 		bin/hvr_dist_bitvec.o bin/hvr_vertex_ll.o bin/hvr_sparse_arr.o bin/hvr_map.o

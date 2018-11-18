@@ -258,3 +258,23 @@ size_t hvr_n_allocated(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     return ctx->pool->nallocated;
 }
+
+size_t hvr_pool_size_in_bytes(hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    hvr_vertex_pool_t *pool = ctx->pool;
+
+    size_t nbytes = 0;
+    hvr_vertex_range_node_t *iter = pool->free_list;
+    while (iter) {
+        nbytes += sizeof(*iter);
+        iter = iter->next;
+    }
+
+    iter = pool->used_list;
+    while (iter) {
+        nbytes += sizeof(*iter);
+        iter = iter->next;
+    }
+
+    return nbytes;
+}

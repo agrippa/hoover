@@ -30,16 +30,6 @@ typedef struct _hvr_vertex_cache_node_t {
     unsigned min_dist_from_local_vertex;
 
     /*
-     * If this node is allocated, pointers to the next and previous cache node
-     * in the same bucket.
-     *
-     * If this node is not allocated and is sitting in the free pool, pointers
-     * to the next/prev node in the pool of free nodes.
-     */
-    struct _hvr_vertex_cache_node_t *bucket_next;
-    struct _hvr_vertex_cache_node_t *bucket_prev;
-
-    /*
      * Maintain lists of mirrored vertices in each partition to enable quick
      * iteration over a subset of mirrored vertices based on partition.
      */
@@ -53,9 +43,6 @@ typedef struct _hvr_vertex_cache_node_t {
  * vertices of the remote PE and stored in separate buckets.
  */
 typedef struct _hvr_vertex_cache_t {
-    // Lists of vertices by vertex hash
-    hvr_vertex_cache_node_t *buckets[HVR_CACHE_BUCKETS];
-
     hvr_vertex_cache_node_t **partitions;
     hvr_partition_t npartitions;
 
@@ -113,9 +100,6 @@ extern hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
 extern void hvr_vertex_cache_delete(hvr_vertex_t *vert,
         hvr_vertex_cache_t *cache);
-
-extern void hvr_vertex_cache_metrics(hvr_vertex_cache_t *cache,
-        size_t *min_bucket_len, size_t *max_bucket_len);
 
 #ifdef __cplusplus
 }

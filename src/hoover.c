@@ -263,13 +263,16 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
                 ctx->local_partition_lists, 0);
     }
 
-    for (unsigned i = 0; i < HVR_CACHE_BUCKETS; i++) {
-        hvr_vertex_cache_node_t *iter = ctx->vec_cache.buckets[i];
-        while (iter) {
-            update_vertex_partitions_for_vertex(&iter->vert, ctx,
-                    ctx->mirror_partition_lists,
-                    iter->min_dist_from_local_vertex);
-            iter = iter->bucket_next;
+    for (unsigned i = 0; i < HVR_MAP_BUCKETS; i++) {
+        hvr_map_seg_t *seg = ctx->vec_cache.cache_map.buckets[i];
+        while (seg) {
+            for (unsigned j = 0; j < seg->nkeys; j++) {
+                hvr_vertex_cache_node_t *node = seg->vals[j][0].cached_vert;
+                update_vertex_partitions_for_vertex(&node->vert, ctx,
+                        ctx->mirror_partition_lists,
+                        node->min_dist_from_local_vertex);
+            }
+            seg = seg->next;
         }
     }
 }
@@ -837,19 +840,6 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
     free(buf);
 }
 
-static inline hvr_edge_type_t flip_edge_direction(hvr_edge_type_t dir) {
-    switch (dir) {
-        case (DIRECTED_IN):
-            return DIRECTED_OUT;
-        case (DIRECTED_OUT):
-            return DIRECTED_IN;
-        case (BIDIRECTIONAL):
-            return BIDIRECTIONAL;
-        default:
-            abort();
-    }
-}
-
 // The only place where edges between vertices are created/deleted
 static void update_edge_info(hvr_vertex_t *base, hvr_vertex_t *neighbor,
         hvr_edge_type_t new_edge, hvr_edge_type_t existing_edge,
@@ -857,9 +847,9 @@ static void update_edge_info(hvr_vertex_t *base, hvr_vertex_t *neighbor,
     assert(new_edge != existing_edge);
 
     if (existing_edge != NO_EDGE) {
-        hvr_remove_edge(base->id, neighbor->id, ctx->edges);
+        hvr_remove_edge(base->id, neighbor->id, &ctx->edges);
         if (base->id != neighbor->id) {
-            hvr_remove_edge(neighbor->id, base->id, ctx->edges);
+            hvr_remove_edge(neighbor->id, base->id, &ctx->edges);
         }
     }
 
@@ -869,9 +859,9 @@ static void update_edge_info(hvr_vertex_t *base, hvr_vertex_t *neighbor,
          * edge, but allows us to make more assertions that are helpful for
          * debugging.
          */
-        hvr_add_edge(base->id, neighbor->id, new_edge, ctx->edges);
+        hvr_add_edge(base->id, neighbor->id, new_edge, &ctx->edges);
         hvr_add_edge(neighbor->id, base->id, flip_edge_direction(new_edge),
-                ctx->edges);
+                &ctx->edges);
     }
 
     /*
@@ -913,6 +903,7 @@ static unsigned create_new_edges(hvr_vertex_t *updated,
         unsigned *count_new_should_have_edges) {
     unsigned local_count_new_should_have_edges = 0;
     unsigned min_dist_from_local = UINT_MAX;
+
     for (unsigned i = 0; i < n_interacting; i++) {
         hvr_partition_t other_part = interacting[i];
 
@@ -946,7 +937,7 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
         hvr_map_val_t *neighbors = NULL;
         unsigned capacity = 0;
         int n_neighbors = hvr_map_linearize(dead_vert->id, &neighbors,
-                &capacity, &ctx->edges->map);
+                &capacity, &ctx->edges.map);
 
         for (int n = 0; n < n_neighbors; n++) {
             hvr_vertex_cache_node_t *cached_neighbor =
@@ -1001,7 +992,7 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
          * this update to the local mirror.
          */
         int n_neighbors = hvr_map_linearize(updated_vert_id, neighbors,
-                capacity, &ctx->edges->map);
+                capacity, &ctx->edges.map);
 
         for (int n = 0; n < n_neighbors; n++) {
             hvr_vertex_cache_node_t *cached_neighbor =
@@ -1035,8 +1026,8 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         // A brand new vertex, or at least this is our first update on it
         unsigned min_dist_from_local = create_new_edges(new_vert,
                 interacting, n_interacting, ctx, count_new_should_have_edges);
-        updated = hvr_vertex_cache_add(new_vert, partition, min_dist_from_local,
-                &ctx->vec_cache);
+        updated = hvr_vertex_cache_add(new_vert, partition,
+                min_dist_from_local, &ctx->vec_cache);
         *time_creating += (hvr_current_time_us() - start_new);
     }
 
@@ -1112,7 +1103,7 @@ void hvr_get_neighbors(hvr_vertex_t *vert, hvr_edge_info_t **out_neighbors,
 
     unsigned capacity = 0;
     int n_neighbors = hvr_map_linearize(vert->id,
-            (hvr_map_val_t **)out_neighbors, &capacity, &ctx->edges->map);
+            (hvr_map_val_t **)out_neighbors, &capacity, &ctx->edges.map);
     *out_n_neighbors = (n_neighbors < 0 ? 0 : n_neighbors);
 }
 
@@ -1398,6 +1389,29 @@ static void print_profiling_info(
             ctx->n_vector_cache_hits,
             ctx->n_vector_cache_misses,
             ctx->vec_cache.cache_perf_info.quiet_counter);
+
+    size_t edge_set_capacity, edge_set_used, vertex_cache_capacity,
+           vertex_cache_used;
+    double edge_set_val_capacity, edge_set_val_used, vertex_cache_val_capacity,
+           vertex_cache_val_used;
+    hvr_map_size_in_bytes(&ctx->edges.map, &edge_set_capacity, &edge_set_used,
+            &edge_set_val_capacity, &edge_set_val_used);
+    hvr_map_size_in_bytes(&ctx->vec_cache.cache_map, &vertex_cache_capacity,
+            &vertex_cache_used, &vertex_cache_val_capacity,
+            &vertex_cache_val_used);
+    fprintf(profiling_fp, "  management data structure: vertex pool = %llu "
+            "bytes, PE sub info = %llu bytes, edge set = %f MB (%f%% "
+            "efficiency), vertex cache = %f MB (%f%% efficiency)\n",
+            hvr_pool_size_in_bytes(ctx),
+            hvr_sparse_arr_used_bytes(&ctx->pe_subscription_info),
+            (double)edge_set_capacity / (1024.0 * 1024.0),
+            100.0 * (double)edge_set_used / (double)edge_set_capacity,
+            (double)vertex_cache_capacity / (1024.0 * 1024.0),
+            100.0 * (double)vertex_cache_used / (double)vertex_cache_capacity);
+    fprintf(profiling_fp, "    edge set value mean len=%f capacity=%f\n",
+            edge_set_val_used, edge_set_val_capacity);
+    fprintf(profiling_fp, "    vert cache value mean len=%f capacity=%f\n",
+            vertex_cache_val_used, vertex_cache_val_capacity);
     fflush(profiling_fp);
 }
 
@@ -1473,7 +1487,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     shmem_barrier_all();
 
     // Initialize edges
-    ctx->edges = hvr_create_empty_edge_set();
+    hvr_edge_set_init(&ctx->edges);
 
     const unsigned long long start_body = hvr_current_time_us();
 

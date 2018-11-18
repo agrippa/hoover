@@ -45,4 +45,6 @@ extern void hvr_free_vertices(hvr_vertex_t *vecs, unsigned nvecs,
  */
 extern size_t hvr_n_allocated(hvr_ctx_t ctx);
 
+extern size_t hvr_pool_size_in_bytes(hvr_ctx_t in_ctx);
+
 #endif // _HVR_SPARSE_VEC_POOL_H

@@ -147,3 +147,16 @@ unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
     memcpy(*out_arr, stored_values, n_stored_values * sizeof(**out_arr));
     return n_stored_values;
 }
+
+size_t hvr_sparse_arr_used_bytes(hvr_sparse_arr_t *arr) {
+    size_t nbytes = (arr->nsegs * sizeof(*(arr->segs))); // arr->segs
+    for (unsigned s = 0; s < arr->nsegs; s++) {
+        hvr_sparse_arr_seg_t *seg = arr->segs[s];
+        if (seg) {
+            for (unsigned i = 0; i < HVR_SPARSE_ARR_SEGMENT_SIZE; i++) {
+                nbytes += seg->seg_capacities[i] * sizeof(seg->seg[0][0]);
+            }
+        }
+    }
+    return nbytes;
+}

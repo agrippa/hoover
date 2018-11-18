@@ -3,17 +3,8 @@
 
 #include "hvr_edge_set.h"
 
-static inline int valid_vertex_id(const hvr_vertex_id_t id) {
-    return id != HVR_INVALID_VERTEX_ID &&
-                 VERTEX_ID_PE(id) < shmem_n_pes() &&
-                 VERTEX_ID_OFFSET(id) < get_symm_pool_nelements();
-}
-
-hvr_edge_set_t *hvr_create_empty_edge_set() {
-    hvr_edge_set_t *new_set = (hvr_edge_set_t *)malloc(sizeof(*new_set));
-    assert(new_set);
-    hvr_map_init(&new_set->map, 64);
-    return new_set;
+void hvr_edge_set_init(hvr_edge_set_t *e) {
+    hvr_map_init(&e->map, 64);
 }
 
 /*
@@ -30,6 +21,7 @@ void hvr_add_edge(const hvr_vertex_id_t local_vertex_id,
     hvr_map_val_t val;
     val.edge_info.id = global_vertex_id;
     val.edge_info.edge = direction;
+
     hvr_map_add(local_vertex_id, val, EDGE_INFO, &set->map);
 }
 

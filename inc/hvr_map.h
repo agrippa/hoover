@@ -3,7 +3,7 @@
 
 #include "hvr_common.h"
 
-#define HVR_MAP_SEG_SIZE 16384
+#define HVR_MAP_SEG_SIZE 32768
 #define HVR_MAP_BUCKETS 2048
 
 typedef enum {
