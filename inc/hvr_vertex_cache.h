@@ -38,14 +38,20 @@ typedef struct _hvr_vertex_cache_node_t {
 } hvr_vertex_cache_node_t;
 
 /*
- * Per-remote PE data structure used to store all fetched and cached vertices
- * from that remote PE. Vertices are hashed by their offset in the local
- * vertices of the remote PE and stored in separate buckets.
+ * Data structure used to store all fetched and cached vertices.
  */
 typedef struct _hvr_vertex_cache_t {
+    /*
+     * Array of linked lists, allowing quick iteration over all mirrored
+     * vertices in a given partition.
+     */
     hvr_vertex_cache_node_t **partitions;
     hvr_partition_t npartitions;
 
+    /*
+     * A map datastructure used to enable quick lookup of
+     * hvr_vertex_cache_node*, given a vertex ID.
+     */
     hvr_map_t cache_map;
 
     /*
@@ -56,13 +62,7 @@ typedef struct _hvr_vertex_cache_t {
     hvr_vertex_cache_node_t *pool_head;
     unsigned pool_size;
 
-    /*
-     * LRU list of allocated vertex data structures, used to evict when we run
-     * out of free nodes in the free pool.
-     */
-    hvr_vertex_cache_node_t *lru_head;
-    hvr_vertex_cache_node_t *lru_tail;
-
+    // Keeps a count of mirrored vertices
     unsigned long long n_cached_vertices;
 
     struct {
