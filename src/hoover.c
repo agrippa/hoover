@@ -267,7 +267,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
         hvr_map_seg_t *seg = ctx->vec_cache.cache_map.buckets[i];
         while (seg) {
             for (unsigned j = 0; j < seg->nkeys; j++) {
-                hvr_vertex_cache_node_t *node = seg->vals[j][0].cached_vert;
+                hvr_vertex_cache_node_t *node = seg->inline_vals[j][0].cached_vert;
                 update_vertex_partitions_for_vertex(&node->vert, ctx,
                         ctx->mirror_partition_lists,
                         node->min_dist_from_local_vertex);

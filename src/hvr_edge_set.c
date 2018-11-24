@@ -4,7 +4,7 @@
 #include "hvr_edge_set.h"
 
 void hvr_edge_set_init(hvr_edge_set_t *e) {
-    hvr_map_init(&e->map, 64);
+    hvr_map_init(&e->map, 64, EDGE_INFO);
 }
 
 /*
@@ -22,13 +22,13 @@ void hvr_add_edge(const hvr_vertex_id_t local_vertex_id,
     val.edge_info.id = global_vertex_id;
     val.edge_info.edge = direction;
 
-    hvr_map_add(local_vertex_id, val, EDGE_INFO, &set->map);
+    hvr_map_add(local_vertex_id, val, &set->map);
 }
 
 void hvr_remove_edge(const hvr_vertex_id_t local_vertex_id,
         const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set) {
     hvr_map_val_t val = {.edge_info = {.id = global_vertex_id}};
-    hvr_map_remove(local_vertex_id, val, EDGE_INFO, &set->map);
+    hvr_map_remove(local_vertex_id, val, &set->map);
 }
 
 hvr_edge_type_t hvr_have_edge(const hvr_vertex_id_t local_vertex_id,

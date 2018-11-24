@@ -3,6 +3,7 @@
 #include <string.h>
 
 #define HVR_MAP_BUCKET(my_key) ((my_key) % HVR_MAP_BUCKETS)
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 // Add a new key with one initial value
 static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_map_val_t val,
@@ -11,19 +12,11 @@ static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_map_val_t val,
     assert(insert_index < HVR_MAP_SEG_SIZE);
     s->keys[insert_index] = key;
 
-    if (HVR_MAP_N_INLINE_VALS > 0) {
-        s->inline_vals[insert_index][0] = val;
-        s->ext_vals[insert_index] = NULL;
-        s->ext_capacity[insert_index] = 0;
-    } else {
-        s->ext_vals[insert_index] = (hvr_map_val_t *)malloc(
-                init_val_capacity * sizeof(hvr_map_val_t));
-        assert(s->vals[insert_index]);
+    assert(HVR_MAP_N_INLINE_VALS > 0);
 
-        s->vals[insert_index][0] = val;
-
-        s->ext_capacity[insert_index] = init_val_capacity;
-    }
+    s->inline_vals[insert_index][0] = val;
+    s->ext_vals[insert_index] = NULL;
+    s->ext_capacity[insert_index] = 0;
 
     s->length[insert_index] = 1;
     s->nkeys++;
@@ -73,46 +66,52 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
          */
         switch (m->type) {
             case (EDGE_INFO):
-                for (; i < nvals && i < HVR_MAP_N_INLINE_VALS; i++) {
+                while (i < nvals && i < HVR_MAP_N_INLINE_VALS) {
                     if (inline_vals[i].edge_info.id == to_insert.edge_info.id) {
                         assert(inline_vals[i].edge_info.edge ==
                                 to_insert.edge_info.edge);
                         return;
                     }
+                    i++;
                 }
-                for (; i < nvals; i++) {
+                while (i < nvals) {
                     if (ext_vals[i - HVR_MAP_N_INLINE_VALS].edge_info.id ==
                             to_insert.edge_info.id) {
                         assert(ext_vals[i - HVR_MAP_N_INLINE_VALS].edge_info.edge ==
                                 to_insert.edge_info.edge);
                         return;
                     }
+                    i++;
                 }
                 break;
             case (CACHED_VERT_INFO):
-                for (; i < nvals && i < HVR_MAP_N_INLINE_VALS; i++) {
+                while (i < nvals && i < HVR_MAP_N_INLINE_VALS) {
                     if (inline_vals[i].cached_vert == to_insert.cached_vert) {
                         return;
                     }
+                    i++;
                 }
-                for (; i < nvals; i++) {
+                while (i < nvals) {
                     if (ext_vals[i - HVR_MAP_N_INLINE_VALS].cached_vert ==
                             to_insert.cached_vert) {
                         return;
                     }
+                    i++;
                 }
                 break;
             case (INTERACT_INFO):
-                for (; i < nvals && i < HVR_MAP_N_INLINE_VALS; i++) {
+                while (i < nvals && i < HVR_MAP_N_INLINE_VALS) {
                     if (inline_vals[i].interact == to_insert.interact) {
                         return;
                     }
+                    i++;
                 }
-                for (; i < nvals; i++) {
+                while (i < nvals) {
                     if (ext_vals[i - HVR_MAP_N_INLINE_VALS].interact ==
                             to_insert.interact) {
                         return;
                     }
+                    i++;
                 }
                 break;
             default:
@@ -134,7 +133,7 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
                 assert(seg->ext_vals[seg_index]);
                 seg->ext_capacity[seg_index] = new_capacity;
             }
-            seg->ext_vals[seg_index][nvals] = to_insert;
+            seg->ext_vals[seg_index][nvals - HVR_MAP_N_INLINE_VALS] = to_insert;
         }
 
         seg->length[seg_index] += 1;
@@ -191,41 +190,53 @@ void hvr_map_remove(hvr_vertex_id_t key, hvr_map_val_t val,
         // Clear out the value we are removing
         switch (m->type) {
             case (EDGE_INFO):
-                for (; !found && j < HVR_MAP_N_INLINE_VALS && j < nvals; j++) {
+                while (!found && j < HVR_MAP_N_INLINE_VALS && j < nvals) {
                     if (inline_vals[j].edge_info.id == val.edge_info.id) {
                         found = 1;
+                    } else {
+                        j++;
                     }
                 }
-                for (; !found && j < nvals; j++) {
+                while (!found && j < nvals) {
                     if (ext_vals[j - HVR_MAP_N_INLINE_VALS].edge_info.id ==
                             val.edge_info.id) {
                         found = 1;
+                    } else {
+                        j++;
                     }
                 }
                 break;
             case (CACHED_VERT_INFO):
-                for (; !found && j < HVR_MAP_N_INLINE_VALS && j < nvals; j++) {
+                while (!found && j < HVR_MAP_N_INLINE_VALS && j < nvals) {
                     if (inline_vals[j].cached_vert == val.cached_vert) {
                         found = 1;
+                    } else {
+                        j++;
                     }
                 }
-                for (; !found && j < nvals; j++) {
+                while (!found && j < nvals) {
                     if (ext_vals[j - HVR_MAP_N_INLINE_VALS].cached_vert ==
                             val.cached_vert) {
                         found = 1;
+                    } else {
+                        j++;
                     }
                 }
                 break;
             case (INTERACT_INFO):
-                for (; !found && j < HVR_MAP_N_INLINE_VALS && j < nvals; j++) {
+                while (!found && j < HVR_MAP_N_INLINE_VALS && j < nvals) {
                     if (inline_vals[j].interact == val.interact) {
                         found = 1;
+                    } else {
+                        j++;
                     }
                 }
-                for (; !found && j < nvals; j++) {
+                while (!found && j < nvals) {
                     if (ext_vals[j - HVR_MAP_N_INLINE_VALS].interact ==
                             val.interact) {
                         found = 1;
+                    } else {
+                        j++;
                     }
                 }
                 break;
@@ -270,15 +281,17 @@ hvr_edge_type_t hvr_map_contains(hvr_vertex_id_t key,
         hvr_map_val_t *inline_vals = &(seg->inline_vals[seg_index][0]);
         hvr_map_val_t *ext_vals = seg->ext_vals[seg_index];
         unsigned j = 0;
-        for (; j < HVR_MAP_N_INLINE_VALS && j < nvals; j++) {
+        while (j < MIN(HVR_MAP_N_INLINE_VALS, nvals)) {
             if (inline_vals[j].edge_info.id == val) {
                 return inline_vals[j].edge_info.edge;
             }
+            j++;
         }
-        for (; j < nvals; j++) {
+        while (j < nvals) {
             if (ext_vals[j - HVR_MAP_N_INLINE_VALS].edge_info.id == val) {
                 return ext_vals[j - HVR_MAP_N_INLINE_VALS].edge_info.edge;
             }
+            j++;
         }
     }
     return NO_EDGE;
@@ -304,7 +317,7 @@ int hvr_map_linearize(hvr_vertex_id_t key,
         }
 
         memcpy(*out_vals, inline_vals,
-                min(nvals, HVR_MAP_N_INLINE_VALS) * sizeof(*inline_vals));
+                MIN(nvals, HVR_MAP_N_INLINE_VALS) * sizeof(*inline_vals));
         if (nvals > HVR_MAP_N_INLINE_VALS) {
             memcpy((*out_vals) + HVR_MAP_N_INLINE_VALS, ext_vals,
                     (nvals - HVR_MAP_N_INLINE_VALS) * sizeof(*ext_vals));
