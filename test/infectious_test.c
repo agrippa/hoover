@@ -9,10 +9,6 @@
 
 #include <hoover.h>
 
-#define TIME_PARTITION_DIM 100
-#define Y_PARTITION_DIM 10 // 150
-#define X_PARTITION_DIM 10 // 150
-
 #define TIME_STEP 0
 #define ACTOR_ID 1
 #define PX 2
@@ -37,6 +33,10 @@
 #define MAX_DST_DELTA 300.0
 
 unsigned max_modeled_timestep = 0;
+
+static unsigned time_partition_dim = 0;
+static unsigned y_partition_dim = 0;
+static unsigned x_partition_dim = 0;
 
 typedef struct _portal_t {
     int pes[2];
@@ -130,20 +130,20 @@ hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
     assert(y < global_y_dim);
 
     const double partition_time_step = (double)max_num_timesteps /
-        (double)TIME_PARTITION_DIM;
-    const double partition_y_dim = global_y_dim / (double)Y_PARTITION_DIM;
-    const double partition_x_dim = global_x_dim / (double)X_PARTITION_DIM;
+        (double)time_partition_dim;
+    const double partition_y_dim = global_y_dim / (double)y_partition_dim;
+    const double partition_x_dim = global_x_dim / (double)x_partition_dim;
 
     const int time_step_partition = (int)(timestep / partition_time_step);
     const int y_partition = (int)(y / partition_y_dim);
     const int x_partition = (int)(x / partition_x_dim);
 
-    assert(time_step_partition < TIME_PARTITION_DIM);
-    assert(x_partition < X_PARTITION_DIM);
-    assert(y_partition < Y_PARTITION_DIM);
+    assert(time_step_partition < time_partition_dim);
+    assert(x_partition < x_partition_dim);
+    assert(y_partition < y_partition_dim);
 
-    return time_step_partition * Y_PARTITION_DIM * X_PARTITION_DIM +
-        y_partition * X_PARTITION_DIM + x_partition;
+    return time_step_partition * y_partition_dim * x_partition_dim +
+        y_partition * x_partition_dim + x_partition;
 }
 
 static void compute_next_pos(double p_x, double p_y,
@@ -341,17 +341,17 @@ void might_interact(const hvr_partition_t partition,
     const double global_y_dim = (double)pe_rows * cell_dim;
 
     // Dimension of each partition in the row, column, time directions
-    double y_dim = global_y_dim / (double)Y_PARTITION_DIM;
-    double x_dim = global_x_dim / (double)X_PARTITION_DIM;
-    double time_dim = (double)max_num_timesteps / (double)TIME_PARTITION_DIM;
+    double y_dim = global_y_dim / (double)y_partition_dim;
+    double x_dim = global_x_dim / (double)x_partition_dim;
+    double time_dim = (double)max_num_timesteps / (double)time_partition_dim;
 
     /*
      * For the given partition, the (time, row, column) coordinate of this
      * partition in a 2D space.
      */
-    const int partition_time = partition / (Y_PARTITION_DIM * X_PARTITION_DIM);
-    const int partition_y = (partition / X_PARTITION_DIM) % Y_PARTITION_DIM;
-    const int partition_x = partition % X_PARTITION_DIM;
+    const int partition_time = partition / (y_partition_dim * x_partition_dim);
+    const int partition_y = (partition / x_partition_dim) % y_partition_dim;
+    const int partition_x = partition % x_partition_dim;
 
     double min_time = (double)partition_time * time_dim;
     double max_time = min_time + time_dim;
@@ -385,13 +385,14 @@ void might_interact(const hvr_partition_t partition,
     if (min_time < 0.0) min_partition_time = 0;
     else min_partition_time = (int)(min_time / time_dim);
 
-    if (max_y >= (double)global_y_dim) max_partition_y = Y_PARTITION_DIM - 1;
+    if (max_y >= (double)global_y_dim) max_partition_y = y_partition_dim - 1;
     else max_partition_y = (int)(max_y / y_dim);
 
-    if (max_x >= (double)global_x_dim) max_partition_x = X_PARTITION_DIM - 1;
+    if (max_x >= (double)global_x_dim) max_partition_x = x_partition_dim - 1;
     else max_partition_x = (int)(max_x / x_dim);
  
-    if (max_time >= (double)max_num_timesteps) max_partition_time = TIME_PARTITION_DIM - 1;
+    if (max_time >= (double)max_num_timesteps) max_partition_time =
+        time_partition_dim - 1;
     else max_partition_time = (int)(max_time / time_dim);
 
     assert(min_partition_y <= max_partition_y);
@@ -402,8 +403,8 @@ void might_interact(const hvr_partition_t partition,
     for (int t = min_partition_time; t <= max_partition_time; t++) {
         for (int r = min_partition_y; r <= max_partition_y; r++) {
             for (int c = min_partition_x; c <= max_partition_x; c++) {
-                const int part = t * Y_PARTITION_DIM * X_PARTITION_DIM +
-                    r * X_PARTITION_DIM + c;
+                const int part = t * y_partition_dim * x_partition_dim +
+                    r * x_partition_dim + c;
                 if (count_interacting_partitions >= interacting_partitions_capacity) {
                     fprintf(stderr, "time = (%d, %d) y = (%d, %d) x = (%d, %d) "
                             "current count = %u, capacity = %u\n",
@@ -494,6 +495,10 @@ int main(int argc, char **argv) {
     infection_radius = atof(argv[8]);
     max_delta_velocity = atof(argv[9]);
     int time_limit = atoi(argv[10]);
+
+    time_partition_dim = max_num_timesteps;
+    y_partition_dim = 200;
+    x_partition_dim = 200;
 
     const double global_x_dim = (double)pe_cols * cell_dim;
     const double global_y_dim = (double)pe_rows * cell_dim;
@@ -641,7 +646,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    hvr_init(TIME_PARTITION_DIM * Y_PARTITION_DIM * X_PARTITION_DIM,
+    hvr_init(time_partition_dim * y_partition_dim * x_partition_dim,
             update_metadata,
             might_interact,
             update_coupled_val,

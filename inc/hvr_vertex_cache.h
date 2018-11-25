@@ -35,6 +35,7 @@ typedef struct _hvr_vertex_cache_node_t {
      */
     struct _hvr_vertex_cache_node_t *part_next;
     struct _hvr_vertex_cache_node_t *part_prev;
+    struct _hvr_vertex_cache_node_t *tmp;
 } hvr_vertex_cache_node_t;
 
 /*
@@ -95,8 +96,7 @@ extern hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
         hvr_vertex_cache_t *cache);
 
 extern hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
-        hvr_partition_t part, unsigned min_dist_from_local_vertex,
-        hvr_vertex_cache_t *cache);
+        hvr_partition_t part, hvr_vertex_cache_t *cache);
 
 extern void hvr_vertex_cache_delete(hvr_vertex_t *vert,
         hvr_vertex_cache_t *cache);

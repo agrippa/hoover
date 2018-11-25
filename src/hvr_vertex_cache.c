@@ -1,6 +1,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <shmem.h>
+#include <stdint.h>
+#include <limits.h>
 
 #include "hvr_vertex_cache.h"
 
@@ -117,8 +119,7 @@ void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
 }
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
-        hvr_partition_t part, unsigned min_dist_from_local_vertex,
-        hvr_vertex_cache_t *cache) {
+        hvr_partition_t part, hvr_vertex_cache_t *cache) {
     // Assume that vec is not already in the cache, but don't enforce this
     hvr_vertex_cache_node_t *new_node = NULL;
     if (cache->pool_head) {
@@ -137,7 +138,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
     const unsigned bucket = CACHE_BUCKET(vert->id);
     memcpy(&new_node->vert, vert, sizeof(*vert));
-    new_node->min_dist_from_local_vertex = min_dist_from_local_vertex;
+    new_node->min_dist_from_local_vertex = UINT_MAX;
     new_node->part = part;
 
     // Insert into the appropriate partition list
