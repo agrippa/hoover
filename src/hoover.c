@@ -1415,6 +1415,7 @@ static void print_profiling_info(
         unsigned long long start_iter,
         unsigned long long end_start_time_step,
         unsigned long long end_update_vertices,
+        unsigned long long end_update_dist,
         unsigned long long end_update_partitions,
         unsigned long long end_partition_window,
         unsigned long long end_neighbor_updates,
@@ -1443,8 +1444,10 @@ static void print_profiling_info(
     fprintf(profiling_fp, "  update vertices %f - %d updates\n",
             (double)(end_update_vertices - end_start_time_step) / 1000.0,
             count_updated);
+    fprintf(profiling_fp, "  update distances %f\n",
+            (double)(end_update_dist - end_update_vertices) / 1000.0);
     fprintf(profiling_fp, "  update actor partitions %f\n",
-            (double)(end_update_partitions - end_update_vertices) / 1000.0);
+            (double)(end_update_partitions - end_update_dist) / 1000.0);
     fprintf(profiling_fp, "  update partition window %f - dead PE time %f\n",
             (double)(end_partition_window - end_update_partitions) / 1000.0,
             (double)dead_pe_time / 1000.0);
@@ -1589,11 +1592,15 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     const unsigned long long start_body = hvr_current_time_us();
 
+    // Update distance of each mirrored vertex from a local vertex
+    update_distances(ctx);
+
+    const unsigned long long end_update_dist = hvr_current_time_us();
+
     /*
      * Find which partitions are locally active (either because a local vertex
      * is in them, or a locally mirrored vertex in them).
      */
-    update_distances(ctx);
     update_actor_partitions(ctx);
     const unsigned long long end_update_partitions = hvr_current_time_us();
 
@@ -1646,6 +1653,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 start_body,
                 start_body,
                 start_body,
+                end_update_dist,
                 end_update_partitions,
                 end_partition_window,
                 end_neighbor_updates,
@@ -1692,6 +1700,9 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long end_update_vertices = hvr_current_time_us();
 
         update_distances(ctx);
+
+        const unsigned long long end_update_dist = hvr_current_time_us();
+
         update_actor_partitions(ctx);
 
         const unsigned long long end_update_partitions = hvr_current_time_us();
@@ -1722,6 +1733,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     start_iter,
                     end_start_time_step,
                     end_update_vertices,
+                    end_update_dist,
                     end_update_partitions,
                     end_partition_window,
                     end_neighbor_updates,
