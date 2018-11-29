@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     verify_id_construction(0, 0);
     verify_id_construction(4, 3);
     verify_id_construction(3, 4);
-    verify_id_construction(INT32_MAX, UINT32_MAX);
+    verify_id_construction(3000, UINT32_MAX);
     verify_id_construction(2048, 1024);
     printf("Success!\n");
     return 0;

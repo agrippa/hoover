@@ -15,10 +15,11 @@ void hvr_mailbox_init(hvr_mailbox_t *mailbox, size_t capacity_in_bytes) {
     assert(mailbox->indices);
     *(mailbox->indices) = 0;
 
+    mailbox->capacity_in_bytes = capacity_in_bytes;
+
     mailbox->buf = (char *)shmem_malloc(capacity_in_bytes);
     assert(mailbox->buf);
     memset(mailbox->buf, 0x00, capacity_in_bytes);
-    mailbox->capacity_in_bytes = capacity_in_bytes;
 
     shmem_barrier_all();
 }

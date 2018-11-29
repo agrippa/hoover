@@ -5,7 +5,7 @@ CXX=cc
 
 all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge_set_test bin/own_edge_test bin/vertex_test bin/init_test \
 	bin/infectious_test bin/shmem_rw_lock bin/write_lock_stress \
-	bin/test_vertex_id bin/add_vertices_test bin/mailbox_test \
+	bin/test_vertex_id bin/edge_info_test bin/add_vertices_test bin/mailbox_test \
 	bin/remove_vertices_test bin/intrusion_detection bin/hvr_dist_bitvec_test bin/pas
 
 bin/libhoover.a: src/hoover.c src/shmem_rw_lock.c \
@@ -53,6 +53,9 @@ bin/shmem_rw_lock: test/shmem_rw_lock.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/write_lock_stress: test/write_lock_stress.c
+	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+
+bin/edge_info_test: test/edge_info_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/test_vertex_id: test/test_vertex_id.c

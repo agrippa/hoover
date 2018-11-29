@@ -30,9 +30,10 @@
 #define CELL_COL(x_coord) ((x_coord) / cell_dim)
 #define CELL_INDEX(cell_row, cell_col) ((cell_row) * pe_cols + (cell_col))
 
-#define MAX_DST_DELTA 300.0
+#define MAX_DST_DELTA 500.0
 
 unsigned max_modeled_timestep = 0;
+unsigned *max_timestep_created = NULL;
 
 static unsigned time_partition_dim = 0;
 static unsigned y_partition_dim = 0;
@@ -54,7 +55,6 @@ static double cell_dim;
 long long total_time = 0;
 long long max_elapsed = 0;
 long long elapsed_time = 0;
-static double max_delta_velocity;
 static double infection_radius;
 static int max_num_timesteps;
 
@@ -216,6 +216,8 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     hvr_edge_info_t *neighbors = NULL;
     int n_neighbors = 0;
     hvr_get_neighbors(vertex, &neighbors, &n_neighbors, ctx);
+    const unsigned actor_id = (unsigned)hvr_vertex_get(ACTOR_ID, vertex, ctx);
+    const unsigned timestep = (unsigned)hvr_vertex_get(TIME_STEP, vertex, ctx);
 
     /*
      * Scan over in edges to find the same actor on the previous timestep. Use
@@ -225,26 +227,22 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     hvr_vertex_t *prev = NULL;
     hvr_vertex_t *next = NULL;
     for (int i = 0; i < n_neighbors; i++) {
-        hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
-        if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) ==
-                (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
-            if (neighbors[i].edge == DIRECTED_IN) {
+        hvr_vertex_t *neighbor = hvr_get_vertex(EDGE_INFO_VERTEX(neighbors[i]),
+                ctx);
+        if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) == actor_id) {
+            if (EDGE_INFO_EDGE(neighbors[i]) == DIRECTED_IN) {
                 assert(prev == NULL);
                 assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
-                        (int)hvr_vertex_get(TIME_STEP, vertex, ctx) - 1);
+                        timestep - 1);
                 prev = neighbor;
             }
-            if (neighbors[i].edge == DIRECTED_OUT) {
+            if (EDGE_INFO_EDGE(neighbors[i]) == DIRECTED_OUT) {
                 assert(next == NULL);
                 assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
-                        (int)hvr_vertex_get(TIME_STEP, vertex, ctx) + 1);
+                        timestep + 1);
                 next = neighbor;
             }
         }
-    }
-
-    if ((int)hvr_vertex_get(TIME_STEP, vertex, ctx) > 0) {
-        assert(prev);
     }
 
     if (prev && hvr_vertex_get(INFECTED, prev, ctx) > 0) {
@@ -257,12 +255,12 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      */
     if ((int)hvr_vertex_get(INFECTED, vertex, ctx) == 0) {
         for (int i = 0; i < n_neighbors; i++) {
-            if (neighbors[i].edge == DIRECTED_IN) {
-                hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
-                if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) !=
-                        (int)hvr_vertex_get(ACTOR_ID, vertex, ctx)) {
+            if (EDGE_INFO_EDGE(neighbors[i]) == DIRECTED_IN) {
+                hvr_vertex_t *neighbor = hvr_get_vertex(
+                        EDGE_INFO_VERTEX(neighbors[i]), ctx);
+                if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) != actor_id) {
                     assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
-                            (int)hvr_vertex_get(TIME_STEP, vertex, ctx) - 1);
+                            timestep - 1);
                     int is_infected = hvr_vertex_get(INFECTED, neighbor, ctx);
                     if (is_infected) {
                         const int infected_by = hvr_vertex_get_owning_pe(neighbor);
@@ -289,9 +287,9 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_vertex_set(PY, new_y, vertex, ctx);
     }
 
-    if (next == NULL &&
-            (int)hvr_vertex_get(TIME_STEP, vertex, ctx) <
-            max_num_timesteps - 1) {
+    if (timestep < max_num_timesteps - 1 &&
+            max_timestep_created[actor_id - (shmem_my_pe() * actors_per_cell)] == 
+            timestep) {
         // Add a next
         hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
 
@@ -299,7 +297,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         double y = hvr_vertex_get(PY, vertex, ctx);
         double dst_x = hvr_vertex_get(DST_X, vertex, ctx);
         double dst_y = hvr_vertex_get(DST_Y, vertex, ctx);
-        int next_timestep = (int)hvr_vertex_get(TIME_STEP, vertex, ctx) + 1;
+        int next_timestep = timestep + 1;
         if (next_timestep > max_modeled_timestep) {
             max_modeled_timestep = next_timestep;
         }
@@ -319,6 +317,8 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
 
         hvr_vertex_set(PX, new_x, next, ctx);
         hvr_vertex_set(PY, new_y, next, ctx);
+        max_timestep_created[actor_id - (shmem_my_pe() * actors_per_cell)] =
+            next_timestep;
     }
 
     free(neighbors);
@@ -461,7 +461,6 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     int delta_ninfected = ninfected - previous_ninfected;
     double percent_infected = (double)ninfected / (double)actors_per_cell;
     if (delta_ninfected == 0 && percent_infected > 0.8) {
-        // return 0;
         printf("PE %d leaving the simulation, %% infected = %f (%d / %d)\n",
                 shmem_my_pe(), 100.0 * percent_infected, ninfected,
                 actors_per_cell);
@@ -476,10 +475,10 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc != 11) {
+    if (argc != 10) {
         fprintf(stderr, "usage: %s <cell-dim> <# global portals> "
                 "<actors per cell> <pe-rows> <pe-cols> <n-initial-infected> "
-                "<max-num-timesteps> <infection-radius> <max-delta-velocity> "
+                "<max-num-timesteps> <infection-radius> "
                 "<time-limit>\n",
                 argv[0]);
         return 1;
@@ -493,8 +492,7 @@ int main(int argc, char **argv) {
     const int n_initial_infected = atoi(argv[6]);
     max_num_timesteps = atoi(argv[7]);
     infection_radius = atof(argv[8]);
-    max_delta_velocity = atof(argv[9]);
-    int time_limit = atoi(argv[10]);
+    int time_limit = atoi(argv[9]);
 
     time_partition_dim = max_num_timesteps;
     y_partition_dim = 200;
@@ -512,6 +510,12 @@ int main(int argc, char **argv) {
     npes = shmem_n_pes();
     assert(npes == pe_rows * pe_cols);
 
+    max_timestep_created = (unsigned *)malloc(
+            actors_per_cell * sizeof(*max_timestep_created));
+    assert(max_timestep_created);
+    memset(max_timestep_created, 0x00,
+            actors_per_cell * sizeof(*max_timestep_created));
+
     hvr_ctx_create(&hvr_ctx);
 
     srand(123 + pe);
@@ -527,9 +531,11 @@ int main(int argc, char **argv) {
     portals = (portal_t *)shmem_malloc(n_global_portals * sizeof(*portals));
     assert((n_global_portals == 0) || portals);
     if (pe == 0) {
+        fprintf(stderr, "Running for at most %d seconds\n", time_limit);
         fprintf(stderr, "Creating %d portals\n", n_global_portals);
-        fprintf(stderr, "%d actors per cell, %d actors in total\n",
-                actors_per_cell, actors_per_cell * npes);
+        fprintf(stderr, "%d actors per cell, %d actors in total, %d vertices "
+                "in total\n", actors_per_cell, actors_per_cell * npes,
+                actors_per_cell * npes * max_num_timesteps);
         fprintf(stderr, "%d timesteps, %f x %f grid\n", max_num_timesteps,
                 global_y_dim, global_x_dim);
         for (int p = 0; p < n_global_portals; p++) {
@@ -579,71 +585,61 @@ int main(int argc, char **argv) {
     hvr_vertex_t *actors = hvr_vertex_create_n(
             actors_per_cell, hvr_ctx);
 
-    // for (int t = 0; t < max_num_timesteps; t++) {
-    for (int t = 0; t < 1; t++) {
-        for (int a = 0; a < actors_per_cell; a++) {
-            double x, y, dst_x, dst_y;
-            int is_infected = 0;
+    const int t = 0;
+    for (int a = 0; a < actors_per_cell; a++) {
+        double x, y, dst_x, dst_y;
+        int is_infected = 0;
 
-            if (t == 0) {
-                x = random_double_in_range(PE_COL_CELL_START(pe),
-                        PE_COL_CELL_START(pe) + cell_dim);
-                y = random_double_in_range(PE_ROW_CELL_START(pe),
-                        PE_ROW_CELL_START(pe) + cell_dim);
+        x = random_double_in_range(PE_COL_CELL_START(pe),
+                PE_COL_CELL_START(pe) + cell_dim);
+        y = random_double_in_range(PE_ROW_CELL_START(pe),
+                PE_ROW_CELL_START(pe) + cell_dim);
 
-                dst_x = x + random_double_in_range(-MAX_DST_DELTA,
-                        MAX_DST_DELTA);
-                dst_y = y + random_double_in_range(-MAX_DST_DELTA,
-                        MAX_DST_DELTA);
-                if (dst_x > global_x_dim) dst_x = global_x_dim - 1.0;
-                if (dst_y > global_y_dim) dst_y = global_y_dim - 1.0;
-                if (dst_x < 0.0) dst_x = 0.0;
-                if (dst_y < 0.0) dst_y = 0.0;
+        dst_x = x + random_double_in_range(-MAX_DST_DELTA,
+                MAX_DST_DELTA);
+        dst_y = y + random_double_in_range(-MAX_DST_DELTA,
+                MAX_DST_DELTA);
+        if (dst_x > global_x_dim) dst_x = global_x_dim - 1.0;
+        if (dst_y > global_y_dim) dst_y = global_y_dim - 1.0;
+        if (dst_x < 0.0) dst_x = 0.0;
+        if (dst_y < 0.0) dst_y = 0.0;
 
-                for (int i = 0; i < n_initial_infected; i++) {
-                    int owner_pe = initial_infected[i] / actors_per_cell;
-                    if (owner_pe == pe) {
-                        int local_offset = initial_infected[i] % actors_per_cell;
-                        assert(local_offset < actors_per_cell);
-                        if (local_offset == a)  {
-                            is_infected = 1;
-                            break;
-                        }
-                    }
+        for (int i = 0; i < n_initial_infected; i++) {
+            int owner_pe = initial_infected[i] / actors_per_cell;
+            if (owner_pe == pe) {
+                int local_offset = initial_infected[i] % actors_per_cell;
+                assert(local_offset < actors_per_cell);
+                if (local_offset == a)  {
+                    is_infected = 1;
+                    break;
                 }
-
-                if (is_infected) {
-                    fprintf(stderr, "PE %d - local offset %d infected\n", pe, a);
-                }
-            } else {
-                hvr_vertex_t *init_actor = actors + a;
-                x = hvr_vertex_get(PX, init_actor, hvr_ctx);
-                y = hvr_vertex_get(PY, init_actor, hvr_ctx);
-                dst_x = hvr_vertex_get(DST_X, init_actor, hvr_ctx);
-                dst_y = hvr_vertex_get(DST_Y, init_actor, hvr_ctx);
             }
-
-            int index = t * actors_per_cell + a;
-
-            hvr_vertex_set(PX, x, &actors[index], hvr_ctx);
-            hvr_vertex_set(PY, y, &actors[index], hvr_ctx);
-
-            if (is_infected) {
-                hvr_vertex_set(INFECTED, 1, &actors[index], hvr_ctx);
-            } else {
-                hvr_vertex_set(INFECTED, 0, &actors[index], hvr_ctx);
-            }
-
-            hvr_vertex_set(HOME_X, x, &actors[index], hvr_ctx);
-            hvr_vertex_set(HOME_Y, y, &actors[index], hvr_ctx);
-
-            hvr_vertex_set(DST_X, dst_x, &actors[index], hvr_ctx);
-            hvr_vertex_set(DST_Y, dst_y, &actors[index], hvr_ctx);
-
-            hvr_vertex_set(TIME_STEP, t, &actors[index], hvr_ctx);
-            hvr_vertex_set(ACTOR_ID, shmem_my_pe() * actors_per_cell + a,
-                    &actors[index], hvr_ctx);
         }
+
+        if (is_infected) {
+            fprintf(stderr, "PE %d - local offset %d infected\n", pe, a);
+        }
+
+        int index = t * actors_per_cell + a;
+
+        hvr_vertex_set(PX, x, &actors[index], hvr_ctx);
+        hvr_vertex_set(PY, y, &actors[index], hvr_ctx);
+
+        if (is_infected) {
+            hvr_vertex_set(INFECTED, 1, &actors[index], hvr_ctx);
+        } else {
+            hvr_vertex_set(INFECTED, 0, &actors[index], hvr_ctx);
+        }
+
+        hvr_vertex_set(HOME_X, x, &actors[index], hvr_ctx);
+        hvr_vertex_set(HOME_Y, y, &actors[index], hvr_ctx);
+
+        hvr_vertex_set(DST_X, dst_x, &actors[index], hvr_ctx);
+        hvr_vertex_set(DST_Y, dst_y, &actors[index], hvr_ctx);
+
+        hvr_vertex_set(TIME_STEP, t, &actors[index], hvr_ctx);
+        hvr_vertex_set(ACTOR_ID, shmem_my_pe() * actors_per_cell + a,
+                &actors[index], hvr_ctx);
     }
 
     hvr_init(time_partition_dim * y_partition_dim * x_partition_dim,

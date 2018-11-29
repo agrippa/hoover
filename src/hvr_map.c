@@ -67,18 +67,18 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
         switch (m->type) {
             case (EDGE_INFO):
                 while (i < nvals && i < HVR_MAP_N_INLINE_VALS) {
-                    if (inline_vals[i].edge_info.id == to_insert.edge_info.id) {
-                        assert(inline_vals[i].edge_info.edge ==
-                                to_insert.edge_info.edge);
+                    if (EDGE_INFO_VERTEX(inline_vals[i].edge_info) == EDGE_INFO_VERTEX(to_insert.edge_info)) {
+                        assert(EDGE_INFO_EDGE(inline_vals[i].edge_info) ==
+                                EDGE_INFO_EDGE(to_insert.edge_info));
                         return;
                     }
                     i++;
                 }
                 while (i < nvals) {
-                    if (ext_vals[i - HVR_MAP_N_INLINE_VALS].edge_info.id ==
-                            to_insert.edge_info.id) {
-                        assert(ext_vals[i - HVR_MAP_N_INLINE_VALS].edge_info.edge ==
-                                to_insert.edge_info.edge);
+                    if (EDGE_INFO_VERTEX(ext_vals[i - HVR_MAP_N_INLINE_VALS].edge_info) ==
+                            EDGE_INFO_VERTEX(to_insert.edge_info)) {
+                        assert(EDGE_INFO_EDGE(ext_vals[i - HVR_MAP_N_INLINE_VALS].edge_info) ==
+                                EDGE_INFO_EDGE(to_insert.edge_info));
                         return;
                     }
                     i++;
@@ -191,15 +191,15 @@ void hvr_map_remove(hvr_vertex_id_t key, hvr_map_val_t val,
         switch (m->type) {
             case (EDGE_INFO):
                 while (!found && j < HVR_MAP_N_INLINE_VALS && j < nvals) {
-                    if (inline_vals[j].edge_info.id == val.edge_info.id) {
+                    if (EDGE_INFO_VERTEX(inline_vals[j].edge_info) == EDGE_INFO_VERTEX(val.edge_info)) {
                         found = 1;
                     } else {
                         j++;
                     }
                 }
                 while (!found && j < nvals) {
-                    if (ext_vals[j - HVR_MAP_N_INLINE_VALS].edge_info.id ==
-                            val.edge_info.id) {
+                    if (EDGE_INFO_VERTEX(ext_vals[j - HVR_MAP_N_INLINE_VALS].edge_info) ==
+                            EDGE_INFO_VERTEX(val.edge_info)) {
                         found = 1;
                     } else {
                         j++;
@@ -282,14 +282,14 @@ hvr_edge_type_t hvr_map_contains(hvr_vertex_id_t key,
         hvr_map_val_t *ext_vals = seg->ext_vals[seg_index];
         unsigned j = 0;
         while (j < MIN(HVR_MAP_N_INLINE_VALS, nvals)) {
-            if (inline_vals[j].edge_info.id == val) {
-                return inline_vals[j].edge_info.edge;
+            if (EDGE_INFO_VERTEX(inline_vals[j].edge_info) == val) {
+                return EDGE_INFO_EDGE(inline_vals[j].edge_info);
             }
             j++;
         }
         while (j < nvals) {
-            if (ext_vals[j - HVR_MAP_N_INLINE_VALS].edge_info.id == val) {
-                return ext_vals[j - HVR_MAP_N_INLINE_VALS].edge_info.edge;
+            if (EDGE_INFO_VERTEX(ext_vals[j - HVR_MAP_N_INLINE_VALS].edge_info) == val) {
+                return EDGE_INFO_EDGE(ext_vals[j - HVR_MAP_N_INLINE_VALS].edge_info);
             }
             j++;
         }

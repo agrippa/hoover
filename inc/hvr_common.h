@@ -11,10 +11,10 @@
 #define BITS_PER_WORD (BITS_PER_BYTE * sizeof(unsigned))
 
 typedef enum _hvr_edge_type_t {
-    BIDIRECTIONAL,
-    DIRECTED_IN,
-    DIRECTED_OUT,
-    NO_EDGE
+    BIDIRECTIONAL = 0,
+    DIRECTED_IN = 1,
+    DIRECTED_OUT = 2,
+    NO_EDGE = 3
 } hvr_edge_type_t;
 
 /*
@@ -89,10 +89,18 @@ static inline size_t get_symm_pool_nelements() {
 
 typedef struct _hvr_vertex_update_t hvr_vertex_update_t;
 
-typedef struct _hvr_edge_info_t {
-    hvr_vertex_id_t id;
-    hvr_edge_type_t edge;
-} hvr_edge_info_t;
+typedef hvr_vertex_id_t hvr_edge_info_t;
+
+#define EDGE_INFO_VERTEX(my_edge_info) (0x3fffffffffffffff & (my_edge_info))
+#define EDGE_INFO_EDGE(my_edge_info) ((my_edge_info) >> 62)
+
+static inline hvr_edge_info_t construct_edge_info(hvr_vertex_id_t vert,
+        hvr_edge_type_t edge) {
+    uint64_t vertex_info = vert;
+    uint64_t edge_mask = ((uint64_t)edge) << ((uint64_t)62);
+    vertex_info = (vertex_info | edge_mask);
+    return vertex_info;
+}
 
 typedef struct _process_perf_info_t {
     unsigned n_received_updates;
