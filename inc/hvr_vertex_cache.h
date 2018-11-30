@@ -19,6 +19,8 @@ extern "C" {
 typedef struct _hvr_vertex_cache_node_t {
     // Contents of the vec itself
     hvr_vertex_t vert;
+    hvr_map_val_list_t neighbors;
+    int n_neighbors;
 
     // Partition for this vert. Think of this as a secondary key, after vert.id
     hvr_partition_t part;

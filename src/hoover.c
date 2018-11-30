@@ -271,7 +271,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
         hvr_map_seg_t *seg = ctx->vec_cache.cache_map.buckets[i];
         while (seg) {
             for (unsigned j = 0; j < seg->nkeys; j++) {
-                hvr_vertex_cache_node_t *node = seg->inline_vals[j][0].cached_vert;
+                hvr_vertex_cache_node_t *node = seg->data[j].inline_vals[0].cached_vert;
                 update_vertex_partitions_for_vertex(&node->vert, ctx,
                         ctx->mirror_partition_lists,
                         node->min_dist_from_local_vertex);
@@ -1136,18 +1136,20 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
         hvr_map_seg_t *seg = ctx->vec_cache.cache_map.buckets[i];
         while (seg) {
             for (unsigned j = 0; j < seg->nkeys; j++) {
-                hvr_vertex_cache_node_t *node = seg->inline_vals[j][0].cached_vert;
+                hvr_vertex_cache_node_t *node = seg->data[j].inline_vals[0].cached_vert;
                 hvr_vertex_t *curr = &node->vert;
                 if (VERTEX_ID_PE(curr->id) == ctx->pe) {
                     node->min_dist_from_local_vertex = 0;
 
-                    hvr_map_val_list_t neighbors;
-                    int n_neighbors = hvr_map_linearize(curr->id,
-                            &ctx->edges.map, &neighbors);
+                    node->n_neighbors = hvr_map_linearize(curr->id,
+                            &ctx->edges.map, &node->neighbors);
+                    // hvr_map_val_list_t neighbors;
+                    // int n_neighbors = hvr_map_linearize(curr->id,
+                    //         &ctx->edges.map, &neighbors);
 
-                    for (int n = 0; n < n_neighbors; n++) {
+                    for (int n = 0; n < node->n_neighbors; n++) {
                         hvr_edge_info_t edge_info = hvr_map_val_list_get(n,
-                                &neighbors).edge_info;
+                                &node->neighbors).edge_info;
                         hvr_vertex_cache_node_t *cached_neighbor =
                             hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
                                     &ctx->vec_cache);
@@ -1161,6 +1163,8 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
                         }
                     }
                 } else {
+                    node->n_neighbors = hvr_map_linearize(curr->id,
+                            &ctx->edges.map, &node->neighbors);
                     node->min_dist_from_local_vertex = UINT_MAX;
                     node->tmp = NULL;
                 }
@@ -1176,13 +1180,13 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
             hvr_vertex_cache_node_t *next_q = q->tmp;
             q->min_dist_from_local_vertex = l;
 
-            hvr_map_val_list_t neighbors;
-            int n_neighbors = hvr_map_linearize(q->vert.id, &ctx->edges.map,
-                    &neighbors);
+            // hvr_map_val_list_t neighbors;
+            // int n_neighbors = hvr_map_linearize(q->vert.id, &ctx->edges.map,
+            //         &neighbors);
 
-            for (int n = 0; n < n_neighbors; n++) {
+            for (int n = 0; n < q->n_neighbors; n++) {
                 hvr_edge_info_t edge_info = hvr_map_val_list_get(n,
-                        &neighbors).edge_info;
+                        &q->neighbors).edge_info;
                 hvr_vertex_cache_node_t *cached_neighbor =
                     hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
                             &ctx->vec_cache);

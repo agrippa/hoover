@@ -33,15 +33,18 @@ static inline hvr_map_val_t hvr_map_val_list_get(const unsigned i,
     }
 }
 
+typedef struct _hvr_map_entry_t {
+    hvr_vertex_id_t key;
+    hvr_map_val_t inline_vals[HVR_MAP_N_INLINE_VALS];
+    hvr_map_val_t *ext_vals;
+    unsigned ext_capacity;
+    unsigned length;
+} hvr_map_entry_t;
+
 typedef struct _hvr_map_seg_t {
     hvr_vertex_id_t keys[HVR_MAP_SEG_SIZE];
-    hvr_map_val_t inline_vals[HVR_MAP_SEG_SIZE][HVR_MAP_N_INLINE_VALS];
-    hvr_map_val_t *ext_vals[HVR_MAP_SEG_SIZE];
+    hvr_map_entry_t data[HVR_MAP_SEG_SIZE];
 
-    // Allocated capacity of each key's values array
-    unsigned ext_capacity[HVR_MAP_SEG_SIZE];
-    // Actual length of each values array
-    unsigned length[HVR_MAP_SEG_SIZE];
     // Number of keys in this map segment
     unsigned nkeys;
 

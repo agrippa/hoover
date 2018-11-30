@@ -5,21 +5,45 @@
 #define HVR_MAP_BUCKET(my_key) ((my_key) % HVR_MAP_BUCKETS)
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
+static int comp(const void *_a, const void *_b) {
+    return ((hvr_map_entry_t *)_a)->key - ((hvr_map_entry_t *)_b)->key;
+}
+
 // Add a new key with one initial value
 static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_map_val_t val,
         hvr_map_seg_t *s, unsigned init_val_capacity) {
     const unsigned insert_index = s->nkeys;
     assert(insert_index < HVR_MAP_SEG_SIZE);
+    s->data[insert_index].key = key;
     s->keys[insert_index] = key;
 
     assert(HVR_MAP_N_INLINE_VALS > 0);
 
-    s->inline_vals[insert_index][0] = val;
-    s->ext_vals[insert_index] = NULL;
-    s->ext_capacity[insert_index] = 0;
-    s->length[insert_index] = 1;
+    s->data[insert_index].inline_vals[0] = val;
+    s->data[insert_index].ext_vals = NULL;
+    s->data[insert_index].ext_capacity = 0;
+    s->data[insert_index].length = 1;
 
     s->nkeys++;
+
+    if (s->nkeys == HVR_MAP_SEG_SIZE) {
+        qsort(&(s->data[0]), HVR_MAP_SEG_SIZE, sizeof(s->data[0]), comp);
+        for (unsigned i = 0; i < HVR_MAP_SEG_SIZE; i++) {
+            s->keys[i] = s->data[i].key;
+        }
+    }
+}
+
+static inline int binarySearch(hvr_vertex_id_t *keys, int low, int high,
+        hvr_vertex_id_t key) { 
+    if (high < low) 
+        return -1; 
+    int mid = (low + high) / 2;  /*low + (high - low)/2;*/
+    if (key == keys[mid]) 
+        return mid; 
+    if (key > keys[mid]) 
+        return binarySearch(keys, (mid + 1), high, key); 
+    return binarySearch(keys, low, (mid -1), key); 
 }
 
 static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
@@ -29,12 +53,20 @@ static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
     hvr_map_seg_t *seg = m->buckets[bucket];
     while (seg) {
         const unsigned nkeys = seg->nkeys;
-        hvr_vertex_id_t *keys = &(seg->keys[0]);
-        for (unsigned i = 0; i < nkeys; i++) {
-            if (keys[i] == key) {
+        if (nkeys == HVR_MAP_SEG_SIZE) {
+            int index = binarySearch(seg->keys, 0, HVR_MAP_SEG_SIZE, key);
+            if (index >= 0) {
                 *out_seg = seg;
-                *out_index = i;
+                *out_index = index;
                 return 1;
+            }
+        } else {
+            for (unsigned i = 0; i < nkeys; i++) {
+                if (seg->keys[i] == key) {
+                    *out_seg = seg;
+                    *out_index = i;
+                    return 1;
+                }
             }
         }
         seg = seg->next;
@@ -58,9 +90,9 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
     if (success) {
         // Key already exists, add it to existing values
         unsigned i = 0;
-        unsigned nvals = seg->length[seg_index];
-        hvr_map_val_t *inline_vals = &(seg->inline_vals[seg_index][0]);
-        hvr_map_val_t *ext_vals = seg->ext_vals[seg_index];
+        unsigned nvals = seg->data[seg_index].length;
+        hvr_map_val_t *inline_vals = &(seg->data[seg_index].inline_vals[0]);
+        hvr_map_val_t *ext_vals = seg->data[seg_index].ext_vals;
 
         /*
          * Check if this value is already present for the given key, and if so
@@ -126,20 +158,20 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
             inline_vals[nvals] = to_insert;
         } else {
             // Must insert into extended values
-            if (nvals - HVR_MAP_N_INLINE_VALS == seg->ext_capacity[seg_index]) {
+            if (nvals - HVR_MAP_N_INLINE_VALS == seg->data[seg_index].ext_capacity) {
                 // Need to resize
-                unsigned curr_capacity = seg->ext_capacity[seg_index];
+                unsigned curr_capacity = seg->data[seg_index].ext_capacity;
                 unsigned new_capacity = (curr_capacity == 0 ?
                         m->init_val_capacity : 2 * curr_capacity);
-                seg->ext_vals[seg_index] = (hvr_map_val_t *)realloc(ext_vals,
+                seg->data[seg_index].ext_vals = (hvr_map_val_t *)realloc(ext_vals,
                         new_capacity * sizeof(hvr_map_val_t));
-                assert(seg->ext_vals[seg_index]);
-                seg->ext_capacity[seg_index] = new_capacity;
+                assert(seg->data[seg_index].ext_vals);
+                seg->data[seg_index].ext_capacity = new_capacity;
             }
-            seg->ext_vals[seg_index][nvals - HVR_MAP_N_INLINE_VALS] = to_insert;
+            seg->data[seg_index].ext_vals[nvals - HVR_MAP_N_INLINE_VALS] = to_insert;
         }
 
-        seg->length[seg_index] += 1;
+        seg->data[seg_index].length += 1;
     } else {
         const unsigned bucket = HVR_MAP_BUCKET(key);
 
@@ -185,9 +217,9 @@ void hvr_map_remove(hvr_vertex_id_t key, hvr_map_val_t val,
     const int success = hvr_map_find(key, m, &seg, &seg_index);
 
     if (success) {
-        const unsigned nvals = seg->length[seg_index];
-        hvr_map_val_t *inline_vals = &(seg->inline_vals[seg_index][0]);
-        hvr_map_val_t *ext_vals = seg->ext_vals[seg_index];
+        const unsigned nvals = seg->data[seg_index].length;
+        hvr_map_val_t *inline_vals = &(seg->data[seg_index].inline_vals[0]);
+        hvr_map_val_t *ext_vals = seg->data[seg_index].ext_vals;
         unsigned j = 0;
         int found = 0;
 
@@ -267,7 +299,7 @@ void hvr_map_remove(hvr_vertex_id_t key, hvr_map_val_t val,
             }
 
             *copy_to = *copy_from;
-            seg->length[seg_index] = nvals - 1;
+            seg->data[seg_index].length = nvals - 1;
         }
     }
 }
@@ -282,9 +314,9 @@ hvr_edge_type_t hvr_map_contains(hvr_vertex_id_t key,
     const int success = hvr_map_find(key, m, &seg, &seg_index);
 
     if (success) {
-        const unsigned nvals = seg->length[seg_index];
-        hvr_map_val_t *inline_vals = &(seg->inline_vals[seg_index][0]);
-        hvr_map_val_t *ext_vals = seg->ext_vals[seg_index];
+        unsigned nvals = seg->data[seg_index].length;
+        hvr_map_val_t *inline_vals = &(seg->data[seg_index].inline_vals[0]);
+        hvr_map_val_t *ext_vals = seg->data[seg_index].ext_vals;
         unsigned j = 0;
         while (j < MIN(HVR_MAP_N_INLINE_VALS, nvals)) {
             if (EDGE_INFO_VERTEX(inline_vals[j].edge_info) == val) {
@@ -310,10 +342,10 @@ int hvr_map_linearize(hvr_vertex_id_t key, hvr_map_t *m,
     const int success = hvr_map_find(key, m, &seg, &seg_index);
 
     if (success) {
-        out_vals->inline_vals = &(seg->inline_vals[seg_index][0]);
-        out_vals->ext_vals = seg->ext_vals[seg_index];
+        out_vals->inline_vals = &(seg->data[seg_index].inline_vals[0]);
+        out_vals->ext_vals = seg->data[seg_index].ext_vals;
 
-        return seg->length[seg_index];
+        return seg->data[seg_index].length;
     } else {
         return -1;
     }
@@ -339,7 +371,7 @@ size_t hvr_map_count_values(hvr_vertex_id_t key, hvr_map_t *m) {
     const int success = hvr_map_find(key, m, &seg, &seg_index);
 
     if (success) {
-        return seg->length[seg_index];
+        return seg->data[seg_index].length;
     } else {
         return 0;
     }
@@ -360,14 +392,14 @@ void hvr_map_size_in_bytes(hvr_map_t *m, size_t *out_capacity,
             used += sizeof(*bucket);
 
             for (unsigned v = 0; v < HVR_MAP_SEG_SIZE; v++) {
-                capacity += (HVR_MAP_N_INLINE_VALS + bucket->ext_capacity[v]) *
+                capacity += (HVR_MAP_N_INLINE_VALS + bucket->data[v].ext_capacity) *
                     sizeof(hvr_map_val_t);
-                used += bucket->length[v] * sizeof(hvr_map_val_t);
+                used += bucket->data[v].length * sizeof(hvr_map_val_t);
 
-                if (bucket->length[v] > 0) {
+                if (bucket->data[v].length > 0) {
                     sum_val_capacity += HVR_MAP_N_INLINE_VALS +
-                        bucket->ext_capacity[v];
-                    sum_val_length += bucket->length[v];
+                        bucket->data[v].ext_capacity;
+                    sum_val_length += bucket->data[v].length;
                     count_vals++;
                 }
             }
