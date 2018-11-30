@@ -274,7 +274,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
                 hvr_vertex_cache_node_t *node = seg->data[j].inline_vals[0].cached_vert;
                 update_vertex_partitions_for_vertex(&node->vert, ctx,
                         ctx->mirror_partition_lists,
-                        get_dist_from_local_vert(node, &ctx->vec_cache));
+                        get_dist_from_local_vert(node, &ctx->vec_cache, ctx->pe));
             }
             seg = seg->next;
         }
@@ -1185,7 +1185,7 @@ static hvr_vertex_cache_node_t *add_neighbors_to_q(
                     &ctx->vec_cache);
         assert(cached_neighbor);
 
-        if (get_dist_from_local_vert(cached_neighbor, &ctx->vec_cache) ==
+        if (get_dist_from_local_vert(cached_neighbor, &ctx->vec_cache, ctx->pe) ==
                 UINT8_MAX) {
             set_dist_from_local_vert(cached_neighbor, UINT8_MAX - 1,
                     &ctx->vec_cache);

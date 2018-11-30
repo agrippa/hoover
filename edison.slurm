@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:04:00
+#SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -51,7 +51,7 @@ if [[ $SLURM_NNODES -eq 1 ]]; then
     export CELL_DIM=4000.0
     # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 1024))
     # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 512))
-    export ACTORS_PER_CELL=5000
+    export ACTORS_PER_CELL=4000
     export PE_ROWS=4
     export PE_COLS=6
 elif [[ $SLURM_NNODES -eq 4 ]]; then
@@ -96,14 +96,14 @@ fi
 export N_PORTALS=0
 export N_INFECTED=1
 export MAX_NUM_TIMESTEPS=200
-export INFECTION_RADIUS=300
+export INFECTION_RADIUS=400
 
 export HVR_SYMM_POOL_SIZE=1024000
 export HVR_VEC_CACHE_PREALLOCS=1600000
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1
-# export HVR_DISABLE_PROFILING_PRINTS=1
+export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
 # export HVR_HANG_ABORT=120
 

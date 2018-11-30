@@ -89,9 +89,9 @@ static inline void set_dist_from_local_vert(hvr_vertex_cache_node_t *node,
 }
 
 static inline uint8_t get_dist_from_local_vert(hvr_vertex_cache_node_t *node,
-        hvr_vertex_cache_t *cache) {
+        hvr_vertex_cache_t *cache, int pe) {
     size_t offset = node - cache->pool_mem;
-    if (VERTEX_ID_PE(node->vert.id) == shmem_my_pe()) {
+    if (VERTEX_ID_PE(node->vert.id) == pe) {
         return 0;
     } else {
         return cache->dist_from_local_vert[offset];
