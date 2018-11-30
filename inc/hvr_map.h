@@ -22,12 +22,7 @@ typedef union _hvr_map_val_t {
 typedef struct _hvr_map_val_list_t {
     hvr_map_val_t *inline_vals;
     hvr_map_val_t *ext_vals;
-    int nvals;
 } hvr_map_val_list_t;
-
-static inline int hvr_map_val_list_nvals(hvr_map_val_list_t *l) {
-    return l->nvals;
-}
 
 static inline hvr_map_val_t hvr_map_val_list_get(const unsigned i,
         hvr_map_val_list_t *l) {
@@ -73,8 +68,8 @@ extern void hvr_map_remove(hvr_vertex_id_t key, hvr_map_val_t val,
 extern hvr_edge_type_t hvr_map_contains(hvr_vertex_id_t key,
         hvr_vertex_id_t val, hvr_map_t *m);
 
-extern int hvr_map_linearize(hvr_vertex_id_t key,
-        hvr_map_val_t **vals, unsigned *capacity, hvr_map_t *m);
+extern int hvr_map_linearize(hvr_vertex_id_t key, hvr_map_t *m,
+        hvr_map_val_list_t *out_vals);
 
 extern void hvr_map_clear(hvr_map_t *m);
 

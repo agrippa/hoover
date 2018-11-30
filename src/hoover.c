@@ -1147,7 +1147,7 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
 
                     for (int n = 0; n < n_neighbors; n++) {
                         hvr_edge_info_t edge_info = hvr_map_val_list_get(n,
-                                &neighbors);
+                                &neighbors).edge_info;
                         hvr_vertex_cache_node_t *cached_neighbor =
                             hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
                                     &ctx->vec_cache);

@@ -17,8 +17,8 @@ static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_map_val_t val,
     s->inline_vals[insert_index][0] = val;
     s->ext_vals[insert_index] = NULL;
     s->ext_capacity[insert_index] = 0;
-
     s->length[insert_index] = 1;
+
     s->nkeys++;
 }
 
@@ -28,8 +28,10 @@ static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
 
     hvr_map_seg_t *seg = m->buckets[bucket];
     while (seg) {
-        for (unsigned i = 0; i < seg->nkeys; i++) {
-            if (seg->keys[i] == key) {
+        const unsigned nkeys = seg->nkeys;
+        hvr_vertex_id_t *keys = &(seg->keys[0]);
+        for (unsigned i = 0; i < nkeys; i++) {
+            if (keys[i] == key) {
                 *out_seg = seg;
                 *out_index = i;
                 return 1;
@@ -67,7 +69,8 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
         switch (m->type) {
             case (EDGE_INFO):
                 while (i < nvals && i < HVR_MAP_N_INLINE_VALS) {
-                    if (EDGE_INFO_VERTEX(inline_vals[i].edge_info) == EDGE_INFO_VERTEX(to_insert.edge_info)) {
+                    if (EDGE_INFO_VERTEX(inline_vals[i].edge_info) ==
+                            EDGE_INFO_VERTEX(to_insert.edge_info)) {
                         assert(EDGE_INFO_EDGE(inline_vals[i].edge_info) ==
                                 EDGE_INFO_EDGE(to_insert.edge_info));
                         return;
@@ -159,6 +162,7 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
                 hvr_map_seg_t *new_seg = (hvr_map_seg_t *)calloc(1,
                         sizeof(*new_seg));
                 assert(new_seg);
+
                 hvr_map_seg_add(key, to_insert, new_seg, m->init_val_capacity);
                 assert(last_seg_in_bucket->next == NULL);
                 last_seg_in_bucket->next = new_seg;
@@ -191,7 +195,8 @@ void hvr_map_remove(hvr_vertex_id_t key, hvr_map_val_t val,
         switch (m->type) {
             case (EDGE_INFO):
                 while (!found && j < HVR_MAP_N_INLINE_VALS && j < nvals) {
-                    if (EDGE_INFO_VERTEX(inline_vals[j].edge_info) == EDGE_INFO_VERTEX(val.edge_info)) {
+                    if (EDGE_INFO_VERTEX(inline_vals[j].edge_info) ==
+                            EDGE_INFO_VERTEX(val.edge_info)) {
                         found = 1;
                     } else {
                         j++;
@@ -305,15 +310,10 @@ int hvr_map_linearize(hvr_vertex_id_t key, hvr_map_t *m,
     const int success = hvr_map_find(key, m, &seg, &seg_index);
 
     if (success) {
-        const unsigned nvals = seg->length[seg_index];
-        hvr_map_val_t *inline_vals = &(seg->inline_vals[seg_index][0]);
-        hvr_map_val_t *ext_vals = seg->ext_vals[seg_index];
+        out_vals->inline_vals = &(seg->inline_vals[seg_index][0]);
+        out_vals->ext_vals = seg->ext_vals[seg_index];
 
-        out_vals->inline_vals = inline_vals;
-        out_vals->ext_vals = ext_vals;
-        out_vals->nvals = nvals;
-
-        return nvals;
+        return seg->length[seg_index];
     } else {
         return -1;
     }

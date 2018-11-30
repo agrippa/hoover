@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:04:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
