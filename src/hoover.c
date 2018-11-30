@@ -859,15 +859,15 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
 }
 
 // The only place where edges between vertices are created/deleted
-static void update_edge_info(hvr_vertex_t *base, hvr_vertex_t *neighbor,
+static void update_edge_info(hvr_vertex_id_t base, hvr_vertex_id_t neighbor,
         hvr_edge_type_t new_edge, hvr_edge_type_t existing_edge,
         hvr_internal_ctx_t *ctx) {
     assert(new_edge != existing_edge);
 
     if (existing_edge != NO_EDGE) {
-        hvr_remove_edge(base->id, neighbor->id, &ctx->edges);
-        if (base->id != neighbor->id) {
-            hvr_remove_edge(neighbor->id, base->id, &ctx->edges);
+        hvr_remove_edge(base, neighbor, &ctx->edges);
+        if (base != neighbor) {
+            hvr_remove_edge(neighbor, base, &ctx->edges);
         }
     }
 
@@ -877,8 +877,8 @@ static void update_edge_info(hvr_vertex_t *base, hvr_vertex_t *neighbor,
          * edge, but allows us to make more assertions that are helpful for
          * debugging.
          */
-        hvr_add_edge(base->id, neighbor->id, new_edge, &ctx->edges);
-        hvr_add_edge(neighbor->id, base->id, flip_edge_direction(new_edge),
+        hvr_add_edge(base, neighbor, new_edge, &ctx->edges);
+        hvr_add_edge(neighbor, base, flip_edge_direction(new_edge),
                 &ctx->edges);
     }
 
@@ -886,15 +886,15 @@ static void update_edge_info(hvr_vertex_t *base, hvr_vertex_t *neighbor,
      * Only needs updating if this is an edge inbound in a given vertex (either
      * directed in or bidirectional).
      */
-    if (VERTEX_ID_PE(base->id) == ctx->pe && new_edge != NO_EDGE &&
+    if (VERTEX_ID_PE(base) == ctx->pe && new_edge != NO_EDGE &&
             new_edge != DIRECTED_OUT) {
-        hvr_vertex_t *local = ctx->pool->pool + VERTEX_ID_OFFSET(base->id);
+        hvr_vertex_t *local = ctx->pool->pool + VERTEX_ID_OFFSET(base);
         local->needs_processing = 1;
     }
 
-    if (VERTEX_ID_PE(neighbor->id) == ctx->pe && new_edge != NO_EDGE &&
+    if (VERTEX_ID_PE(neighbor) == ctx->pe && new_edge != NO_EDGE &&
             flip_edge_direction(new_edge) != DIRECTED_OUT) {
-        hvr_vertex_t *local = ctx->pool->pool + VERTEX_ID_OFFSET(neighbor->id);
+        hvr_vertex_t *local = ctx->pool->pool + VERTEX_ID_OFFSET(neighbor);
         local->needs_processing = 1;
     }
 }
@@ -905,7 +905,7 @@ static int create_new_edges_helper(hvr_vertex_t *vert,
     if (edge == NO_EDGE) {
         return 0;
     } else {
-        update_edge_info(vert, updated_vert, edge, NO_EDGE, ctx);
+        update_edge_info(vert->id, updated_vert->id, edge, NO_EDGE, ctx);
         return 1;
     }
 }
@@ -943,6 +943,8 @@ static void create_new_edges(hvr_vertex_t *updated,
  */
 static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
         hvr_internal_ctx_t *ctx) {
+    static hvr_edge_info_t *edges_to_delete = NULL;
+    static unsigned edges_to_delete_capacity = 0;
 
     // If we were caching this node, delete the mirrored version
     if (hvr_vertex_cache_lookup(dead_vert->id, &ctx->vec_cache)) {
@@ -951,15 +953,25 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
         int n_neighbors = hvr_map_linearize(dead_vert->id, &neighbors,
                 &capacity, &ctx->edges.map);
 
-        for (int n = 0; n < n_neighbors; n++) {
-            hvr_vertex_cache_node_t *cached_neighbor =
-                hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(neighbors[n].edge_info),
-                        &ctx->vec_cache);
-            assert(cached_neighbor);
-            hvr_vertex_t *neighbor = &(cached_neighbor->vert);
+        if (n_neighbors > 0 && edges_to_delete_capacity < n_neighbors) {
+            edges_to_delete = (hvr_vertex_id_t *)realloc(edges_to_delete,
+                    n_neighbors * sizeof(*edges_to_delete));
+            assert(edges_to_delete);
+            edges_to_delete_capacity = n_neighbors;
+        }
 
-            update_edge_info(dead_vert, neighbor, NO_EDGE,
-                    EDGE_INFO_EDGE(neighbors[n].edge_info), ctx);
+        /*
+         * Have to do this in two stages to avoid concurrently modifying the
+         * neighbor list while iterating over it.
+         */
+        for (int n = 0; n < n_neighbors; n++) {
+            edges_to_delete[n] = neighbors[n].edge_info;
+        }
+
+        for (int n = 0; n < n_neighbors; n++) {
+            update_edge_info(dead_vert->id,
+                    EDGE_INFO_VERTEX(edges_to_delete[n]), NO_EDGE,
+                    EDGE_INFO_EDGE(edges_to_delete[n]), ctx);
         }
         free(neighbors);
 
@@ -976,6 +988,10 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         hvr_map_val_t **neighbors,
         unsigned *capacity,
         hvr_internal_ctx_t *ctx) {
+    static hvr_edge_info_t *edges_to_update = NULL;
+    static hvr_edge_type_t *new_edge_type = NULL;
+    static unsigned edges_to_update_capacity = 0;
+
     hvr_partition_t partition = wrap_actor_to_partition(new_vert, ctx);
     hvr_vertex_id_t updated_vert_id = new_vert->id;
 
@@ -1006,6 +1022,16 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         int n_neighbors = hvr_map_linearize(updated_vert_id, neighbors,
                 capacity, &ctx->edges.map);
 
+        if (n_neighbors > 0 && edges_to_update_capacity < n_neighbors) {
+            edges_to_update = (hvr_edge_info_t *)realloc(edges_to_update,
+                    n_neighbors * sizeof(*edges_to_update));
+            assert(edges_to_update);
+            new_edge_type = (hvr_edge_type_t *)realloc(new_edge_type,
+                    n_neighbors * sizeof(*new_edge_type));
+            edges_to_update_capacity = n_neighbors;
+        }
+
+        unsigned edges_to_update_len = 0;
         for (int n = 0; n < n_neighbors; n++) {
             hvr_vertex_cache_node_t *cached_neighbor =
                 hvr_vertex_cache_lookup(EDGE_INFO_VERTEX((*neighbors)[n].edge_info),
@@ -1018,9 +1044,17 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
                     &updated->vert, neighbor, ctx);
             int changed = (edge != EDGE_INFO_EDGE((*neighbors)[n].edge_info));
             if (changed) {
-                update_edge_info(&updated->vert, neighbor, edge,
-                        EDGE_INFO_EDGE((*neighbors)[n].edge_info), ctx);
+                edges_to_update[edges_to_update_len] =
+                    (*neighbors)[n].edge_info;
+                new_edge_type[edges_to_update_len++] = edge;
             }
+        }
+
+        for (unsigned i = 0; i < edges_to_update_len; i++) {
+            update_edge_info(updated->vert.id,
+                    EDGE_INFO_VERTEX(edges_to_update[i]),
+                    new_edge_type[i],
+                    EDGE_INFO_EDGE(edges_to_update[i]), ctx);
         }
 
         const unsigned long long done_updating_edges = hvr_current_time_us();
