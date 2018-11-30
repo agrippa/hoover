@@ -10,7 +10,12 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
         hvr_partition_t npartitions) {
     memset(cache, 0x00, sizeof(*cache));
 
-    hvr_map_init(&cache->cache_map, 1024, 1, CACHED_VERT_INFO);
+    unsigned prealloc_segs = 768;
+    if (getenv("HVR_VERT_CACHE_SEGS")) {
+        prealloc_segs = atoi(getenv("HVR_VERT_CACHE_SEGS"));
+    }
+
+    hvr_map_init(&cache->cache_map, prealloc_segs, 1, CACHED_VERT_INFO);
 
     cache->partitions = (hvr_vertex_cache_node_t **)malloc(
             npartitions * sizeof(hvr_vertex_cache_node_t *));

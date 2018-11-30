@@ -171,8 +171,8 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
                 unsigned curr_capacity = seg->data[seg_index].ext_capacity;
                 unsigned new_capacity = (curr_capacity == 0 ?
                         m->init_val_capacity : 2 * curr_capacity);
-                seg->data[seg_index].ext_vals = (hvr_map_val_t *)realloc(ext_vals,
-                        new_capacity * sizeof(hvr_map_val_t));
+                seg->data[seg_index].ext_vals = (hvr_map_val_t *)realloc(
+                        ext_vals, new_capacity * sizeof(hvr_map_val_t));
                 assert(seg->data[seg_index].ext_vals);
                 seg->data[seg_index].ext_capacity = new_capacity;
             }
