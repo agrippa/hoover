@@ -1228,31 +1228,31 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
         q = newq;
     }
 
-    unsigned to_delete = 0;
-    unsigned zero_dist_verts = 0;
-    unsigned one_dist_verts = 0;
-    for (unsigned i = 0; i < HVR_MAP_BUCKETS; i++) {
-        hvr_map_seg_t *seg = ctx->vec_cache.cache_map.buckets[i];
-        while (seg) {
-            for (unsigned j = 0; j < seg->nkeys; j++) {
-                hvr_vertex_cache_node_t *node =
-                    seg->data[j].inline_vals[0].cached_vert;
-                uint8_t dist = get_dist_from_local_vert(node, &ctx->vec_cache,
-                        ctx->pe);
-                if (dist > ctx->max_graph_traverse_depth) {
-                    to_delete++;
-                } else if (dist == 0) {
-                    zero_dist_verts++;
-                } else if (dist == 1) {
-                    one_dist_verts++;
-                }
-            }
-            seg = seg->next;
-        }
-    }
-    fprintf(stderr, "PE %d Want to delete %u / %lu : 0-dist=%u 1-dist=%u\n",
-            shmem_my_pe(), to_delete, ctx->vec_cache.n_cached_vertices,
-            zero_dist_verts, one_dist_verts);
+    // unsigned to_delete = 0;
+    // unsigned zero_dist_verts = 0;
+    // unsigned one_dist_verts = 0;
+    // for (unsigned i = 0; i < HVR_MAP_BUCKETS; i++) {
+    //     hvr_map_seg_t *seg = ctx->vec_cache.cache_map.buckets[i];
+    //     while (seg) {
+    //         for (unsigned j = 0; j < seg->nkeys; j++) {
+    //             hvr_vertex_cache_node_t *node =
+    //                 seg->data[j].inline_vals[0].cached_vert;
+    //             uint8_t dist = get_dist_from_local_vert(node, &ctx->vec_cache,
+    //                     ctx->pe);
+    //             if (dist > ctx->max_graph_traverse_depth) {
+    //                 to_delete++;
+    //             } else if (dist == 0) {
+    //                 zero_dist_verts++;
+    //             } else if (dist == 1) {
+    //                 one_dist_verts++;
+    //             }
+    //         }
+    //         seg = seg->next;
+    //     }
+    // }
+    // fprintf(stderr, "PE %d Want to delete %u / %lu : 0-dist=%u 1-dist=%u\n",
+    //         shmem_my_pe(), to_delete, ctx->vec_cache.n_cached_vertices,
+    //         zero_dist_verts, one_dist_verts);
 }
 
 void hvr_get_neighbors(hvr_vertex_t *vert, hvr_edge_info_t **out_neighbors,

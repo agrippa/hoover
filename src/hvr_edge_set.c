@@ -4,7 +4,7 @@
 #include "hvr_edge_set.h"
 
 void hvr_edge_set_init(hvr_edge_set_t *e) {
-    hvr_map_init(&e->map, 8, EDGE_INFO);
+    hvr_map_init(&e->map, 1024, 8, EDGE_INFO);
 }
 
 /*

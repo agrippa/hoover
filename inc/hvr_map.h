@@ -57,10 +57,12 @@ typedef struct _hvr_map_t {
     hvr_map_seg_t *bucket_tails[HVR_MAP_BUCKETS];
     hvr_map_type_t type;
     unsigned init_val_capacity;
+
+    hvr_map_seg_t *pool;
 } hvr_map_t;
 
-extern void hvr_map_init(hvr_map_t *m, unsigned init_val_capacity,
-        hvr_map_type_t type);
+extern void hvr_map_init(hvr_map_t *m, unsigned n_segs,
+        unsigned init_val_capacity, hvr_map_type_t type);
 
 extern void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
         hvr_map_t *m);
