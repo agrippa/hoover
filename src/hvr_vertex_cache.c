@@ -99,13 +99,9 @@ static void linked_list_remove_helper(hvr_vertex_cache_node_t *to_remove,
     }
 }
 
-void hvr_vertex_cache_remove_from_local_neighbor_list(hvr_vertex_id_t vert,
-        hvr_vertex_cache_t *cache) {
-    hvr_vertex_cache_node_t *node = hvr_vertex_cache_lookup(neighbor,
-            &ctx->vec_cache);
-    assert(node);
-
-    if (local_neighbor_list_contains(node)) {
+void hvr_vertex_cache_remove_from_local_neighbor_list(
+        hvr_vertex_cache_node_t *node, hvr_vertex_cache_t *cache) {
+    if (local_neighbor_list_contains(node, cache)) {
         linked_list_remove_helper(node, node->local_neighbors_prev,
                 node->local_neighbors_next,
                 node->local_neighbors_prev ?
@@ -116,18 +112,16 @@ void hvr_vertex_cache_remove_from_local_neighbor_list(hvr_vertex_id_t vert,
     }
 }
 
-void hvr_vertex_cache_add_to_local_neighbor_list(hvr_vertex_id_t id,
-        hvr_internal_ctx_t *ctx) {
-    hvr_vertex_cache_node_t *node = hvr_vertex_cache_lookup(id,
-            &ctx->vec_cache);
-    assert(node);
-    if (!local_neighbor_list_contains(node)) {
-        ctx->vec_cache.local_neighbors_head->local_neighbors_prev = node;
-        node->local_neighbors_next = ctx->vec_cache.local_neighbors_head;
-        ctx->vec_cache.local_neighbors_head = node;
+void hvr_vertex_cache_add_to_local_neighbor_list(hvr_vertex_cache_node_t *node,
+        hvr_vertex_cache_t *cache) {
+    if (!local_neighbor_list_contains(node, cache)) {
+        if (cache->local_neighbors_head) {
+            cache->local_neighbors_head->local_neighbors_prev = node;
+        }
+        node->local_neighbors_next = cache->local_neighbors_head;
+        cache->local_neighbors_head = node;
     }
 }
-
 
 void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
     hvr_vertex_cache_node_t *node = hvr_vertex_cache_lookup(vert->id, cache);
@@ -143,7 +137,7 @@ void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
             &(cache->partitions[node->part]));
 
     // Remove from local neighbors list if it is present
-    if (local_neighbor_list_contains(node)) {
+    if (local_neighbor_list_contains(node, cache)) {
         linked_list_remove_helper(node, node->local_neighbors_prev,
                 node->local_neighbors_next,
                 node->local_neighbors_prev ?

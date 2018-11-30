@@ -1,6 +1,8 @@
 #ifndef _HVR_VERTEX_CACHE_H
 #define _HVR_VERTEX_CACHE_H
 
+#include <shmem.h>
+
 #include "hvr_vertex.h"
 #include "hvr_map.h"
 
@@ -96,15 +98,17 @@ static inline uint8_t get_dist_from_local_vert(hvr_vertex_cache_node_t *node,
     }
 }
 
-static inline int local_neighbor_list_contains(hvr_vertex_cache_node_t *node) {
-    return node->local_neighbors_next || node->local_neighbors_prev;
+static inline int local_neighbor_list_contains(hvr_vertex_cache_node_t *node,
+        hvr_vertex_cache_t *cache) {
+    return node->local_neighbors_next || node->local_neighbors_prev ||
+        cache->local_neighbors_head == node;
 }
 
 extern void hvr_vertex_cache_remove_from_local_neighbor_list(
-        hvr_vertex_id_t vert, hvr_vertex_cache_t *cache);
+        hvr_vertex_cache_node_t *node, hvr_vertex_cache_t *cache);
 
-extern void hvr_vertex_cache_add_to_local_neighbor_list(hvr_vertex_id_t id,
-        hvr_internal_ctx_t *ctx);
+extern void hvr_vertex_cache_add_to_local_neighbor_list(
+        hvr_vertex_cache_node_t *node, hvr_vertex_cache_t *cache);
 
 /*
  * Initializes an already allocated block of memory to store a vertex cache.
