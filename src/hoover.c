@@ -372,7 +372,6 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
             unsigned n_interacting;
             ctx->might_interact(p, interacting, &n_interacting,
                     MAX_INTERACTING_PARTITIONS, ctx);
-            // might_interact_wrapper(p, interacting, &n_interacting, ctx);
 
             /*
              * Mark any partitions which this locally active partition might
