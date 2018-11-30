@@ -223,7 +223,7 @@ static hvr_partition_t wrap_actor_to_partition(hvr_vertex_t *vec,
 
 static void update_vertex_partitions_for_vertex(hvr_vertex_t *curr,
         hvr_internal_ctx_t *ctx, hvr_vertex_t **partition_lists,
-        unsigned dist_from_local_vertex) {
+        uint8_t dist_from_local_vert) {
     assert(curr->id != HVR_INVALID_VERTEX_ID);
     hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
 
@@ -236,10 +236,10 @@ static void update_vertex_partitions_for_vertex(hvr_vertex_t *curr,
         partition_lists[partition] = curr;
     }
 
-    if (dist_from_local_vertex <
+    if (dist_from_local_vert <
             ctx->partition_min_dist_from_local_vertex[partition]) {
-        ctx->partition_min_dist_from_local_vertex[partition] =
-            dist_from_local_vertex;
+        ctx->partition_min_dist_from_local_vert[partition] =
+            dist_from_local_vert;
     }
 }
 
@@ -274,7 +274,7 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
                 hvr_vertex_cache_node_t *node = seg->data[j].inline_vals[0].cached_vert;
                 update_vertex_partitions_for_vertex(&node->vert, ctx,
                         ctx->mirror_partition_lists,
-                        node->min_dist_from_local_vertex);
+                        get_dist_from_local_vert(node, &ctx->vec_cache));
             }
             seg = seg->next;
         }
@@ -566,6 +566,8 @@ void hvr_init(const hvr_partition_t n_partitions,
         unsigned long long max_elapsed_seconds,
         unsigned max_graph_traverse_depth,
         hvr_ctx_t in_ctx) {
+    assert(max_graph_traverse_depth < UINT8_MAX);
+
     hvr_internal_ctx_t *new_ctx = (hvr_internal_ctx_t *)in_ctx;
 
     assert(new_ctx->initialized == 0);
@@ -874,6 +876,29 @@ static void update_edge_info(hvr_vertex_id_t base, hvr_vertex_id_t neighbor,
         hvr_add_edge(base, neighbor, new_edge, &ctx->edges);
         hvr_add_edge(neighbor, base, flip_edge_direction(new_edge),
                 &ctx->edges);
+
+    }
+
+    /*
+     * If this edge update involves one local vertex and one remote, the
+     * remote may require a change in local neighbor list membership (either
+     * addition or deletion).
+     */
+    if (VERTEX_ID_PE(base) != VERTEX_ID_PE(neighbor) &&
+            (VERTEX_ID_PE(base) == ctx->pe ||
+             VERTEX_ID_PE(neighbor) == ctx->pe)) {
+        hvr_vertex_id_t remote = (VERTEX_ID_PE(base) == ctx->pe ? neighbor :
+                base);
+        if (local_neighbor_list_contains(remote) &&
+                !is_local_neighbor(remote, ctx)) {
+            // Remove
+            hvr_vertex_cache_remove_from_local_neighbor_list(remote,
+                    &ctx->vec_cache);
+        } else if (!local_neighbor_list_contains(remote) &&
+                is_local_neighbor(remote, ctx)) {
+            // Add
+            hvr_vertex_cache_add_to_local_neighbor_list(remote, &ctx->vec_cache);
+        }
     }
 
     /*
@@ -931,6 +956,22 @@ static void create_new_edges(hvr_vertex_t *updated,
     *count_new_should_have_edges += local_count_new_should_have_edges;
 }
 
+static int is_local_neighbor(hvr_vertex_id_t id, hvr_internal_ctx_t *ctx) {
+    hvr_map_val_list_t neighbors;
+    int n_neighbors = hvr_map_linearize(id, &ctx->edges.map,
+            &neighbors);
+
+    for (int n = 0; n < n_neighbors; n++) {
+        hvr_edge_info_t edge = hvr_map_val_list_get(n, &neighbors).edge_info;
+        hvr_vertex_id_t neighbor = EDGE_INFO_VERTEX(edge);
+        if (VERTEX_ID_PE(neighbor) == ctx->pe) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 /*
  * When a vertex is deleted, we simply need to remove all of its
  * edges with local vertices and remove it from the cache.
@@ -962,6 +1003,7 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
         }
 
         for (int n = 0; n < n_neighbors; n++) {
+            hvr_vertex_id_t neighbor = EDGE_INFO_VERTEX(edges_to_delete[n]);
             update_edge_info(dead_vert->id,
                     EDGE_INFO_VERTEX(edges_to_delete[n]), NO_EDGE,
                     EDGE_INFO_EDGE(edges_to_delete[n]), ctx);
@@ -1030,13 +1072,11 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
                 hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
                         &ctx->vec_cache);
             assert(cached_neighbor);
-            hvr_vertex_t *neighbor = &(cached_neighbor->vert);
 
             // Check this edge should still exist
             hvr_edge_type_t new_edge = ctx->should_have_edge(
-                    &updated->vert, neighbor, ctx);
-            int changed = (new_edge != EDGE_INFO_EDGE(edge_info));
-            if (changed) {
+                    &updated->vert, &(cached_neighbor->vert), ctx);
+            if (new_edge != EDGE_INFO_EDGE(edge_info)) {
                 edges_to_update[edges_to_update_len] = edge_info;
                 new_edge_type[edges_to_update_len++] = new_edge;
             }
@@ -1126,80 +1166,59 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
     return n_updates;
 }
 
+static hvr_vertex_cache_node_t *add_neighbors_to_q(
+        hvr_vertex_cache_node_t *node,
+        hvr_vertex_cache_node_t *newq,
+        hvr_internal_ctx_t *ctx) {
+    hvr_map_val_list_t neighbors;
+    int n_neighbors = hvr_map_linearize(node->vert.id, &ctx->edges.map,
+            &neighbors);
+
+    for (int n = 0; n < n_neighbors; n++) {
+        hvr_edge_info_t edge_info = hvr_map_val_list_get(n,
+                &neighbors).edge_info;
+        hvr_vertex_cache_node_t *cached_neighbor =
+            hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
+                    &ctx->vec_cache);
+        assert(cached_neighbor);
+
+        if (get_dist_from_local_vert(cached_neighbor, &ctx->vec_cache) ==
+                UINT8_MAX) {
+            set_dist_from_local_vert(cached_neighbor, UINT8_MAX - 1,
+                    &ctx->vec_cache);
+            cached_neighbor->tmp = newq;
+            newq = cached_neighbor;
+        }
+    }
+
+    node->tmp = NULL;
+    return newq;
+}
+
 static void update_distances(hvr_internal_ctx_t *ctx) {
-    hvr_vertex_cache_node_t *q = NULL;
     /*
      * Clear all distances of mirrored vertices to an invalid value before
      * recomputing
      */
-    for (unsigned i = 0; i < HVR_MAP_BUCKETS; i++) {
-        hvr_map_seg_t *seg = ctx->vec_cache.cache_map.buckets[i];
-        while (seg) {
-            for (unsigned j = 0; j < seg->nkeys; j++) {
-                hvr_vertex_cache_node_t *node = seg->data[j].inline_vals[0].cached_vert;
-                hvr_vertex_t *curr = &node->vert;
-                if (VERTEX_ID_PE(curr->id) == ctx->pe) {
-                    node->min_dist_from_local_vertex = 0;
+    memset(ctx->vec_cache.min_dist_from_local_vert, 0xff,
+            ctx->vec_cache.n_prealloc *
+            sizeof(ctx->vec_cache.min_dist_from_local_vert[0]));
 
-                    node->n_neighbors = hvr_map_linearize(curr->id,
-                            &ctx->edges.map, &node->neighbors);
-                    // hvr_map_val_list_t neighbors;
-                    // int n_neighbors = hvr_map_linearize(curr->id,
-                    //         &ctx->edges.map, &neighbors);
-
-                    for (int n = 0; n < node->n_neighbors; n++) {
-                        hvr_edge_info_t edge_info = hvr_map_val_list_get(n,
-                                &node->neighbors).edge_info;
-                        hvr_vertex_cache_node_t *cached_neighbor =
-                            hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
-                                    &ctx->vec_cache);
-                        assert(cached_neighbor);
-
-                        if (VERTEX_ID_PE(cached_neighbor->vert.id) != ctx->pe &&
-                                cached_neighbor->min_dist_from_local_vertex == UINT_MAX) {
-                            cached_neighbor->min_dist_from_local_vertex = UINT_MAX - 1;
-                            cached_neighbor->tmp = q;
-                            q = cached_neighbor;
-                        }
-                    }
-                } else {
-                    node->n_neighbors = hvr_map_linearize(curr->id,
-                            &ctx->edges.map, &node->neighbors);
-                    node->min_dist_from_local_vertex = UINT_MAX;
-                    node->tmp = NULL;
-                }
-            }
-            seg = seg->next;
-        }
+    hvr_vertex_cache_node_t *newq = NULL;
+    hvr_vertex_cache_node_t *q = ctx->vec_cache.local_neighbors_head;
+    while (q) {
+        set_dist_from_local_vert(q, 1);
+        newq = add_neighbors_to(q, newq, ctx);
+        q = q->local_neighbors_next;
     }
 
     // Save distances for all vertices within the required graph depth
-    for (unsigned l = 1; l <= ctx->max_graph_traverse_depth; l++) {
-        hvr_vertex_cache_node_t *newq = NULL;
+    for (unsigned l = 2; l <= ctx->max_graph_traverse_depth; l++) {
+        newq = NULL;
         while (q) {
             hvr_vertex_cache_node_t *next_q = q->tmp;
-            q->min_dist_from_local_vertex = l;
-
-            // hvr_map_val_list_t neighbors;
-            // int n_neighbors = hvr_map_linearize(q->vert.id, &ctx->edges.map,
-            //         &neighbors);
-
-            for (int n = 0; n < q->n_neighbors; n++) {
-                hvr_edge_info_t edge_info = hvr_map_val_list_get(n,
-                        &q->neighbors).edge_info;
-                hvr_vertex_cache_node_t *cached_neighbor =
-                    hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
-                            &ctx->vec_cache);
-                assert(cached_neighbor);
-
-                if (cached_neighbor->min_dist_from_local_vertex == UINT_MAX) {
-                    cached_neighbor->min_dist_from_local_vertex = UINT_MAX - 1;
-                    cached_neighbor->tmp = newq;
-                    newq = cached_neighbor;
-                }
-            }
-
-            q->tmp = NULL;
+            set_dist_from_local_vert(q, l, &ctx->vec_cache);
+            newq = add_neighbors_to(q, newq, ctx);
             q = next_q;
         }
 

@@ -38,9 +38,16 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
         prealloc[i].part_prev = prealloc + (i - 1);
     }
     cache->pool_head = prealloc + 0;
+    cache->pool_mem = prealloc;
     cache->pool_size = n_preallocs;
 
     cache->n_cached_vertices = 0;
+
+    cache->dist_from_local_vert = (uint8_t *)malloc(
+            n_preallocs * sizeof(cache->dist_from_local_vert[0]));
+    assert(cache->dist_from_local_vert);
+    memset(cache->dist_from_local_vert, 0xff,
+            n_preallocs * sizeof(cache->dist_from_local_vert[0]));
 }
 
 /*
@@ -92,6 +99,36 @@ static void linked_list_remove_helper(hvr_vertex_cache_node_t *to_remove,
     }
 }
 
+void hvr_vertex_cache_remove_from_local_neighbor_list(hvr_vertex_id_t vert,
+        hvr_vertex_cache_t *cache) {
+    hvr_vertex_cache_node_t *node = hvr_vertex_cache_lookup(neighbor,
+            &ctx->vec_cache);
+    assert(node);
+
+    if (local_neighbor_list_contains(node)) {
+        linked_list_remove_helper(node, node->local_neighbors_prev,
+                node->local_neighbors_next,
+                node->local_neighbors_prev ?
+                &(node->local_neighbors_prev->local_neighbors_next) : NULL,
+                node->local_neighbors_next ?
+                &(node->local_neighbors_next->local_neighbors_prev) : NULL,
+                &(cache->local_neighbors_head));
+    }
+}
+
+void hvr_vertex_cache_add_to_local_neighbor_list(hvr_vertex_id_t id,
+        hvr_internal_ctx_t *ctx) {
+    hvr_vertex_cache_node_t *node = hvr_vertex_cache_lookup(id,
+            &ctx->vec_cache);
+    assert(node);
+    if (!local_neighbor_list_contains(node)) {
+        ctx->vec_cache.local_neighbors_head->local_neighbors_prev = node;
+        node->local_neighbors_next = ctx->vec_cache.local_neighbors_head;
+        ctx->vec_cache.local_neighbors_head = node;
+    }
+}
+
+
 void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
     hvr_vertex_cache_node_t *node = hvr_vertex_cache_lookup(vert->id, cache);
     assert(node);
@@ -104,6 +141,17 @@ void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
             node->part_prev ? &(node->part_prev->part_next) : NULL,
             node->part_next ? &(node->part_next->part_prev) : NULL,
             &(cache->partitions[node->part]));
+
+    // Remove from local neighbors list if it is present
+    if (local_neighbor_list_contains(node)) {
+        linked_list_remove_helper(node, node->local_neighbors_prev,
+                node->local_neighbors_next,
+                node->local_neighbors_prev ?
+                    &(node->local_neighbors_prev->local_neighbors_next) : NULL,
+                node->local_neighbors_next ?
+                    &(node->local_neighbors_next->local_neighbors_prev) : NULL,
+                &(cache->local_neighbors_head));
+    }
 
     // Insert into pool using bucket pointers
     if (cache->pool_head) {
@@ -136,7 +184,6 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
     const unsigned bucket = CACHE_BUCKET(vert->id);
     memcpy(&new_node->vert, vert, sizeof(*vert));
-    new_node->min_dist_from_local_vertex = UINT_MAX;
     new_node->part = part;
 
     // Insert into the appropriate partition list

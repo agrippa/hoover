@@ -19,17 +19,9 @@ extern "C" {
 typedef struct _hvr_vertex_cache_node_t {
     // Contents of the vec itself
     hvr_vertex_t vert;
-    hvr_map_val_list_t neighbors;
-    int n_neighbors;
 
     // Partition for this vert. Think of this as a secondary key, after vert.id
     hvr_partition_t part;
-
-    /*
-     * Number of edges that separate this vertex from closest vertex stored
-     * locally on the current PE. Is zero for local vertices.
-     */
-    unsigned min_dist_from_local_vertex;
 
     /*
      * Maintain lists of mirrored vertices in each partition to enable quick
@@ -38,6 +30,9 @@ typedef struct _hvr_vertex_cache_node_t {
     struct _hvr_vertex_cache_node_t *part_next;
     struct _hvr_vertex_cache_node_t *part_prev;
     struct _hvr_vertex_cache_node_t *tmp;
+
+    struct _hvr_vertex_cache_node_t *local_neighbors_next;
+    struct _hvr_vertex_cache_node_t *local_neighbors_prev;
 } hvr_vertex_cache_node_t;
 
 /*
@@ -51,6 +46,8 @@ typedef struct _hvr_vertex_cache_t {
     hvr_vertex_cache_node_t **partitions;
     hvr_partition_t npartitions;
 
+    hvr_vertex_cache_node_t *local_neighbors_head;
+
     /*
      * A map datastructure used to enable quick lookup of
      * hvr_vertex_cache_node*, given a vertex ID.
@@ -63,7 +60,10 @@ typedef struct _hvr_vertex_cache_t {
      * fixed memory footprint.
      */
     hvr_vertex_cache_node_t *pool_head;
+    hvr_vertex_cache_node_t *pool_mem;
     unsigned pool_size;
+
+    uint8_t *dist_from_local_vert;
 
     // Keeps a count of mirrored vertices
     unsigned long long n_cached_vertices;
@@ -77,6 +77,34 @@ typedef struct _hvr_vertex_cache_t {
         unsigned long long nmisses;
     } cache_perf_info;
 } hvr_vertex_cache_t;
+
+static inline void set_dist_from_local_vert(hvr_vertex_cache_node_t *node,
+        uint8_t dist, hvr_vertex_cache_t *cache) {
+    size_t offset = node - cache->pool_mem;
+    if (VERTEX_ID_PE(node->vert.id) != shmem_my_pe()) {
+        cache->dist_from_local_vert[offset] = dist;
+    }
+}
+
+static inline uint8_t get_dist_from_local_vert(hvr_vertex_cache_node_t *node,
+        hvr_vertex_cache_t *cache) {
+    size_t offset = node - cache->pool_mem;
+    if (VERTEX_ID_PE(node->vert.id) == shmem_my_pe()) {
+        return 0;
+    } else {
+        return cache->dist_from_local_vert[offset];
+    }
+}
+
+static inline int local_neighbor_list_contains(hvr_vertex_cache_node_t *node) {
+    return node->local_neighbors_next || node->local_neighbors_prev;
+}
+
+extern void hvr_vertex_cache_remove_from_local_neighbor_list(
+        hvr_vertex_id_t vert, hvr_vertex_cache_t *cache);
+
+extern void hvr_vertex_cache_add_to_local_neighbor_list(hvr_vertex_id_t id,
+        hvr_internal_ctx_t *ctx);
 
 /*
  * Initializes an already allocated block of memory to store a vertex cache.
