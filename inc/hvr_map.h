@@ -59,6 +59,7 @@ typedef struct _hvr_map_t {
     unsigned init_val_capacity;
 
     hvr_map_seg_t *pool;
+    unsigned n_prealloc;
 } hvr_map_t;
 
 extern void hvr_map_init(hvr_map_t *m, unsigned n_segs,

@@ -21,7 +21,7 @@
 #include "hvr_mailbox.h"
 #include "hvr_vertex_ll.h"
 
-// #define DETAILED_PRINTS
+#define DETAILED_PRINTS
 
 #define MAX_INTERACTING_PARTITIONS 3000
 #define N_SEND_ATTEMPTS 10
