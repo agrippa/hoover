@@ -19,6 +19,25 @@ typedef union _hvr_map_val_t {
     hvr_partition_t interact;
 } hvr_map_val_t;
 
+typedef struct _hvr_map_val_list_t {
+    hvr_map_val_t *inline_vals;
+    hvr_map_val_t *ext_vals;
+    int nvals;
+} hvr_map_val_list_t;
+
+static inline int hvr_map_val_list_nvals(hvr_map_val_list_t *l) {
+    return l->nvals;
+}
+
+static inline hvr_map_val_t hvr_map_val_list_get(const unsigned i,
+        hvr_map_val_list_t *l) {
+    if (i < HVR_MAP_N_INLINE_VALS) {
+        return (l->inline_vals)[i];
+    } else {
+        return (l->ext_vals)[i - HVR_MAP_N_INLINE_VALS];
+    }
+}
+
 typedef struct _hvr_map_seg_t {
     hvr_vertex_id_t keys[HVR_MAP_SEG_SIZE];
     hvr_map_val_t inline_vals[HVR_MAP_SEG_SIZE][HVR_MAP_N_INLINE_VALS];

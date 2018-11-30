@@ -53,10 +53,8 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
  */
 hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
         hvr_vertex_cache_t *cache) {
-    hvr_map_val_t nodes;
-    hvr_map_val_t *nodes_ptr = &nodes;
-    unsigned capacity = 1;
-    int n = hvr_map_linearize(vert, &nodes_ptr, &capacity, &cache->cache_map);
+    hvr_map_val_list_t vals_list;
+    int n = hvr_map_linearize(vert, &cache->cache_map, &vals_list);
     assert(n == -1 || n == 1);
 
     if (n == -1) {
@@ -64,7 +62,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
         return NULL;
     } else {
         cache->cache_perf_info.nhits++;
-        return nodes.cached_vert;
+        return hvr_map_val_list_get(0, &vals_list).cached_vert;
     }
 }
 

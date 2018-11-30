@@ -297,8 +297,8 @@ hvr_edge_type_t hvr_map_contains(hvr_vertex_id_t key,
     return NO_EDGE;
 }
 
-int hvr_map_linearize(hvr_vertex_id_t key,
-        hvr_map_val_t **out_vals, unsigned *capacity, hvr_map_t *m) {
+int hvr_map_linearize(hvr_vertex_id_t key, hvr_map_t *m,
+        hvr_map_val_list_t *out_vals) {
     hvr_map_seg_t *seg;
     unsigned seg_index;
 
@@ -309,19 +309,10 @@ int hvr_map_linearize(hvr_vertex_id_t key,
         hvr_map_val_t *inline_vals = &(seg->inline_vals[seg_index][0]);
         hvr_map_val_t *ext_vals = seg->ext_vals[seg_index];
 
-        if (*capacity < nvals) {
-            *out_vals = (hvr_map_val_t *)realloc(*out_vals,
-                    nvals * sizeof(hvr_map_val_t));
-            assert(*out_vals);
-            *capacity = nvals;
-        }
+        out_vals->inline_vals = inline_vals;
+        out_vals->ext_vals = ext_vals;
+        out_vals->nvals = nvals;
 
-        memcpy(*out_vals, inline_vals,
-                MIN(nvals, HVR_MAP_N_INLINE_VALS) * sizeof(*inline_vals));
-        if (nvals > HVR_MAP_N_INLINE_VALS) {
-            memcpy((*out_vals) + HVR_MAP_N_INLINE_VALS, ext_vals,
-                    (nvals - HVR_MAP_N_INLINE_VALS) * sizeof(*ext_vals));
-        }
         return nvals;
     } else {
         return -1;

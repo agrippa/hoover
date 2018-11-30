@@ -59,8 +59,6 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         unsigned long long *time_creating_edges,
         unsigned *count_new_should_have_edges,
         unsigned long long *time_creating,
-        hvr_map_val_t **neighbors,
-        unsigned *capacity,
         hvr_internal_ctx_t *ctx);
 
 static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
@@ -312,9 +310,6 @@ static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
         assert(vert_partition_buf);
     }
 
-    hvr_map_val_t *neighbors = NULL;
-    unsigned capacity = 0;
-
     /*
      * Fetch the vertices from PE 'dead_pe' in chunks, looking for vertices
      * in 'partition' and adding them to our local vec cache.
@@ -335,11 +330,10 @@ static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
 
                 unsigned long long unused; unsigned u_unused;
                 handle_new_vertex(&tmp_vert, &unused, &unused, &unused,
-                        &u_unused, &unused, &neighbors, &capacity, ctx);
+                        &u_unused, &unused, ctx);
             }
         }
     }
-    free(neighbors);
 }
 
 /*
@@ -948,10 +942,9 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
 
     // If we were caching this node, delete the mirrored version
     if (hvr_vertex_cache_lookup(dead_vert->id, &ctx->vec_cache)) {
-        hvr_map_val_t *neighbors = NULL;
-        unsigned capacity = 0;
-        int n_neighbors = hvr_map_linearize(dead_vert->id, &neighbors,
-                &capacity, &ctx->edges.map);
+        hvr_map_val_list_t neighbors;
+        int n_neighbors = hvr_map_linearize(dead_vert->id, &ctx->edges.map,
+                &neighbors);
 
         if (n_neighbors > 0 && edges_to_delete_capacity < n_neighbors) {
             edges_to_delete = (hvr_vertex_id_t *)realloc(edges_to_delete,
@@ -965,7 +958,7 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
          * neighbor list while iterating over it.
          */
         for (int n = 0; n < n_neighbors; n++) {
-            edges_to_delete[n] = neighbors[n].edge_info;
+            edges_to_delete[n] = hvr_map_val_list_get(n, &neighbors).edge_info;
         }
 
         for (int n = 0; n < n_neighbors; n++) {
@@ -973,7 +966,6 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
                     EDGE_INFO_VERTEX(edges_to_delete[n]), NO_EDGE,
                     EDGE_INFO_EDGE(edges_to_delete[n]), ctx);
         }
-        free(neighbors);
 
         hvr_vertex_cache_delete(dead_vert, &ctx->vec_cache);
     }
@@ -985,8 +977,6 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         unsigned long long *time_creating_edges,
         unsigned *count_new_should_have_edges,
         unsigned long long *time_creating,
-        hvr_map_val_t **neighbors,
-        unsigned *capacity,
         hvr_internal_ctx_t *ctx) {
     static hvr_edge_info_t *edges_to_update = NULL;
     static hvr_edge_type_t *new_edge_type = NULL;
@@ -1019,8 +1009,9 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
          * Look for existing edges and verify they should still exist with
          * this update to the local mirror.
          */
-        int n_neighbors = hvr_map_linearize(updated_vert_id, neighbors,
-                capacity, &ctx->edges.map);
+        hvr_map_val_list_t neighbors;
+        int n_neighbors = hvr_map_linearize(updated_vert_id, &ctx->edges.map,
+                &neighbors);
 
         if (n_neighbors > 0 && edges_to_update_capacity < n_neighbors) {
             edges_to_update = (hvr_edge_info_t *)realloc(edges_to_update,
@@ -1033,20 +1024,21 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
 
         unsigned edges_to_update_len = 0;
         for (int n = 0; n < n_neighbors; n++) {
+            hvr_edge_info_t edge_info = hvr_map_val_list_get(n,
+                    &neighbors).edge_info;
             hvr_vertex_cache_node_t *cached_neighbor =
-                hvr_vertex_cache_lookup(EDGE_INFO_VERTEX((*neighbors)[n].edge_info),
+                hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
                         &ctx->vec_cache);
             assert(cached_neighbor);
             hvr_vertex_t *neighbor = &(cached_neighbor->vert);
 
             // Check this edge should still exist
-            hvr_edge_type_t edge = ctx->should_have_edge(
+            hvr_edge_type_t new_edge = ctx->should_have_edge(
                     &updated->vert, neighbor, ctx);
-            int changed = (edge != EDGE_INFO_EDGE((*neighbors)[n].edge_info));
+            int changed = (new_edge != EDGE_INFO_EDGE(edge_info));
             if (changed) {
-                edges_to_update[edges_to_update_len] =
-                    (*neighbors)[n].edge_info;
-                new_edge_type[edges_to_update_len++] = edge;
+                edges_to_update[edges_to_update_len] = edge_info;
+                new_edge_type[edges_to_update_len++] = new_edge;
             }
         }
 
@@ -1103,9 +1095,6 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
                 &msg_len, &ctx->vertex_delete_mailbox);
     }
 
-    hvr_map_val_t *neighbors = NULL;
-    unsigned capacity = 0;
-
     const unsigned long long midpoint = hvr_current_time_us();
     success = hvr_mailbox_recv(&buf, &buf_capacity,
             &msg_len, &ctx->vertex_update_mailbox);
@@ -1120,8 +1109,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
                     &perf_info->time_creating_edges,
                     &perf_info->count_new_should_have_edges,
                     &perf_info->time_creating,
-                    &neighbors,
-                    &capacity, ctx);
+                    ctx);
             n_updates++;
         }
 
@@ -1129,7 +1117,6 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
                 &msg_len, &ctx->vertex_update_mailbox);
     }
     free(buf);
-    free(neighbors);
 
     const unsigned long long done = hvr_current_time_us();
 
@@ -1140,8 +1127,6 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
 }
 
 static void update_distances(hvr_internal_ctx_t *ctx) {
-    hvr_map_val_t *neighbors = NULL;
-    unsigned capacity = 0;
     hvr_vertex_cache_node_t *q = NULL;
     /*
      * Clear all distances of mirrored vertices to an invalid value before
@@ -1156,13 +1141,15 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
                 if (VERTEX_ID_PE(curr->id) == ctx->pe) {
                     node->min_dist_from_local_vertex = 0;
 
-                    int n_neighbors = hvr_map_linearize(curr->id, &neighbors,
-                            &capacity, &ctx->edges.map);
+                    hvr_map_val_list_t neighbors;
+                    int n_neighbors = hvr_map_linearize(curr->id,
+                            &ctx->edges.map, &neighbors);
 
                     for (int n = 0; n < n_neighbors; n++) {
+                        hvr_edge_info_t edge_info = hvr_map_val_list_get(n,
+                                &neighbors);
                         hvr_vertex_cache_node_t *cached_neighbor =
-                            hvr_vertex_cache_lookup(
-                                    EDGE_INFO_VERTEX(neighbors[n].edge_info),
+                            hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
                                     &ctx->vec_cache);
                         assert(cached_neighbor);
 
@@ -1189,12 +1176,15 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
             hvr_vertex_cache_node_t *next_q = q->tmp;
             q->min_dist_from_local_vertex = l;
 
-            int n_neighbors = hvr_map_linearize(q->vert.id, &neighbors,
-                    &capacity, &ctx->edges.map);
+            hvr_map_val_list_t neighbors;
+            int n_neighbors = hvr_map_linearize(q->vert.id, &ctx->edges.map,
+                    &neighbors);
 
             for (int n = 0; n < n_neighbors; n++) {
+                hvr_edge_info_t edge_info = hvr_map_val_list_get(n,
+                        &neighbors).edge_info;
                 hvr_vertex_cache_node_t *cached_neighbor =
-                    hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(neighbors[n].edge_info),
+                    hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
                             &ctx->vec_cache);
                 assert(cached_neighbor);
 
@@ -1235,8 +1225,6 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
     // fprintf(stderr, "PE %d Want to delete %u / %lu : 0-dist=%u 1-dist=%u\n",
     //         shmem_my_pe(), to_delete, ctx->vec_cache.n_cached_vertices,
     //         zero_dist_verts, one_dist_verts);
-
-    free(neighbors);
 }
 
 void hvr_get_neighbors(hvr_vertex_t *vert, hvr_edge_info_t **out_neighbors,
@@ -1244,12 +1232,21 @@ void hvr_get_neighbors(hvr_vertex_t *vert, hvr_edge_info_t **out_neighbors,
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     assert(sizeof(hvr_edge_info_t) == sizeof(hvr_map_val_t));
 
-    *out_neighbors = NULL;
+    hvr_map_val_list_t neighbors;
+    int n_neighbors = hvr_map_linearize(vert->id, &ctx->edges.map, &neighbors);
 
-    unsigned capacity = 0;
-    int n_neighbors = hvr_map_linearize(vert->id,
-            (hvr_map_val_t **)out_neighbors, &capacity, &ctx->edges.map);
-    *out_n_neighbors = (n_neighbors < 0 ? 0 : n_neighbors);
+    if (n_neighbors <= 0) {
+        *out_n_neighbors = 0;
+        *out_neighbors = NULL;
+    } else {
+        *out_n_neighbors = n_neighbors;
+        *out_neighbors = (hvr_edge_info_t *)malloc(
+                n_neighbors * sizeof(hvr_edge_info_t));
+        assert(*out_neighbors);
+        for (unsigned n = 0; n < n_neighbors; n++) {
+            (*out_neighbors)[n] = hvr_map_val_list_get(n, &neighbors).edge_info;
+        }
+    }
 }
 
 hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t in_ctx) {
