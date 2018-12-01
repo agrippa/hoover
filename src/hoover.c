@@ -21,7 +21,7 @@
 #include "hvr_mailbox.h"
 #include "hvr_vertex_ll.h"
 
-#define DETAILED_PRINTS
+// #define DETAILED_PRINTS
 
 #define MAX_INTERACTING_PARTITIONS 3000
 #define N_SEND_ATTEMPTS 10
@@ -1506,10 +1506,10 @@ static void print_profiling_info(
         hvr_internal_ctx_t *ctx) {
 
     char partition_time_window_str[2048] = {'\0'};
-#ifdef DETAILED_PRINTS
-    hvr_set_to_string(ctx->producer_partition_time_window,
-            partition_time_window_str, 2048, ctx->partition_lists_lengths);
-#endif
+// #ifdef DETAILED_PRINTS
+//     hvr_set_to_string(ctx->producer_partition_time_window,
+//             partition_time_window_str, 2048, ctx->partition_lists_lengths);
+// #endif
 
     fprintf(profiling_fp, "PE %d - iter %d - total %f ms\n",
             ctx->pe, ctx->iter,
@@ -1575,11 +1575,12 @@ static void print_profiling_info(
            vertex_cache_used;
     double edge_set_val_capacity, edge_set_val_used, vertex_cache_val_capacity,
            vertex_cache_val_used;
+    unsigned edge_set_max_len, vertex_cache_max_len;
     hvr_map_size_in_bytes(&ctx->edges.map, &edge_set_capacity, &edge_set_used,
-            &edge_set_val_capacity, &edge_set_val_used);
+            &edge_set_val_capacity, &edge_set_val_used, &edge_set_max_len);
     hvr_map_size_in_bytes(&ctx->vec_cache.cache_map, &vertex_cache_capacity,
             &vertex_cache_used, &vertex_cache_val_capacity,
-            &vertex_cache_val_used);
+            &vertex_cache_val_used, &vertex_cache_max_len);
     fprintf(profiling_fp, "  management data structure: vertex pool = %llu "
             "bytes, PE sub info = %llu bytes, edge set = %f MB (%f%% "
             "efficiency), vertex cache = %f MB (%f%% efficiency)\n",
@@ -1589,10 +1590,12 @@ static void print_profiling_info(
             100.0 * (double)edge_set_used / (double)edge_set_capacity,
             (double)vertex_cache_capacity / (1024.0 * 1024.0),
             100.0 * (double)vertex_cache_used / (double)vertex_cache_capacity);
-    fprintf(profiling_fp, "    edge set value mean len=%f capacity=%f\n",
-            edge_set_val_used, edge_set_val_capacity);
-    fprintf(profiling_fp, "    vert cache value mean len=%f capacity=%f\n",
-            vertex_cache_val_used, vertex_cache_val_capacity);
+    fprintf(profiling_fp, "    edge set value mean len=%f capacity=%f max "
+            "len=%u\n", edge_set_val_used, edge_set_val_capacity,
+            edge_set_max_len);
+    fprintf(profiling_fp, "    vert cache value mean len=%f capacity=%f max "
+            "len=%u\n", vertex_cache_val_used, vertex_cache_val_capacity,
+            vertex_cache_max_len);
 #endif
     fflush(profiling_fp);
 }

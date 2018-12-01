@@ -3,7 +3,7 @@
 
 #include "hvr_common.h"
 
-#define HVR_MAP_SEG_SIZE 32768
+#define HVR_MAP_SEG_SIZE 1024
 #define HVR_MAP_BUCKETS 2048
 #define HVR_MAP_N_INLINE_VALS 1
 
@@ -82,6 +82,7 @@ extern void hvr_map_clear(hvr_map_t *m);
 extern size_t hvr_map_count_values(hvr_vertex_id_t key, hvr_map_t *m);
 
 extern void hvr_map_size_in_bytes(hvr_map_t *m, size_t *capacity, size_t *used,
-        double *avg_val_capacity, double *avg_val_length);
+        double *avg_val_capacity, double *avg_val_length,
+        unsigned *out_max_val_length);
 
 #endif

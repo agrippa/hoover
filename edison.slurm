@@ -44,42 +44,41 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
 # export BASE_ACTORS_PER_CELL=400 # big
 # export BASE_ACTORS_PER_CELL=200
-export BASE_ACTORS_PER_CELL=10
+export BASE_ACTORS_PER_CELL=20
 
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 1 node
     export CELL_DIM=4000.0
-    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 1024))
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 1024))
     # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 512))
-    export ACTORS_PER_CELL=4000
     export PE_ROWS=4
     export PE_COLS=6
 elif [[ $SLURM_NNODES -eq 4 ]]; then
     # For 4 nodes
     export CELL_DIM=2000.0
-    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 256))
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 128))
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 256))
+    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 128))
     export PE_ROWS=8
     export PE_COLS=12
 elif [[ $SLURM_NNODES -eq 16 ]]; then
     # 16 nodes, big run
     export CELL_DIM=1000.0
-    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 64))
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 32))
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 64))
+    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 32))
     export PE_ROWS=16
     export PE_COLS=24
 elif [[ $SLURM_NNODES -eq 64 ]]; then
     # For 64 nodes, big run
     export CELL_DIM=500.0
-    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 16))
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 8))
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 16))
+    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 8))
     export PE_ROWS=32
     export PE_COLS=48
 elif [[ $SLURM_NNODES -eq 256 ]]; then
     # For 256 nodes, big run
     export CELL_DIM=250.0
-    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 4))
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 2))
+    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 4))
+    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 2))
     export PE_ROWS=64
     export PE_COLS=96
 elif [[ $SLURM_NNODES -eq 1024 ]]; then
@@ -95,12 +94,13 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=100
+export MAX_NUM_TIMESTEPS=300
 export INFECTION_RADIUS=300
 
-export HVR_SYMM_POOL_SIZE=1024000
-export HVR_VEC_CACHE_PREALLOCS=1600000
-export HVR_VERT_CACHE_SEGS=1000
+export HVR_SYMM_POOL_SIZE=1536000
+export HVR_VEC_CACHE_PREALLOCS=1400000
+export HVR_VERT_CACHE_SEGS=20000
+export HVR_EDGE_SET_SEGS=1000
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1

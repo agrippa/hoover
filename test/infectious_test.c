@@ -264,7 +264,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
                     int is_infected = hvr_vertex_get(INFECTED, neighbor, ctx);
                     if (is_infected) {
                         const int infected_by = hvr_vertex_get_owning_pe(neighbor);
-                        hvr_set_insert(infected_by, couple_with);
+                        // hvr_set_insert(infected_by, couple_with);
                         hvr_vertex_set(INFECTED, 1, vertex, ctx);
                         break;
                     }

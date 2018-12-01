@@ -4,7 +4,12 @@
 #include "hvr_edge_set.h"
 
 void hvr_edge_set_init(hvr_edge_set_t *e) {
-    hvr_map_init(&e->map, 36, 8, EDGE_INFO);
+    unsigned prealloc_segs = 768;
+    if (getenv("HVR_EDGE_SET_SEGS")) {
+        prealloc_segs = atoi(getenv("HVR_VERT_CACHE_SEGS"));
+    }
+
+    hvr_map_init(&e->map, prealloc_segs, 8, EDGE_INFO);
 }
 
 /*

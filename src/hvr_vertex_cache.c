@@ -114,6 +114,8 @@ void hvr_vertex_cache_remove_from_local_neighbor_list(
                 node->local_neighbors_next ?
                 &(node->local_neighbors_next->local_neighbors_prev) : NULL,
                 &(cache->local_neighbors_head));
+        node->local_neighbors_prev = NULL;
+        node->local_neighbors_next = NULL;
     }
 }
 

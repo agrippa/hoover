@@ -389,8 +389,15 @@ size_t hvr_map_count_values(hvr_vertex_id_t key, hvr_map_t *m) {
 }
 
 void hvr_map_size_in_bytes(hvr_map_t *m, size_t *out_capacity,
-        size_t *out_used, double *avg_val_capacity, double *avg_val_length) {
+        size_t *out_used, double *avg_val_capacity, double *avg_val_length,
+        unsigned *out_max_val_length) {
     size_t allocated = sizeof(*m);
+    size_t used = sizeof(*m);
+
+    size_t sum_val_lengths = 0;
+    size_t count_keys = 0;
+    unsigned max_val_length = 0;
+
     allocated += m->n_prealloc * sizeof(hvr_map_seg_t);
     for (unsigned b = 0; b < HVR_MAP_BUCKETS; b++) {
         hvr_map_seg_t *bucket = m->buckets[b];
@@ -398,13 +405,23 @@ void hvr_map_size_in_bytes(hvr_map_t *m, size_t *out_capacity,
             for (unsigned i = 0; i < bucket->nkeys; i++) {
                 allocated += bucket->data[i].ext_capacity *
                     sizeof(hvr_map_val_t);
+                used += (bucket->data[i].length - 1) * sizeof(hvr_map_val_t);
+                sum_val_lengths += bucket->data[i].length;
+                if (bucket->data[i].length > max_val_length) {
+                    max_val_length = bucket->data[i].length;
+                }
+                count_keys++;
             }
+            unsigned n_unused_keys = HVR_MAP_SEG_SIZE - bucket->nkeys;
+            used += sizeof(hvr_map_seg_t) - (n_unused_keys *
+                    sizeof(hvr_map_entry_t) + sizeof(hvr_vertex_id_t));
             bucket = bucket->next;
         }
     }
 
     *out_capacity = allocated;
-    *out_used = 0;
+    *out_used = used;
     *avg_val_capacity = 0;
-    *avg_val_length = 0;
+    *avg_val_length = (double)sum_val_lengths / (double)count_keys;
+    *out_max_val_length = max_val_length;
 }
