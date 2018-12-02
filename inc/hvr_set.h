@@ -77,8 +77,14 @@ extern uint64_t *hvr_set_non_zeros(hvr_set_t *set,
  */
 extern hvr_set_t *hvr_create_full_set(const uint64_t nvals);
 
-extern void hvr_set_merge_atomic(hvr_set_t *set, hvr_set_t *other);
+/*
+ * Make 'set' the union of 'set' and 'other'.
+ */
+extern void hvr_set_merge(hvr_set_t *set, hvr_set_t *other);
 
+/*
+ * Copy src to dst.
+ */
 extern void hvr_set_copy(hvr_set_t *dst, hvr_set_t *src);
 
 #ifdef __cplusplus

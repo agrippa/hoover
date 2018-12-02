@@ -49,6 +49,14 @@ typedef struct _hvr_dead_pe_msg_t {
     hvr_partition_t partition;
 } hvr_dead_pe_msg_t;
 
+#define MSG_COUPLING_NEW 0
+#define MSG_COUPLING_VAL 1
+typedef struct _hvr_coupling_msg_t {
+    int type;
+    int pe;
+    hvr_vertex_t val;
+} hvr_coupling_msg_t;
+
 typedef enum {
     CREATE, DELETE, UPDATE
 } hvr_change_type_t;
@@ -649,22 +657,18 @@ void hvr_init(const hvr_partition_t n_partitions,
         dead_pe_processing = 0;
     }
 
-    new_ctx->coupled_pes = hvr_create_empty_set_symmetric(new_ctx->npes);
+    new_ctx->prev_coupled_pes = hvr_create_empty_set(new_ctx->npes);
+    new_ctx->coupled_pes = hvr_create_empty_set(new_ctx->npes);
+    new_ctx->coupled_pes_received_from = hvr_create_empty_set(new_ctx->npes);
     hvr_set_insert(new_ctx->pe, new_ctx->coupled_pes);
 
-    new_ctx->coupled_pes_values = (hvr_vertex_t *)shmem_malloc_wrapper(
+    new_ctx->coupled_pes_values = (hvr_vertex_t *)malloc(
             new_ctx->npes * sizeof(hvr_vertex_t));
     assert(new_ctx->coupled_pes_values);
     for (unsigned i = 0; i < new_ctx->npes; i++) {
         hvr_vertex_init(&(new_ctx->coupled_pes_values)[i], new_ctx);
     }
 
-    new_ctx->coupled_pes_values_buffer = (hvr_vertex_t *)malloc(
-            new_ctx->npes * sizeof(hvr_vertex_t));
-    assert(new_ctx->coupled_pes_values_buffer);
-
-    new_ctx->coupled_lock = hvr_rwlock_create_n(1);
-   
     new_ctx->partitions_per_pe = (new_ctx->n_partitions + new_ctx->npes - 1) /
         new_ctx->npes;
     new_ctx->partitions_per_pe_vec_length_in_words =
@@ -697,6 +701,7 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_mailbox_init(&new_ctx->vertex_update_mailbox, 256 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_delete_mailbox, 256 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->forward_mailbox,       128 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->coupling_mailbox,      32 * 1024 * 1024);
 
     hvr_dist_bitvec_init(new_ctx->n_partitions, new_ctx->npes,
             &new_ctx->partition_producers);
@@ -1312,7 +1317,7 @@ static int update_vertices(hvr_set_t *to_couple_with,
     }
 
     // Update my local information on PEs I am coupled with.
-    hvr_set_merge_atomic(ctx->coupled_pes, to_couple_with);
+    hvr_set_merge(ctx->coupled_pes, to_couple_with);
     return count;
 }
 
@@ -1394,38 +1399,113 @@ static unsigned send_updates(hvr_internal_ctx_t *ctx,
 static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         hvr_vertex_t *coupled_metric) {
     // Copy the present value of the coupled metric locally
-    shmem_getmem(coupled_metric, ctx->coupled_pes_values + ctx->pe,
-            sizeof(*coupled_metric), shmem_my_pe());
+    memcpy(coupled_metric, ctx->coupled_pes_values + ctx->pe,
+            sizeof(*coupled_metric));
 
     hvr_vertex_iter_t iter;
     hvr_vertex_iter_all_init(&iter, ctx);
     ctx->update_coupled_val(&iter, ctx, coupled_metric);
 
     /*
-     * Atomically update other PEs that I am coupled with, telling them I am
-     * coupled with them and who I am coupled with.
+     * The coupling logic is a bit complicated because any PE can decide at any
+     * time to become coupled with any other PE. The basic steps are as follows:
+     *
+     *   1. Send out messages to the mailboxes of any PEs which I am newly
+     *      coupled with on this iteration, informing them that I am now
+     *      coupled..
+     *   3. Send out values to all PEs I am coupled to.
+     *   2. Iteratively, check for:
+     *      a. New messages from other PEs saying that I am now coupled with
+     *         them. If this is a new coupling, forward it to everyone I am
+     *         coupled with and then send that PE back a value from me.
+     *         Otherwise, don't forward. The received message may itself have
+     *         been forwarded.
+     *      b. Messages from other PEs that I am coupled with, informing me of
+     *         their coupled values for the current iteration. These have the
+     *         potential to arrive out of order, in which case I receive a
+     *         coupled value from another PE before I realize I am coupled with
+     *         it. In that case, we should just resend it to myself. I may also
+     *         receive a duplicate coupled value (a second value, when I've
+     *         already received a first for the current iteration). This should
+     *         simply be resent to myself and processed later.
+     *
+     * We will need to poll on these messages until we reach a point where we
+     * have a coupled value for every PE that we know we are coupled to.
      */
-    for (int p = 0; p < ctx->npes; p++) {
-        if (p != ctx->pe && hvr_set_contains(p, ctx->coupled_pes)) {
-            for (int i = 0; i < ctx->coupled_pes->nelements; i++) {
-                unsigned long long remote_val = shmem_ulonglong_atomic_fetch(
-                        ctx->coupled_pes->bit_vector + i, p);
-                shmem_ulonglong_atomic_or(ctx->coupled_pes->bit_vector + i,
-                        remote_val, shmem_my_pe());
+
+    hvr_coupling_msg_t new_coupling_msg;
+    new_coupling_msg.type = MSG_COUPLING_NEW;
+    new_coupling_msg.pe = ctx->pe;
+
+    hvr_coupling_msg_t coupled_val_msg;
+    coupled_val_msg.type = MSG_COUPLING_VAL;
+    coupled_val_msg.pe = ctx->pe;
+    memcpy(&coupled_val_msg.val, coupled_metric, sizeof(*coupled_metric));
+
+    for (unsigned p = 0; p < ctx->npes; p++) {
+        if (hvr_set_contains(p, ctx->coupled_pes)) {
+            if (!hvr_set_contains(p, ctx->prev_coupled_pes)) {
+                // New coupling
+                hvr_mailbox_send(&new_coupling_msg, sizeof(new_coupling_msg), p,
+                        -1, &ctx->coupling_mailbox);
+            }
+            hvr_mailbox_send(&coupled_val_msg, sizeof(coupled_val_msg), p, -1,
+                    &ctx->coupling_mailbox);
+        }
+    }
+    hvr_set_wipe(ctx->coupled_pes_received_from);
+
+    memcpy(ctx->coupled_pes_values + ctx->pe, coupled_metric,
+            sizeof(*coupled_metric));
+    hvr_set_insert(ctx->pe, ctx->coupled_pes_received_from);
+
+    void *buf = NULL;
+    size_t buf_capacity;
+    size_t msg_len;
+    while (hvr_set_count(ctx->coupled_pes_received_from) <
+            hvr_set_count(ctx->coupled_pes)) {
+        int success = hvr_mailbox_recv(&buf, &buf_capacity, &msg_len,
+                &ctx->coupling_mailbox);
+        if (success) {
+            assert(msg_len == sizeof(hvr_coupling_msg_t));
+            hvr_coupling_msg_t *msg = (hvr_coupling_msg_t *)buf;
+            if (msg->type == MSG_COUPLING_NEW) {
+                const int new_pe = msg->pe;
+                if (!hvr_set_contains(new_pe, ctx->coupled_pes)) {
+                    hvr_set_insert(new_pe, ctx->coupled_pes);
+                    // And forward
+                    for (unsigned p = 0; p < ctx->npes; p++) {
+                        if (hvr_set_contains(p, ctx->coupled_pes) &&
+                                p != new_pe && p != ctx->pe) {
+                            hvr_mailbox_send(msg, sizeof(*msg), p, -1,
+                                    &ctx->coupling_mailbox);
+                        }
+                    }
+                    hvr_mailbox_send(&coupled_val_msg, sizeof(coupled_val_msg),
+                            new_pe, -1, &ctx->coupling_mailbox);
+                }
+            } else if (msg->type == MSG_COUPLING_VAL) {
+                if (!hvr_set_contains(msg->pe, ctx->coupled_pes) ||
+                        hvr_set_contains(msg->pe,
+                            ctx->coupled_pes_received_from)) {
+                    /*
+                     * Don't know about this coupling yet, or already have a
+                     * value for this PE. Re-send.
+                     */
+                    hvr_mailbox_send(msg, sizeof(*msg), ctx->pe, -1,
+                            &ctx->coupling_mailbox);
+                } else {
+                    hvr_set_insert(msg->pe, ctx->coupled_pes_received_from);
+                    memcpy(ctx->coupled_pes_values + msg->pe, &msg->val,
+                            sizeof(msg->val));
+                }
+            } else {
+                abort();
             }
         }
     }
 
-    // Update my symmetrically visible coupled metric
-    hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
-    shmem_putmem(ctx->coupled_pes_values + ctx->pe, coupled_metric,
-            sizeof(*coupled_metric), ctx->pe);
-    shmem_quiet();
-    hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
-
-    // Back up the local contribution to pass to should_terminate
-    hvr_vertex_t local_coupled_metric;
-    memcpy(&local_coupled_metric, coupled_metric, sizeof(local_coupled_metric));
+    hvr_set_copy(ctx->prev_coupled_pes, ctx->coupled_pes);
 
     /*
      * For each PE I know I'm coupled with, lock their coupled_timesteps
@@ -1434,41 +1514,19 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
      */
     int ncoupled = 1; // include myself
     for (int p = 0; p < ctx->npes; p++) {
-        if (p == ctx->pe) continue;
-
-        if (hvr_set_contains_atomic(p, ctx->coupled_pes)) {
-            // Pull in the latest coupled value from PE p.
-            hvr_rwlock_rlock((long *)ctx->coupled_lock, p);
-            shmem_getmem(ctx->coupled_pes_values_buffer,
-                    ctx->coupled_pes_values,
-                    ctx->npes * sizeof(hvr_vertex_t), p);
-            hvr_rwlock_runlock((long *)ctx->coupled_lock, p);
-
-            // Update my local copy with the latest values
-            hvr_vertex_t *other = ctx->coupled_pes_values_buffer + p;
-            hvr_vertex_t *mine = ctx->coupled_pes_values + p;
-
-            hvr_rwlock_wlock((long *)ctx->coupled_lock, ctx->pe);
-            memcpy(mine, other, sizeof(*mine));
-            hvr_rwlock_wunlock((long *)ctx->coupled_lock, ctx->pe);
-
+        if (p != ctx->pe && hvr_set_contains(p, ctx->coupled_pes)) {
             // No need to read lock here because I know I'm the only writer
-            hvr_vertex_add(coupled_metric, ctx->coupled_pes_values + p,
-                    ctx);
-
+            hvr_vertex_add(coupled_metric, ctx->coupled_pes_values + p, ctx);
             ncoupled++;
         }
     }
 
     hvr_vertex_iter_all_init(&iter, ctx);
-    int should_abort = ctx->should_terminate(&iter, ctx, &local_coupled_metric,
-            coupled_metric, ctx->coupled_pes, ncoupled);
+    int should_abort = ctx->should_terminate(&iter, ctx,
+            ctx->coupled_pes_values + ctx->pe, // Local coupled metric
+            coupled_metric, // Global coupled metric
+            ctx->coupled_pes, ncoupled);
 
-    /*
-     * TODO coupled_metric here contains the aggregate values over all
-     * coupled PEs, including this one. Do we want to do anything with this,
-     * other than print it?
-     */
     if (ncoupled > 1) {
         char buf[1024];
         hvr_vertex_dump(coupled_metric, buf, 1024, ctx);

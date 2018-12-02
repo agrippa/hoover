@@ -131,14 +131,12 @@ void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen,
     snprintf(buf + offset, buflen - offset - 1, " }");
 }
 
-void hvr_set_merge_atomic(hvr_set_t *set, hvr_set_t *other) {
+void hvr_set_merge(hvr_set_t *set, hvr_set_t *other) {
     assert(set->nelements == other->nelements);
-    // Assert that we can use the long long atomics
     assert(sizeof(unsigned long long) == sizeof(bit_vec_element_type));
 
     for (int i = 0; i < set->nelements; i++) {
-        shmem_ulonglong_atomic_or(set->bit_vector + i, (other->bit_vector)[i],
-                shmem_my_pe());
+        (set->bit_vector)[i] = ((set->bit_vector)[i] | (other->bit_vector)[i]);
     }
 }
 

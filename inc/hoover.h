@@ -164,11 +164,12 @@ typedef struct _hvr_internal_ctx_t {
     int *strict_counter_src;
 
     // Set of PEs we are in coupled execution with
+    hvr_set_t *prev_coupled_pes;
     hvr_set_t *coupled_pes;
+    hvr_set_t *coupled_pes_received_from;
+
     // Values retrieved from each coupled PE
     hvr_vertex_t *coupled_pes_values;
-    hvr_vertex_t *coupled_pes_values_buffer;
-    volatile long *coupled_lock;
 
     /*
      * An array of bit vectors, each of npes bits.
@@ -208,6 +209,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t vertex_update_mailbox;
     hvr_mailbox_t vertex_delete_mailbox;
     hvr_mailbox_t forward_mailbox;
+    hvr_mailbox_t coupling_mailbox;
 
     hvr_dist_bitvec_t partition_producers;
     hvr_dist_bitvec_t terminated_pes;
