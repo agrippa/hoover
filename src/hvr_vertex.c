@@ -45,33 +45,6 @@ void hvr_vertex_init(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     vert->needs_send = 1;
 }
 
-void hvr_vertex_set(const unsigned feature, const double val,
-        hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    assert(VERTEX_ID_PE(vert->id) == ctx->pe ||
-            vert->id == HVR_INVALID_VERTEX_ID);
-
-    const unsigned size = vert->size;
-    for (unsigned i = 0; i < size; i++) {
-        if (vert->features[i] == feature) {
-            // Replace
-            if (val != vert->values[i]) {
-                // Should be sent
-                vert->needs_send = 1;
-                vert->values[i] = val;
-            }
-            return;
-        }
-    }
-
-    assert(size < HVR_MAX_VECTOR_SIZE); // Can hold one more feature
-    vert->features[size] = feature;
-    vert->values[size] = val;
-    vert->size = size + 1;
-    // Should be sent
-    vert->needs_send = 1;
-}
-
 static int uint_compare(const void *_a, const void *_b) {
     unsigned a = *((unsigned *)_a);
     unsigned b = *((unsigned *)_b);
@@ -84,27 +57,12 @@ static int uint_compare(const void *_a, const void *_b) {
     }
 }
 
-void hvr_vertex_unique_features(hvr_vertex_t *vert,
-        unsigned *out_features, unsigned *n_out_features) {
-    *n_out_features = vert->size;
-    memcpy(out_features, vert->features,
-            vert->size * sizeof(vert->features[0]));
-
-    qsort(out_features, *n_out_features, sizeof(*out_features), uint_compare);
-}
-
 void hvr_vertex_dump(hvr_vertex_t *vert, char *buf, const size_t buf_size,
         hvr_ctx_t ctx) {
     char *iter = buf;
     int first = 1;
 
-    unsigned n_features;
-    unsigned features[HVR_MAX_VECTOR_SIZE];
-    hvr_vertex_unique_features(vert, features, &n_features);
-
-    for (unsigned i = 0; i < n_features; i++) {
-        const unsigned feat = features[i];
-
+    for (unsigned feat = 0; feat < HVR_MAX_VECTOR_SIZE; feat++) {
         double val = hvr_vertex_get(feat, vert, ctx);
 
         const int capacity = buf_size - (iter - buf);
@@ -128,50 +86,17 @@ int hvr_vertex_get_owning_pe(hvr_vertex_t *vert) {
     return VERTEX_ID_PE(vert->id);
 }
 
-static inline int hvr_vertex_have_feature(unsigned feature,
-        hvr_vertex_t *vert) {
-    for (unsigned i = 0; i < vert->size; i++) {
-        if (vert->features[i] == feature) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 void hvr_vertex_add(hvr_vertex_t *dst, hvr_vertex_t *src, hvr_ctx_t ctx) {
-    unsigned src_n_features;
-    unsigned src_features[HVR_MAX_VECTOR_SIZE];
-    hvr_vertex_unique_features(src, src_features, &src_n_features);
-
-    for (unsigned i = 0; i < src_n_features; i++) {
-        const double src_val = hvr_vertex_get(src_features[i], src, ctx);
-        double dst_val = 0.0;
-        if (hvr_vertex_have_feature(src_features[i], dst)) {
-            // Increment existing feature
-            dst_val = hvr_vertex_get(src_features[i], dst, ctx);
-        }
-        hvr_vertex_set(src_features[i], src_val + dst_val, dst, ctx);
+    for (unsigned i = 0; i < HVR_MAX_VECTOR_SIZE; i++) {
+        hvr_vertex_set(i,
+                hvr_vertex_get(i, src, ctx) + hvr_vertex_get(i, dst, ctx),
+                dst, ctx);
     }
 }
 
 int hvr_vertex_equal(hvr_vertex_t *a, hvr_vertex_t *b, hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    unsigned a_n_features, b_n_features;
-    unsigned a_features[HVR_MAX_VECTOR_SIZE],
-             b_features[HVR_MAX_VECTOR_SIZE];
-    hvr_vertex_unique_features(a, a_features, &a_n_features);
-    hvr_vertex_unique_features(b, b_features, &b_n_features);
-
-    if (a_n_features != b_n_features) {
-        return 0;
-    }
-
-    for (unsigned i = 0; i < a_n_features; i++) {
-        if (a_features[i] != b_features[i]) {
-            return 0;
-        }
-        if (hvr_vertex_get(a_features[i], a, ctx) !=
-                hvr_vertex_get(b_features[i], b, ctx)) {
+    for (unsigned i = 0; i < HVR_MAX_VECTOR_SIZE; i++) {
+        if (hvr_vertex_get(i, a, in_ctx) != hvr_vertex_get(i, b, in_ctx)) {
             return 0;
         }
     }

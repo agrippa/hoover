@@ -13,8 +13,6 @@ typedef struct _hvr_vertex_t {
     hvr_vertex_id_t id;
 
     double values[HVR_MAX_VECTOR_SIZE];
-    unsigned features[HVR_MAX_VECTOR_SIZE];
-    unsigned size;
 
     struct _hvr_vertex_t *next_in_partition;
 
@@ -40,31 +38,26 @@ extern void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t ctx);
 extern void hvr_vertex_init(hvr_vertex_t *vert, hvr_ctx_t ctx);
 
 /*
- * Set the specified feature to the specified value in the provided vector.
- */
-extern void hvr_vertex_set(const unsigned feature, const double val,
-        hvr_vertex_t *vert, hvr_ctx_t in_ctx);
-
-/*
  * Get the value for the specified feature in the provided vector.
  */
 static inline double hvr_vertex_get(const unsigned feature,
         const hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
-    for (unsigned i = 0; i < vert->size; i++) {
-        if (vert->features[i] == feature) {
-            return vert->values[i];
-        }
-    }
-    abort();
+    assert(feature < HVR_MAX_VECTOR_SIZE);
+    return vert->values[feature];
 }
 
-
 /*
- * Returns a sorted array of the features in this vertex. n_out_features must be
- * an array of at least length HVR_MAX_VECTOR_SIZE.
+ * Set the specified feature to the specified value in the provided vector.
  */
-extern void hvr_vertex_unique_features(hvr_vertex_t *vert,
-        unsigned *out_features, unsigned *n_out_features);
+static inline void hvr_vertex_set(const unsigned feature, const double val,
+        hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    assert(feature < HVR_MAX_VECTOR_SIZE);
+    if (val != vert->values[feature]) {
+        vert->needs_send = 1;
+        vert->values[feature] = val;
+    }
+}
 
 /*
  * Write a string representation of the passed vertex to the provided character

@@ -1673,21 +1673,14 @@ static void print_profiling_info(
 
 static void save_current_state_to_dump_file(hvr_internal_ctx_t *ctx) {
     // Assume that all vertices have the same features.
-    unsigned nfeatures;
-    unsigned features[HVR_MAX_VECTOR_SIZE];
-    hvr_vertex_unique_features(
-            ctx->pool.pool + ctx->pool.tracker.used_list->start_index,
-            features, &nfeatures);
-
     hvr_vertex_iter_t iter;
     hvr_vertex_iter_init(&iter, ctx);
     for (hvr_vertex_t *curr = hvr_vertex_iter_next(&iter); curr;
             curr = hvr_vertex_iter_next(&iter)) {
         fprintf(ctx->dump_file, "%u,%d,%lu,%u", ctx->iter, ctx->pe,
-                curr->id, nfeatures);
-        for (unsigned f = 0; f < nfeatures; f++) {
-            fprintf(ctx->dump_file, ",%u,%f", features[f],
-                    hvr_vertex_get(features[f], curr, ctx));
+                curr->id, HVR_MAX_VECTOR_SIZE);
+        for (unsigned f = 0; f < HVR_MAX_VECTOR_SIZE; f++) {
+            fprintf(ctx->dump_file, ",%u,%f", f, hvr_vertex_get(f, curr, ctx));
         }
         fprintf(ctx->dump_file, "\n");
 
