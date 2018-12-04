@@ -1,12 +1,18 @@
 #include "hvr_map.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define HVR_MAP_BUCKET(my_key) ((my_key) % HVR_MAP_BUCKETS)
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 static int comp(const void *_a, const void *_b) {
-    return ((hvr_map_entry_t *)_a)->key - ((hvr_map_entry_t *)_b)->key;
+    hvr_map_entry_t *a = (hvr_map_entry_t *)_a;
+    hvr_map_entry_t *b = (hvr_map_entry_t *)_b;
+
+    if (a->key < b->key) return -1;
+    else if (a->key > b->key) return 1;
+    else return 0;
 }
 
 // Add a new key with one initial value
@@ -34,7 +40,8 @@ static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_map_val_t val,
     }
 }
 
-static inline int binarySearch(hvr_vertex_id_t *arr, int l, int r, hvr_vertex_id_t x) 
+static inline int binarySearch(hvr_vertex_id_t *arr, int l, int r,
+        hvr_vertex_id_t x) 
 { 
     if (r >= l) 
     { 
@@ -67,17 +74,14 @@ static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
     hvr_map_seg_t *seg = m->buckets[bucket];
     while (seg) {
         const unsigned nkeys = seg->nkeys;
-        // if (nkeys == HVR_MAP_SEG_SIZE) {
-        //     int index = 0;
-        //     while (index < HVR_MAP_SEG_SIZE && seg->keys[index] < key) {
-        //         index++;
-        //     }
-        //     if (index < HVR_MAP_SEG_SIZE && seg->keys[index] == key) {
-        //         *out_seg = seg;
-        //         *out_index = index;
-        //         return 1;
-        //     }
-        // } else {
+        if (nkeys == HVR_MAP_SEG_SIZE) {
+            int index = binarySearch(seg->keys, 0, HVR_MAP_SEG_SIZE - 1, key);
+            if (index >= 0) {
+                *out_seg = seg;
+                *out_index = index;
+                return 1;
+            }
+        } else {
             for (unsigned i = 0; i < nkeys; i++) {
                 if (seg->keys[i] == key) {
                     *out_seg = seg;
@@ -85,7 +89,7 @@ static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
                     return 1;
                 }
             }
-        // }
+        }
         seg = seg->next;
     }
     return 0;
