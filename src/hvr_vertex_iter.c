@@ -11,9 +11,9 @@ static int is_valid_vertex(hvr_vertex_t *vertex, hvr_vertex_iter_t *iter) {
 
 static void hvr_vertex_iter_init_helper(hvr_vertex_iter_t *iter,
         hvr_internal_ctx_t *ctx, int include_all) {
-    iter->current_chunk = ctx->pool->used_list;
+    iter->current_chunk = ctx->pool.tracker.used_list;
     iter->index_for_current_chunk = 0;
-    iter->pool = ctx->pool;
+    iter->pool = &ctx->pool;
     iter->ctx = ctx;
     iter->include_all = include_all;
 

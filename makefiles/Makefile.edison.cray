@@ -4,16 +4,15 @@ CC=cc
 CXX=cc
 
 all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge_set_test bin/own_edge_test bin/vertex_test bin/init_test \
-	bin/infectious_test bin/shmem_rw_lock bin/write_lock_stress \
+	bin/infectious_test bin/write_lock_stress \
 	bin/test_vertex_id bin/edge_info_test bin/add_vertices_test bin/mailbox_test \
 	bin/remove_vertices_test bin/intrusion_detection bin/hvr_dist_bitvec_test bin/pas
 
-bin/libhoover.a: src/hoover.c src/shmem_rw_lock.c \
+bin/libhoover.a: src/hoover.c \
 	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c \
 	src/hvr_set.c src/hvr_edge_set.c src/hvr_vertex.c \
-	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_vertex_ll.c src/hvr_sparse_arr.c src/hvr_map.c
+	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_sparse_arr.c src/hvr_map.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hoover.o src/hoover.c
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/shmem_rw_lock.o src/shmem_rw_lock.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_pool.o src/hvr_vertex_pool.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_iter.o src/hvr_vertex_iter.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_mailbox.o src/hvr_mailbox.c
@@ -22,13 +21,12 @@ bin/libhoover.a: src/hoover.c src/shmem_rw_lock.c \
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex.o src/hvr_vertex.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_cache.o src/hvr_vertex_cache.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_dist_bitvec.o src/hvr_dist_bitvec.c
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_ll.o src/hvr_vertex_ll.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_sparse_arr.o src/hvr_sparse_arr.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_map.o src/hvr_map.c
-	ar rcs bin/libhoover.a bin/hoover.o bin/shmem_rw_lock.o \
+	ar rcs bin/libhoover.a bin/hoover.o \
 		bin/hvr_vertex_pool.o bin/hvr_vertex_iter.o bin/hvr_mailbox.o bin/hvr_set.o \
 		bin/hvr_edge_set.o bin/hvr_vertex.o bin/hvr_vertex_cache.o \
-		bin/hvr_dist_bitvec.o bin/hvr_vertex_ll.o bin/hvr_sparse_arr.o bin/hvr_map.o
+		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o
 
 bin/init_test: test/init_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
@@ -47,9 +45,6 @@ bin/vertex_test: test/vertex_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/pe_neighbors_set_test: test/pe_neighbors_set_test.c
-	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
-
-bin/shmem_rw_lock: test/shmem_rw_lock.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/write_lock_stress: test/write_lock_stress.c

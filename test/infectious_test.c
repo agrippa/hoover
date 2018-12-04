@@ -227,8 +227,8 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     hvr_vertex_t *prev = NULL;
     hvr_vertex_t *next = NULL;
     for (int i = 0; i < n_neighbors; i++) {
-        hvr_vertex_t *neighbor = hvr_get_vertex(EDGE_INFO_VERTEX(neighbors[i]),
-                ctx);
+        hvr_vertex_id_t id = EDGE_INFO_VERTEX(neighbors[i]);
+        hvr_vertex_t *neighbor = hvr_get_vertex(id, ctx);
         if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) == actor_id) {
             if (EDGE_INFO_EDGE(neighbors[i]) == DIRECTED_IN) {
                 assert(prev == NULL);
@@ -264,7 +264,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
                     int is_infected = hvr_vertex_get(INFECTED, neighbor, ctx);
                     if (is_infected) {
                         const int infected_by = hvr_vertex_get_owning_pe(neighbor);
-                        // hvr_set_insert(infected_by, couple_with);
+                        hvr_set_insert(infected_by, couple_with);
                         hvr_vertex_set(INFECTED, 1, vertex, ctx);
                         break;
                     }

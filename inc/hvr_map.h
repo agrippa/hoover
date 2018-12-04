@@ -2,8 +2,9 @@
 #define _HVR_MAP_H
 
 #include "hvr_common.h"
+#include "hvr_vertex_pool.h"
 
-#define HVR_MAP_SEG_SIZE 1024
+#define HVR_MAP_SEG_SIZE 256
 #define HVR_MAP_BUCKETS 2048
 #define HVR_MAP_N_INLINE_VALS 1
 
@@ -58,11 +59,15 @@ typedef struct _hvr_map_t {
     hvr_map_type_t type;
     unsigned init_val_capacity;
 
-    hvr_map_seg_t *pool;
+    hvr_map_seg_t *seg_pool;
     unsigned n_prealloc;
+
+    hvr_map_val_t *val_pool;
+    hvr_range_tracker_t tracker;
 } hvr_map_t;
 
 extern void hvr_map_init(hvr_map_t *m, unsigned n_segs,
+        size_t vals_pool_size, unsigned vals_pool_nodes,
         unsigned init_val_capacity, hvr_map_type_t type);
 
 extern void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
@@ -70,9 +75,6 @@ extern void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
 
 extern void hvr_map_remove(hvr_vertex_id_t key, hvr_map_val_t val,
         hvr_map_t *m);
-
-extern hvr_edge_type_t hvr_map_contains(hvr_vertex_id_t key,
-        hvr_vertex_id_t val, hvr_map_t *m);
 
 extern int hvr_map_linearize(hvr_vertex_id_t key, hvr_map_t *m,
         hvr_map_val_list_t *out_vals);

@@ -17,7 +17,6 @@ extern "C" {
 #include "hvr_mailbox.h"
 #include "hvr_set.h"
 #include "hvr_dist_bitvec.h"
-#include "hvr_vertex_ll.h"
 #include "hvr_sparse_arr.h"
 
 /*
@@ -93,11 +92,33 @@ typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_vertex_t *actor,
 typedef hvr_edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
         hvr_vertex_t *candidate, hvr_ctx_t ctx);
 
+/*
+ * All message definitions.
+ */
 #define VERT_PER_UPDATE 16
 typedef struct _hvr_vertex_update_t {
     hvr_vertex_t verts[VERT_PER_UPDATE];
     unsigned len;
 } hvr_vertex_update_t;
+
+typedef struct _hvr_partition_member_change_t {
+    int pe;
+    hvr_partition_t partition;
+    int entered;
+} hvr_partition_member_change_t;
+
+typedef struct _hvr_dead_pe_msg_t {
+    int pe;
+    hvr_partition_t partition;
+} hvr_dead_pe_msg_t;
+
+#define MSG_COUPLING_NEW 0
+#define MSG_COUPLING_VAL 1
+typedef struct _hvr_coupling_msg_t {
+    int type;
+    int pe;
+    hvr_vertex_t val;
+} hvr_coupling_msg_t;
 
 /*
  * Per-PE data structure for storing all information about the running problem
@@ -112,7 +133,7 @@ typedef struct _hvr_internal_ctx_t {
     // The number of PEs (caches shmem_n_pes())
     int npes;
 
-    hvr_vertex_pool_t *pool;
+    hvr_vertex_pool_t pool;
     hvr_partition_t *vertex_partitions; // only set while exiting
 
     // Number of partitions passed in by the user
@@ -214,12 +235,13 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_t partition_producers;
     hvr_dist_bitvec_t terminated_pes;
 
-    hvr_dist_bitvec_local_subcopy_t *local_partition_producers;
-    hvr_dist_bitvec_local_subcopy_t *local_partition_terminated;
     hvr_dist_bitvec_local_subcopy_t tmp_local_partition_membership;
 
     hvr_dist_bitvec_local_subcopy_t *producer_info;
     hvr_dist_bitvec_local_subcopy_t *dead_info;
+
+    void *msg_buf;
+    size_t msg_buf_capacity;
 
     // Edge from PE -> partitions we need to notify it about
     hvr_sparse_arr_t pe_subscription_info;
@@ -228,6 +250,9 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_vertex_update_t *buffered_updates;
     hvr_vertex_update_t *buffered_deletes;
+
+#define N_VERTICES_PER_BUF 10240
+    hvr_partition_t *vert_partition_buf;
 } hvr_internal_ctx_t;
 
 /*

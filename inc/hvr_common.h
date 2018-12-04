@@ -57,11 +57,7 @@ typedef uint32_t hvr_graph_id_t;
 static inline hvr_vertex_id_t construct_vertex_id(int pe, uint64_t offset) {
     uint64_t id = pe;
     id = (id << 32);
-
-    // Double check that the offset is encodable in 32 bits.
-    assert(offset <= UINT32_MAX);
     id = (id | offset);
-
     return id;
 }
 

@@ -33,8 +33,8 @@ void hvr_vertex_init(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     memset(vert, 0x00, sizeof(*vert));
 
-    hvr_vertex_pool_t *pool = ctx->pool;
-    if (vert >= pool->pool && vert < pool->pool + pool->pool_size) {
+    hvr_vertex_pool_t *pool = &ctx->pool;
+    if (vert >= pool->pool && vert < pool->pool + pool->tracker.capacity) {
         vert->id = construct_vertex_id(ctx->pe, vert - pool->pool);
     } else {
         vert->id = HVR_INVALID_VERTEX_ID;

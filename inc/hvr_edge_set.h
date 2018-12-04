@@ -28,9 +28,6 @@ extern void hvr_add_edge(const hvr_vertex_id_t local_vertex_id,
 extern void hvr_remove_edge(const hvr_vertex_id_t local_vertex_id,
         const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set);
 
-extern hvr_edge_type_t hvr_have_edge(const hvr_vertex_id_t local_vertex_id,
-        const hvr_vertex_id_t global_vertex_id, hvr_edge_set_t *set);
-
 extern size_t hvr_count_edges(const hvr_vertex_id_t local_vertex_id,
         hvr_edge_set_t *set);
 

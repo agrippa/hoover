@@ -5,7 +5,7 @@
 #include "hvr_vertex.h"
 
 typedef struct _hvr_vertex_iter_t {
-    hvr_vertex_range_node_t *current_chunk;
+    hvr_range_node_t *current_chunk;
     unsigned index_for_current_chunk;
     hvr_vertex_pool_t *pool;
     hvr_internal_ctx_t *ctx;

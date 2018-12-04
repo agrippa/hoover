@@ -47,6 +47,15 @@ int main(int argc, char **argv) {
     verify_edge_construction(2048, 1024, DIRECTED_IN);
     verify_edge_construction(2048, 1024, DIRECTED_OUT);
 
+    for (int p = 0; p < 24; p++) {
+        for (uint64_t offset = 0; offset < 1536000; offset++) {
+            verify_edge_construction(p, offset, NO_EDGE);
+            verify_edge_construction(p, offset, BIDIRECTIONAL);
+            verify_edge_construction(p, offset, DIRECTED_IN);
+            verify_edge_construction(p, offset, DIRECTED_OUT);
+        }
+    }
+
     printf("Success!\n");
     return 0;
 }
