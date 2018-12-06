@@ -31,8 +31,6 @@ typedef struct _hvr_set_t {
 
 extern hvr_set_t *hvr_create_empty_set(const unsigned nvals);
 
-extern hvr_set_t *hvr_create_empty_set_symmetric(const uint64_t nvals);
-
 /*
  * Add a given value to this set.
  */

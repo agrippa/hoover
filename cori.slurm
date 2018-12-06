@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:20:00
+#SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -30,7 +30,7 @@ export SHMEM_SYMMETRIC_SIZE=$((2 * 1024 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
-export CORES_PER_SOCKET=12
+export CORES_PER_SOCKET=16
 export SOCKETS_PER_NODE=2
 export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
@@ -52,7 +52,7 @@ if [[ $SLURM_NNODES -eq 1 ]]; then
     # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 1024))
     export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 512))
     export PE_ROWS=4
-    export PE_COLS=6
+    export PE_COLS=8
 elif [[ $SLURM_NNODES -eq 4 ]]; then
     # For 4 nodes
     export CELL_DIM=2000.0
@@ -99,11 +99,11 @@ export INFECTION_RADIUS=300
 
 export HVR_SYMM_POOL_SIZE=2084000
 export HVR_SYMM_POOL_NNODES=1024
-export HVR_VEC_CACHE_PREALLOCS=2000000
+export HVR_VEC_CACHE_PREALLOCS=2400000
 export HVR_VERT_CACHE_SEGS=20000
 export HVR_EDGE_SET_SEGS=20000
 export HVR_EDGE_SET_VALS=$((1024 * 1024 * 1024))
-export HVR_EDGE_SET_NODES=262144
+export HVR_EDGE_SET_NODES=65536
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1
@@ -117,6 +117,6 @@ echo "RUNNING INFECTIOUS MODEL"
 echo ""
 srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/infectious_test+pat $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
+    $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    300
+    420

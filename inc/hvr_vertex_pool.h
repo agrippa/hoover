@@ -18,6 +18,7 @@ typedef struct _hvr_range_tracker_t {
     hvr_range_node_t *preallocated_nodes;
     size_t capacity;
     size_t used;
+    int n_nodes;
 } hvr_range_tracker_t;
 
 typedef struct _hvr_vertex_pool_t {

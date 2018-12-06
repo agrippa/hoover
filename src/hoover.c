@@ -647,6 +647,9 @@ void hvr_init(const hvr_partition_t n_partitions,
     for (unsigned i = 0; i < new_ctx->npes; i++) {
         hvr_vertex_init(&(new_ctx->coupled_pes_values)[i], new_ctx);
     }
+    new_ctx->updates_on_this_iter = (int *)malloc(
+            new_ctx->npes * sizeof(new_ctx->updates_on_this_iter[0]));
+    assert(new_ctx->updates_on_this_iter);
 
     new_ctx->partitions_per_pe = (new_ctx->n_partitions + new_ctx->npes - 1) /
         new_ctx->npes;
@@ -832,7 +835,8 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
     }
 }
 
-static int is_local_neighbor(hvr_vertex_id_t id, hvr_internal_ctx_t *ctx) {
+static inline int is_local_neighbor(hvr_vertex_id_t id,
+        hvr_internal_ctx_t *ctx) {
     hvr_map_val_list_t neighbors;
     int n_neighbors = hvr_map_linearize(id, &ctx->edges.map,
             &neighbors);
@@ -849,15 +853,18 @@ static int is_local_neighbor(hvr_vertex_id_t id, hvr_internal_ctx_t *ctx) {
 }
 
 // The only place where edges between vertices are created/deleted
-static void update_edge_info(hvr_vertex_id_t base, hvr_vertex_id_t neighbor,
+static void update_edge_info(hvr_vertex_id_t base_id,
+        hvr_vertex_id_t neighbor_id,
+        hvr_vertex_cache_node_t *base,
+        hvr_vertex_cache_node_t *neighbor,
         hvr_edge_type_t new_edge, hvr_edge_type_t existing_edge,
         hvr_internal_ctx_t *ctx) {
     assert(new_edge != existing_edge);
 
     if (existing_edge != NO_EDGE) {
-        hvr_remove_edge(base, neighbor, &ctx->edges);
-        if (base != neighbor) {
-            hvr_remove_edge(neighbor, base, &ctx->edges);
+        hvr_remove_edge(base_id, neighbor_id, &ctx->edges);
+        if (base_id != neighbor_id) {
+            hvr_remove_edge(neighbor_id, base_id, &ctx->edges);
         }
     }
 
@@ -867,8 +874,8 @@ static void update_edge_info(hvr_vertex_id_t base, hvr_vertex_id_t neighbor,
          * edge, but allows us to make more assertions that are helpful for
          * debugging.
          */
-        hvr_add_edge(base, neighbor, new_edge, &ctx->edges);
-        hvr_add_edge(neighbor, base, flip_edge_direction(new_edge),
+        hvr_add_edge(base_id, neighbor_id, new_edge, &ctx->edges);
+        hvr_add_edge(neighbor_id, base_id, flip_edge_direction(new_edge),
                 &ctx->edges);
 
     }
@@ -878,14 +885,16 @@ static void update_edge_info(hvr_vertex_id_t base, hvr_vertex_id_t neighbor,
      * remote may require a change in local neighbor list membership (either
      * addition or deletion).
      */
-    if (VERTEX_ID_PE(base) != VERTEX_ID_PE(neighbor) &&
-            (VERTEX_ID_PE(base) == ctx->pe ||
-             VERTEX_ID_PE(neighbor) == ctx->pe)) {
-        hvr_vertex_id_t remote = (VERTEX_ID_PE(base) == ctx->pe ? neighbor :
-                base);
+    if (VERTEX_ID_PE(base_id) != VERTEX_ID_PE(neighbor_id) &&
+            (VERTEX_ID_PE(base_id) == ctx->pe ||
+             VERTEX_ID_PE(neighbor_id) == ctx->pe)) {
+        hvr_vertex_cache_node_t *remote_node =
+            (VERTEX_ID_PE(base_id) == ctx->pe ?
+             (neighbor ? neighbor :
+              hvr_vertex_cache_lookup(neighbor_id, &ctx->vec_cache)) :
+             (base ? base : hvr_vertex_cache_lookup(base_id, &ctx->vec_cache)));
+        hvr_vertex_id_t remote = remote_node->vert.id;
 
-        hvr_vertex_cache_node_t *remote_node = hvr_vertex_cache_lookup(remote,
-                &ctx->vec_cache);
         if (local_neighbor_list_contains(remote_node, &ctx->vec_cache) &&
                 !is_local_neighbor(remote, ctx)) {
             // Remove
@@ -903,26 +912,28 @@ static void update_edge_info(hvr_vertex_id_t base, hvr_vertex_id_t neighbor,
      * Only needs updating if this is an edge inbound in a given vertex (either
      * directed in or bidirectional).
      */
-    if (VERTEX_ID_PE(base) == ctx->pe && new_edge != NO_EDGE &&
+    if (VERTEX_ID_PE(base_id) == ctx->pe && new_edge != NO_EDGE &&
             new_edge != DIRECTED_OUT) {
-        hvr_vertex_t *local = ctx->pool.pool + VERTEX_ID_OFFSET(base);
+        hvr_vertex_t *local = ctx->pool.pool + VERTEX_ID_OFFSET(base_id);
         local->needs_processing = 1;
     }
 
-    if (VERTEX_ID_PE(neighbor) == ctx->pe && new_edge != NO_EDGE &&
+    if (VERTEX_ID_PE(neighbor_id) == ctx->pe && new_edge != NO_EDGE &&
             flip_edge_direction(new_edge) != DIRECTED_OUT) {
-        hvr_vertex_t *local = ctx->pool.pool + VERTEX_ID_OFFSET(neighbor);
+        hvr_vertex_t *local = ctx->pool.pool + VERTEX_ID_OFFSET(neighbor_id);
         local->needs_processing = 1;
     }
 }
 
-static int create_new_edges_helper(hvr_vertex_t *vert,
-        hvr_vertex_t *updated_vert, hvr_internal_ctx_t *ctx) {
-    hvr_edge_type_t edge = ctx->should_have_edge(vert, updated_vert, ctx);
+static int create_new_edges_helper(hvr_vertex_cache_node_t *vert,
+        hvr_vertex_cache_node_t *updated_vert, hvr_internal_ctx_t *ctx) {
+    hvr_edge_type_t edge = ctx->should_have_edge(&vert->vert,
+            &updated_vert->vert, ctx);
     if (edge == NO_EDGE) {
         return 0;
     } else {
-        update_edge_info(vert->id, updated_vert->id, edge, NO_EDGE, ctx);
+        update_edge_info(vert->vert.id, updated_vert->vert.id, vert,
+                updated_vert, edge, NO_EDGE, ctx);
         return 1;
     }
 }
@@ -932,7 +943,7 @@ static int create_new_edges_helper(hvr_vertex_t *vert,
 * insert them for the new vertex. Eventually, any local vertex which had a new
 * edge inserted will need to be updated.
 */
-static void create_new_edges(hvr_vertex_t *updated,
+static void create_new_edges(hvr_vertex_cache_node_t *updated,
         hvr_partition_t *interacting, unsigned n_interacting,
         hvr_internal_ctx_t *ctx,
         unsigned *count_new_should_have_edges) {
@@ -944,8 +955,8 @@ static void create_new_edges(hvr_vertex_t *updated,
         hvr_vertex_cache_node_t *cache_iter =
             ctx->vec_cache.partitions[other_part];
         while (cache_iter) {
-            int edge_created = create_new_edges_helper(&cache_iter->vert,
-                    updated, ctx);
+            int edge_created = create_new_edges_helper(cache_iter, updated,
+                    ctx);
             cache_iter = cache_iter->part_next;
             local_count_new_should_have_edges++;
         }
@@ -963,8 +974,11 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
     static hvr_edge_info_t *edges_to_delete = NULL;
     static unsigned edges_to_delete_capacity = 0;
 
+    hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(dead_vert->id,
+            &ctx->vec_cache);
+
     // If we were caching this node, delete the mirrored version
-    if (hvr_vertex_cache_lookup(dead_vert->id, &ctx->vec_cache)) {
+    if (cached) {
         hvr_map_val_list_t neighbors;
         int n_neighbors = hvr_map_linearize(dead_vert->id, &ctx->edges.map,
                 &neighbors);
@@ -986,8 +1000,7 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
 
         for (int n = 0; n < n_neighbors; n++) {
             hvr_vertex_id_t neighbor = EDGE_INFO_VERTEX(edges_to_delete[n]);
-            update_edge_info(dead_vert->id,
-                    EDGE_INFO_VERTEX(edges_to_delete[n]), NO_EDGE,
+            update_edge_info(dead_vert->id, neighbor, cached, NULL, NO_EDGE,
                     EDGE_INFO_EDGE(edges_to_delete[n]), ctx);
         }
 
@@ -1076,15 +1089,18 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         }
 
         for (unsigned i = 0; i < edges_to_update_len; i++) {
-            update_edge_info(updated->vert.id,
+            update_edge_info(
+                    updated->vert.id,
                     EDGE_INFO_VERTEX(edges_to_update[i]),
+                    updated,
+                    NULL,
                     new_edge_type[i],
                     EDGE_INFO_EDGE(edges_to_update[i]), ctx);
         }
 
         const unsigned long long done_updating_edges = hvr_current_time_us();
 
-        create_new_edges(&updated->vert, interacting, n_interacting, ctx,
+        create_new_edges(updated, interacting, n_interacting, ctx,
                 count_new_should_have_edges);
 
         const unsigned long long done = hvr_current_time_us();
@@ -1096,7 +1112,7 @@ static hvr_vertex_cache_node_t *handle_new_vertex(hvr_vertex_t *new_vert,
         const unsigned long long start_new = hvr_current_time_us();
         // A brand new vertex, or at least this is our first update on it
         updated = hvr_vertex_cache_add(new_vert, partition, &ctx->vec_cache);
-        create_new_edges(new_vert, interacting, n_interacting, ctx,
+        create_new_edges(updated, interacting, n_interacting, ctx,
                 count_new_should_have_edges);
         *time_creating += (hvr_current_time_us() - start_new);
     }
@@ -1396,7 +1412,7 @@ static unsigned send_updates(hvr_internal_ctx_t *ctx,
 }
 
 static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
-        hvr_vertex_t *coupled_metric) {
+        hvr_vertex_t *coupled_metric, int count_updated) {
     // Copy the present value of the coupled metric locally
     memcpy(coupled_metric, ctx->coupled_pes_values + ctx->pe,
             sizeof(*coupled_metric));
@@ -1439,6 +1455,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     hvr_coupling_msg_t coupled_val_msg;
     coupled_val_msg.type = MSG_COUPLING_VAL;
     coupled_val_msg.pe = ctx->pe;
+    coupled_val_msg.updates_on_this_iter = count_updated;
     memcpy(&coupled_val_msg.val, coupled_metric, sizeof(*coupled_metric));
 
     for (unsigned p = 0; p < ctx->npes; p++) {
@@ -1457,12 +1474,14 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     memcpy(ctx->coupled_pes_values + ctx->pe, coupled_metric,
             sizeof(*coupled_metric));
     hvr_set_insert(ctx->pe, ctx->coupled_pes_received_from);
+    memset(ctx->updates_on_this_iter, 0x00,
+            ctx->npes * sizeof(ctx->updates_on_this_iter[0]));
 
     size_t msg_len;
     while (hvr_set_count(ctx->coupled_pes_received_from) <
             hvr_set_count(ctx->coupled_pes)) {
-        int success = hvr_mailbox_recv(&ctx->msg_buf, &ctx->msg_buf_capacity, &msg_len,
-                &ctx->coupling_mailbox);
+        int success = hvr_mailbox_recv(&ctx->msg_buf, &ctx->msg_buf_capacity,
+                &msg_len, &ctx->coupling_mailbox);
         if (success) {
             assert(msg_len == sizeof(hvr_coupling_msg_t));
             hvr_coupling_msg_t *msg = (hvr_coupling_msg_t *)ctx->msg_buf;
@@ -1493,6 +1512,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                             &ctx->coupling_mailbox);
                 } else {
                     hvr_set_insert(msg->pe, ctx->coupled_pes_received_from);
+                    ctx->updates_on_this_iter[msg->pe] = msg->updates_on_this_iter;
                     memcpy(ctx->coupled_pes_values + msg->pe, &msg->val,
                             sizeof(msg->val));
                 }
@@ -1522,7 +1542,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     int should_abort = ctx->should_terminate(&iter, ctx,
             ctx->coupled_pes_values + ctx->pe, // Local coupled metric
             coupled_metric, // Global coupled metric
-            ctx->coupled_pes, ncoupled);
+            ctx->coupled_pes, ncoupled, ctx->updates_on_this_iter);
 
     if (ncoupled > 1) {
         char buf[1024];
@@ -1796,7 +1816,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     const unsigned long long end_vertex_updates = hvr_current_time_us();
 
     hvr_vertex_t coupled_metric;
-    int should_abort = update_coupled_values(ctx, &coupled_metric);
+    int should_abort = update_coupled_values(ctx, &coupled_metric, 0);
     const unsigned long long end_update_coupled = hvr_current_time_us();
 
     if (print_profiling) {
@@ -1880,7 +1900,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long end_vertex_updates = hvr_current_time_us();
 
-        should_abort = update_coupled_values(ctx, &coupled_metric);
+        should_abort = update_coupled_values(ctx, &coupled_metric,
+                count_updated);
 
         const unsigned long long end_update_coupled = hvr_current_time_us();
 

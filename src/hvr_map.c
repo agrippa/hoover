@@ -40,12 +40,12 @@ static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_map_val_t val,
     }
 }
 
-static inline int binarySearch(hvr_vertex_id_t *arr, int l, int r,
-        hvr_vertex_id_t x) 
-{ 
+static inline int binarySearch(const hvr_vertex_id_t *arr, const int l,
+        const int r, const hvr_vertex_id_t x) 
+{
     if (r >= l) 
     { 
-        int mid = l + (r - l)/2; 
+        const int mid = l + (r - l)/2; 
 
         // If the element is present at the middle  
         // itself 

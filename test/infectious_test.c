@@ -456,20 +456,23 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 int previous_ninfected = -1;
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *local_coupled_metric, hvr_vertex_t *global_coupled_metric,
-        hvr_set_t *coupled_pes, int n_coupled_pes) {
-    int ninfected = (int)hvr_vertex_get(0, local_coupled_metric, ctx);
-    int delta_ninfected = ninfected - previous_ninfected;
-    double percent_infected = (double)ninfected / (double)actors_per_cell;
-    if (delta_ninfected == 0 && percent_infected > 0.8) {
-        printf("PE %d leaving the simulation, %% infected = %f (%d / %d)\n",
-                shmem_my_pe(), 100.0 * percent_infected, ninfected,
-                actors_per_cell);
-        return 1;
-    } else {
-        previous_ninfected = ninfected;
-        // printf("PE %d not leaving the simulation, %% infected = %f, delta = %d\n", shmem_my_pe(), 100.0 * percent_infected, delta_ninfected);
-        return 0;
+        hvr_set_t *coupled_pes, int n_coupled_pes, int *updates_on_this_iter) {
+    if (n_coupled_pes == ctx->npes) {
+        int sum_updates = 0;
+        for (int i = 0; i < ctx->npes; i++) {
+            sum_updates += updates_on_this_iter[i];
+        }
+        if (sum_updates == 0) {
+            int ninfected = (int)hvr_vertex_get(0, local_coupled_metric, ctx);
+            double percent_infected = (double)ninfected /
+                (double)actors_per_cell;
+            printf("PE %d leaving the simulation, %% infected = %f (%d / %d)\n",
+                    shmem_my_pe(), 100.0 * percent_infected, ninfected,
+                    actors_per_cell);
+            return 1;
+        }
     }
+    return 0;
 }
 
 int main(int argc, char **argv) {

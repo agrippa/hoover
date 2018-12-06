@@ -199,6 +199,7 @@ void hvr_range_tracker_init(size_t capacity, int n_nodes,
     tracker->free_list = create_node(0, capacity, tracker);
     tracker->capacity = capacity;
     tracker->used = 0;
+    tracker->n_nodes = n_nodes;
 }
 
 size_t hvr_range_tracker_reserve(size_t space, hvr_range_tracker_t *tracker) {

@@ -67,7 +67,7 @@ typedef void (*hvr_update_coupled_val_func)(hvr_vertex_iter_t *iter,
  */
 typedef int (*hvr_should_terminate_func)(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *local_coupled_val, hvr_vertex_t *global_coupled_val,
-        hvr_set_t *coupled_pes, int n_coupled_pes);
+        hvr_set_t *coupled_pes, int n_coupled_pes, int *updates_on_this_iter);
 
 /*
  * API for checking if this PE might have any vertices that interact with
@@ -117,6 +117,7 @@ typedef struct _hvr_dead_pe_msg_t {
 typedef struct _hvr_coupling_msg_t {
     int type;
     int pe;
+    int updates_on_this_iter;
     hvr_vertex_t val;
 } hvr_coupling_msg_t;
 
@@ -191,6 +192,7 @@ typedef struct _hvr_internal_ctx_t {
 
     // Values retrieved from each coupled PE
     hvr_vertex_t *coupled_pes_values;
+    int *updates_on_this_iter;
 
     /*
      * An array of bit vectors, each of npes bits.
