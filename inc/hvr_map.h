@@ -5,7 +5,7 @@
 #include "hvr_vertex_pool.h"
 #include "dlmalloc.h"
 
-#define HVR_MAP_SEG_SIZE 256
+#define HVR_MAP_SEG_SIZE 128
 #define HVR_MAP_BUCKETS 2048
 #define HVR_MAP_N_INLINE_VALS 1
 

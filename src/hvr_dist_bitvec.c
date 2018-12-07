@@ -21,6 +21,16 @@ void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
     assert(vec->symm_vec);
     memset(vec->symm_vec, 0x00, vec->dim0_per_pe * vec->dim1_length_in_words *
             sizeof(hvr_dist_bitvec_ele_t));
+
+    int pool_size = 1024 * 1024;
+    if (getenv("HVR_DIST_BITVEC_POOL_SIZE")) {
+        pool_size = atoi(getenv("HVR_DIST_BITVEC_POOL_SIZE"));
+    }
+    vec->pool = shmem_malloc(pool_size);
+    assert(vec->pool || pool_size == 0);
+    vec->tracker = create_mspace_with_base(vec->pool,
+            pool_size, 0);
+
     shmem_barrier_all();
 }
 
@@ -60,7 +70,7 @@ void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec_t *vec,
     out->coord0 = UINT_MAX;
     out->dim1 = vec->dim1;
     out->dim1_length_in_words = vec->dim1_length_in_words;
-    out->subvec = (hvr_dist_bitvec_ele_t *)malloc(
+    out->subvec = (hvr_dist_bitvec_ele_t *)mspace_malloc(vec->tracker,
             vec->dim1_length_in_words * sizeof(*(out->subvec)));
     assert(out->subvec);
     memset(out->subvec, 0x00,

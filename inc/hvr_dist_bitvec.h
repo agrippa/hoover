@@ -1,6 +1,8 @@
 #ifndef _HVR_DISTRIBUTED_BITVECTOR
 #define _HVR_DISTRIBUTED_BITVECTOR
 
+#include "dlmalloc.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -29,6 +31,9 @@ typedef struct _hvr_dist_bitvec_t {
      */
     hvr_dist_bitvec_size_t dim1_length_in_words;
     hvr_dist_bitvec_size_t dim0_per_pe;
+
+    void *pool;
+    mspace tracker;
 } hvr_dist_bitvec_t;
 
 // A local (not symmetric) copy of the values for a single row of the bitvector.
