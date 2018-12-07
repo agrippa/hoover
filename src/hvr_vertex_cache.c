@@ -78,58 +78,6 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
     }
 }
 
-static void linked_list_remove_helper(hvr_vertex_cache_node_t *to_remove,
-        hvr_vertex_cache_node_t *prev, hvr_vertex_cache_node_t *next,
-        hvr_vertex_cache_node_t **prev_next,
-        hvr_vertex_cache_node_t **next_prev,
-        hvr_vertex_cache_node_t **head) {
-    if (prev == NULL && next == NULL) {
-        // Only element in the list
-        assert(*head == to_remove);
-        *head = NULL;
-    } else if (prev == NULL) {
-        // Only next is non-null, first element in list
-        assert(*head == to_remove);
-        *next_prev = NULL;
-        *head = next;
-    } else if (next == NULL) {
-        // Only prev is non-null, last element in list
-        *prev_next = NULL;
-    } else {
-        assert(prev && next);
-        assert(*prev_next == *next_prev && *prev_next == to_remove &&
-            *next_prev == to_remove);
-        *prev_next = next;
-        *next_prev = prev;
-    }
-}
-
-void hvr_vertex_cache_remove_from_local_neighbor_list(
-        hvr_vertex_cache_node_t *node, hvr_vertex_cache_t *cache) {
-    if (local_neighbor_list_contains(node, cache)) {
-        linked_list_remove_helper(node, node->local_neighbors_prev,
-                node->local_neighbors_next,
-                node->local_neighbors_prev ?
-                &(node->local_neighbors_prev->local_neighbors_next) : NULL,
-                node->local_neighbors_next ?
-                &(node->local_neighbors_next->local_neighbors_prev) : NULL,
-                &(cache->local_neighbors_head));
-        node->local_neighbors_prev = NULL;
-        node->local_neighbors_next = NULL;
-    }
-}
-
-void hvr_vertex_cache_add_to_local_neighbor_list(hvr_vertex_cache_node_t *node,
-        hvr_vertex_cache_t *cache) {
-    if (!local_neighbor_list_contains(node, cache)) {
-        if (cache->local_neighbors_head) {
-            cache->local_neighbors_head->local_neighbors_prev = node;
-        }
-        node->local_neighbors_next = cache->local_neighbors_head;
-        cache->local_neighbors_head = node;
-    }
-}
-
 void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
     hvr_vertex_cache_node_t *node = hvr_vertex_cache_lookup(vert->id, cache);
     assert(node);
@@ -186,6 +134,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     const unsigned bucket = CACHE_BUCKET(vert->id);
     memcpy(&new_node->vert, vert, sizeof(*vert));
     new_node->part = part;
+    new_node->n_local_neighbors = 0;
 
     // Insert into the appropriate partition list
     if (cache->partitions[part]) {

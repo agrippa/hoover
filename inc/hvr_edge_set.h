@@ -48,6 +48,8 @@ static inline hvr_edge_type_t flip_edge_direction(hvr_edge_type_t dir) {
             return DIRECTED_IN;
         case (BIDIRECTIONAL):
             return BIDIRECTIONAL;
+        case (NO_EDGE):
+            return NO_EDGE;
         default:
             abort();
     }

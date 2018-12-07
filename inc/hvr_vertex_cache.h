@@ -22,9 +22,6 @@ typedef struct _hvr_vertex_cache_node_t {
     // Contents of the vec itself
     hvr_vertex_t vert;
 
-    // Partition for this vert. Think of this as a secondary key, after vert.id
-    hvr_partition_t part;
-
     /*
      * Maintain lists of mirrored vertices in each partition to enable quick
      * iteration over a subset of mirrored vertices based on partition.
@@ -35,6 +32,11 @@ typedef struct _hvr_vertex_cache_node_t {
 
     struct _hvr_vertex_cache_node_t *local_neighbors_next;
     struct _hvr_vertex_cache_node_t *local_neighbors_prev;
+
+    // Partition for this vert. Think of this as a secondary key, after vert.id
+    hvr_partition_t part;
+
+    unsigned n_local_neighbors;
 } hvr_vertex_cache_node_t;
 
 /*
@@ -104,11 +106,57 @@ static inline int local_neighbor_list_contains(hvr_vertex_cache_node_t *node,
         cache->local_neighbors_head == node;
 }
 
-extern void hvr_vertex_cache_remove_from_local_neighbor_list(
-        hvr_vertex_cache_node_t *node, hvr_vertex_cache_t *cache);
+static inline void linked_list_remove_helper(hvr_vertex_cache_node_t *to_remove,
+        hvr_vertex_cache_node_t *prev, hvr_vertex_cache_node_t *next,
+        hvr_vertex_cache_node_t **prev_next,
+        hvr_vertex_cache_node_t **next_prev,
+        hvr_vertex_cache_node_t **head) {
+    if (prev == NULL && next == NULL) {
+        // Only element in the list
+        assert(*head == to_remove);
+        *head = NULL;
+    } else if (prev == NULL) {
+        // Only next is non-null, first element in list
+        assert(*head == to_remove);
+        *next_prev = NULL;
+        *head = next;
+    } else if (next == NULL) {
+        // Only prev is non-null, last element in list
+        *prev_next = NULL;
+    } else {
+        assert(prev && next);
+        assert(*prev_next == *next_prev && *prev_next == to_remove &&
+            *next_prev == to_remove);
+        *prev_next = next;
+        *next_prev = prev;
+    }
+}
 
-extern void hvr_vertex_cache_add_to_local_neighbor_list(
-        hvr_vertex_cache_node_t *node, hvr_vertex_cache_t *cache);
+static inline void hvr_vertex_cache_remove_from_local_neighbor_list(
+        hvr_vertex_cache_node_t *node, hvr_vertex_cache_t *cache) {
+    if (local_neighbor_list_contains(node, cache)) {
+        linked_list_remove_helper(node, node->local_neighbors_prev,
+                node->local_neighbors_next,
+                node->local_neighbors_prev ?
+                &(node->local_neighbors_prev->local_neighbors_next) : NULL,
+                node->local_neighbors_next ?
+                &(node->local_neighbors_next->local_neighbors_prev) : NULL,
+                &(cache->local_neighbors_head));
+        node->local_neighbors_prev = NULL;
+        node->local_neighbors_next = NULL;
+    }
+}
+
+static inline void hvr_vertex_cache_add_to_local_neighbor_list(
+        hvr_vertex_cache_node_t *node, hvr_vertex_cache_t *cache) {
+    if (!local_neighbor_list_contains(node, cache)) {
+        if (cache->local_neighbors_head) {
+            cache->local_neighbors_head->local_neighbors_prev = node;
+        }
+        node->local_neighbors_next = cache->local_neighbors_head;
+        cache->local_neighbors_head = node;
+    }
+}
 
 /*
  * Initializes an already allocated block of memory to store a vertex cache.

@@ -853,18 +853,28 @@ static inline int is_local_neighbor(hvr_vertex_id_t id,
 }
 
 // The only place where edges between vertices are created/deleted
-static void update_edge_info(hvr_vertex_id_t base_id,
+static inline void update_edge_info(hvr_vertex_id_t base_id,
         hvr_vertex_id_t neighbor_id,
         hvr_vertex_cache_node_t *base,
         hvr_vertex_cache_node_t *neighbor,
         hvr_edge_type_t new_edge, hvr_edge_type_t existing_edge,
         hvr_internal_ctx_t *ctx) {
     assert(new_edge != existing_edge);
+    const int base_is_local = (VERTEX_ID_PE(base_id) == ctx->pe);
+    const int neighbor_is_local = (VERTEX_ID_PE(neighbor_id) == ctx->pe);
+    neighbor = (neighbor ? neighbor :
+            hvr_vertex_cache_lookup(neighbor_id, &ctx->vec_cache));
+    base = (base ? base :
+            hvr_vertex_cache_lookup(base_id, &ctx->vec_cache));
 
     if (existing_edge != NO_EDGE) {
         hvr_remove_edge(base_id, neighbor_id, &ctx->edges);
-        if (base_id != neighbor_id) {
-            hvr_remove_edge(neighbor_id, base_id, &ctx->edges);
+        hvr_remove_edge(neighbor_id, base_id, &ctx->edges);
+
+        if (!base_is_local && neighbor_is_local) {
+            base->n_local_neighbors--;
+        } else if (!neighbor_is_local && base_is_local) {
+            neighbor->n_local_neighbors--;
         }
     }
 
@@ -878,6 +888,11 @@ static void update_edge_info(hvr_vertex_id_t base_id,
         hvr_add_edge(neighbor_id, base_id, flip_edge_direction(new_edge),
                 &ctx->edges);
 
+        if (!base_is_local && neighbor_is_local) {
+            base->n_local_neighbors++;
+        } else if (!neighbor_is_local && base_is_local) {
+            neighbor->n_local_neighbors++;
+        }
     }
 
     /*
@@ -885,26 +900,25 @@ static void update_edge_info(hvr_vertex_id_t base_id,
      * remote may require a change in local neighbor list membership (either
      * addition or deletion).
      */
-    if (VERTEX_ID_PE(base_id) != VERTEX_ID_PE(neighbor_id) &&
-            (VERTEX_ID_PE(base_id) == ctx->pe ||
-             VERTEX_ID_PE(neighbor_id) == ctx->pe)) {
-        hvr_vertex_cache_node_t *remote_node =
-            (VERTEX_ID_PE(base_id) == ctx->pe ?
-             (neighbor ? neighbor :
-              hvr_vertex_cache_lookup(neighbor_id, &ctx->vec_cache)) :
-             (base ? base : hvr_vertex_cache_lookup(base_id, &ctx->vec_cache)));
+    if (base_is_local != neighbor_is_local &&
+            (base_is_local || neighbor_is_local)) {
+        hvr_vertex_cache_node_t *remote_node = (base_is_local ? neighbor : base);
         hvr_vertex_id_t remote = remote_node->vert.id;
 
-        if (local_neighbor_list_contains(remote_node, &ctx->vec_cache) &&
-                !is_local_neighbor(remote, ctx)) {
-            // Remove
-            hvr_vertex_cache_remove_from_local_neighbor_list(remote_node,
+        if (local_neighbor_list_contains(remote_node, &ctx->vec_cache)) {
+            if (remote_node->n_local_neighbors == 0) {
+            // if (!is_local_neighbor(remote, ctx)) {
+                // Remove
+                hvr_vertex_cache_remove_from_local_neighbor_list(remote_node,
+                        &ctx->vec_cache);
+            }
+        } else {
+            if (remote_node->n_local_neighbors > 0) {
+            // if (is_local_neighbor(remote, ctx)) {
+                // Add
+                hvr_vertex_cache_add_to_local_neighbor_list(remote_node,
                     &ctx->vec_cache);
-        } else if (!local_neighbor_list_contains(remote_node, &ctx->vec_cache) &&
-                is_local_neighbor(remote, ctx)) {
-            // Add
-            hvr_vertex_cache_add_to_local_neighbor_list(remote_node,
-                    &ctx->vec_cache);
+            }
         }
     }
 
@@ -912,13 +926,12 @@ static void update_edge_info(hvr_vertex_id_t base_id,
      * Only needs updating if this is an edge inbound in a given vertex (either
      * directed in or bidirectional).
      */
-    if (VERTEX_ID_PE(base_id) == ctx->pe && new_edge != NO_EDGE &&
-            new_edge != DIRECTED_OUT) {
+    if (VERTEX_ID_PE(base_id) == ctx->pe && new_edge != DIRECTED_OUT) {
         hvr_vertex_t *local = ctx->pool.pool + VERTEX_ID_OFFSET(base_id);
         local->needs_processing = 1;
     }
 
-    if (VERTEX_ID_PE(neighbor_id) == ctx->pe && new_edge != NO_EDGE &&
+    if (VERTEX_ID_PE(neighbor_id) == ctx->pe &&
             flip_edge_direction(new_edge) != DIRECTED_OUT) {
         hvr_vertex_t *local = ctx->pool.pool + VERTEX_ID_OFFSET(neighbor_id);
         local->needs_processing = 1;
