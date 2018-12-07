@@ -1,5 +1,5 @@
 CFLAGS=-g -O2 -Iinc -std=c99 -Wall
-SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -L$(OPENSHMEM_INSTALL)/lib64 -lsma
+SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -L$(OPENSHMEM_INSTALL)/lib64 -lsma
 CC=cc
 CXX=cc
 
@@ -23,10 +23,11 @@ bin/libhoover.a: src/hoover.c \
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_dist_bitvec.o src/hvr_dist_bitvec.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_sparse_arr.o src/hvr_sparse_arr.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_map.o src/hvr_map.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/dlmalloc.o src/dlmalloc/dlmalloc.c
 	ar rcs bin/libhoover.a bin/hoover.o \
 		bin/hvr_vertex_pool.o bin/hvr_vertex_iter.o bin/hvr_mailbox.o bin/hvr_set.o \
 		bin/hvr_edge_set.o bin/hvr_vertex.o bin/hvr_vertex_cache.o \
-		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o
+		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o bin/dlmalloc.o
 
 bin/init_test: test/init_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)

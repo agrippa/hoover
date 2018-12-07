@@ -3,6 +3,7 @@
 
 #include "hvr_common.h"
 #include "hvr_vertex_pool.h"
+#include "dlmalloc.h"
 
 #define HVR_MAP_SEG_SIZE 256
 #define HVR_MAP_BUCKETS 2048
@@ -62,8 +63,8 @@ typedef struct _hvr_map_t {
     hvr_map_seg_t *seg_pool;
     unsigned n_prealloc;
 
-    hvr_map_val_t *val_pool;
-    hvr_range_tracker_t tracker;
+    void *val_pool;
+    mspace tracker;
 } hvr_map_t;
 
 extern void hvr_map_init(hvr_map_t *m, unsigned n_segs,

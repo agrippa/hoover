@@ -112,10 +112,10 @@ void hvr_map_init(hvr_map_t *m, unsigned n_segs, size_t vals_pool_size,
     m->seg_pool = prealloc;
     m->n_prealloc = n_segs;
 
-    m->val_pool = (hvr_map_val_t *)malloc(
-            vals_pool_size * sizeof(hvr_map_val_t));
+    m->val_pool = malloc(vals_pool_size * sizeof(hvr_map_val_t));
     assert(m->val_pool || vals_pool_size == 0);
-    hvr_range_tracker_init(vals_pool_size, vals_pool_nodes, &m->tracker);
+    m->tracker = create_mspace_with_base(m->val_pool,
+            vals_pool_size * sizeof(hvr_map_val_t), 0);
 }
 
 void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
@@ -201,14 +201,9 @@ void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,
                 unsigned new_capacity = (curr_capacity == 0 ?
                         m->init_val_capacity : 2 * curr_capacity);
 
-                size_t offset = hvr_range_tracker_reserve(new_capacity,
-                        &m->tracker);
-                hvr_map_val_t *new_mem = m->val_pool + offset;
-                if (curr_capacity > 0) {
-                    memcpy(new_mem, ext_vals, curr_capacity * sizeof(*new_mem));
-                    hvr_range_tracker_release(ext_vals - m->val_pool,
-                            curr_capacity, &m->tracker);
-                }
+                hvr_map_val_t *new_mem = mspace_realloc(m->tracker, ext_vals,
+                        new_capacity * sizeof(*new_mem));
+                assert(new_mem);
                 seg->data[seg_index].ext_vals = new_mem;
                 seg->data[seg_index].ext_capacity = new_capacity;
             }
