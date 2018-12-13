@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     if (shmem_my_pe() == 0) {
         int msg = 42;
         fprintf(stderr, "PE 0 sending message...\n");
-        hvr_mailbox_send(&msg, sizeof(msg), 1, -1, &mailbox);
+        hvr_mailbox_send(&msg, sizeof(msg), 1, -1, &mailbox, NULL);
         fprintf(stderr, "PE 0 done sending message...\n");
     } else if (shmem_my_pe() == 1) {
         sleep(10);
@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
 
     for (unsigned i = 0; i < 100; i++) {
         if (shmem_my_pe() == 0) {
-            hvr_mailbox_send(&i, sizeof(i), 1, -1, &mailbox);
+            hvr_mailbox_send(&i, sizeof(i), 1, -1, &mailbox, NULL);
         } else if (shmem_my_pe() == 1) {
             int success = hvr_mailbox_recv(&msg, &msg_capacity, &msg_len,
                     &mailbox);
@@ -50,6 +50,10 @@ int main(int argc, char **argv) {
     }
 
     shmem_barrier_all();
+
+    if (shmem_my_pe() == 0) {
+        printf("Success!\n");
+    }
 
     shmem_finalize();
     return 0;

@@ -32,7 +32,8 @@
 
 #define MAX_DST_DELTA 500.0
 
-unsigned max_modeled_timestep = 0;
+int max_modeled_timestep = 0;
+int all_max_modeled_timestep = 0;
 unsigned *max_timestep_created = NULL;
 
 static unsigned time_partition_dim = 0;
@@ -69,6 +70,7 @@ static int max_num_timesteps;
  */
 
 long long p_wrk[SHMEM_REDUCE_MIN_WRKDATA_SIZE];
+int int_p_wrk[SHMEM_REDUCE_MIN_WRKDATA_SIZE];
 long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 
 static double distance(double x1, double y1, double x2, double y2) {
@@ -213,9 +215,9 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      * If vertex is not already infected, update it to be infected if any of its
      * neighbors are.
      */
-    hvr_edge_info_t *neighbors = NULL;
-    int n_neighbors = 0;
-    hvr_get_neighbors(vertex, &neighbors, &n_neighbors, ctx);
+    hvr_map_val_list_t neighbors;
+    int n_neighbors = hvr_get_neighbors(vertex, &neighbors, ctx);
+
     const unsigned actor_id = (unsigned)hvr_vertex_get(ACTOR_ID, vertex, ctx);
     const unsigned timestep = (unsigned)hvr_vertex_get(TIME_STEP, vertex, ctx);
 
@@ -227,16 +229,18 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     hvr_vertex_t *prev = NULL;
     hvr_vertex_t *next = NULL;
     for (int i = 0; i < n_neighbors; i++) {
-        hvr_vertex_id_t id = EDGE_INFO_VERTEX(neighbors[i]);
+        hvr_edge_info_t edge_info = hvr_map_val_list_get(i,
+                &neighbors).edge_info;
+        hvr_vertex_id_t id = EDGE_INFO_VERTEX(edge_info);
         hvr_vertex_t *neighbor = hvr_get_vertex(id, ctx);
         if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) == actor_id) {
-            if (EDGE_INFO_EDGE(neighbors[i]) == DIRECTED_IN) {
+            if (EDGE_INFO_EDGE(edge_info) == DIRECTED_IN) {
                 assert(prev == NULL);
                 assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
                         timestep - 1);
                 prev = neighbor;
             }
-            if (EDGE_INFO_EDGE(neighbors[i]) == DIRECTED_OUT) {
+            if (EDGE_INFO_EDGE(edge_info) == DIRECTED_OUT) {
                 assert(next == NULL);
                 assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
                         timestep + 1);
@@ -255,9 +259,11 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      */
     if ((int)hvr_vertex_get(INFECTED, vertex, ctx) == 0) {
         for (int i = 0; i < n_neighbors; i++) {
-            if (EDGE_INFO_EDGE(neighbors[i]) == DIRECTED_IN) {
+            hvr_edge_info_t edge_info = hvr_map_val_list_get(i,
+                    &neighbors).edge_info;
+            if (EDGE_INFO_EDGE(edge_info) == DIRECTED_IN) {
                 hvr_vertex_t *neighbor = hvr_get_vertex(
-                        EDGE_INFO_VERTEX(neighbors[i]), ctx);
+                        EDGE_INFO_VERTEX(edge_info), ctx);
                 if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) != actor_id) {
                     assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
                             timestep - 1);
@@ -320,8 +326,6 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         max_timestep_created[actor_id - (shmem_my_pe() * actors_per_cell)] =
             next_timestep;
     }
-
-    free(neighbors);
 }
 
 /*
@@ -455,13 +459,18 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 
 int previous_ninfected = -1;
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_vertex_t *local_coupled_metric, hvr_vertex_t *global_coupled_metric,
-        hvr_set_t *coupled_pes, int n_coupled_pes, int *updates_on_this_iter) {
+        hvr_vertex_t *local_coupled_metric, // coupled_pes[shmem_my_pe()]
+        hvr_vertex_t *global_coupled_metric, // Sum reduction of coupled_pes
+        hvr_set_t *coupled_pes, // An array of size npes, with each PE's val
+        int n_coupled_pes, int *updates_on_this_iter) {
+
+    int sum_updates = 0;
+    for (int i = 0; i < ctx->npes; i++) {
+        sum_updates += updates_on_this_iter[i];
+    }
+
+    int aborting = 0;
     if (n_coupled_pes == ctx->npes) {
-        int sum_updates = 0;
-        for (int i = 0; i < ctx->npes; i++) {
-            sum_updates += updates_on_this_iter[i];
-        }
         if (sum_updates == 0) {
             int ninfected = (int)hvr_vertex_get(0, local_coupled_metric, ctx);
             double percent_infected = (double)ninfected /
@@ -469,10 +478,27 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
             printf("PE %d leaving the simulation, %% infected = %f (%d / %d)\n",
                     shmem_my_pe(), 100.0 * percent_infected, ninfected,
                     actors_per_cell);
-            return 1;
+            aborting = 1;
         }
     }
-    return 0;
+
+    if (n_coupled_pes > 1) {
+        char coupled_pes_str[2048];
+        hvr_set_to_string(coupled_pes, coupled_pes_str, 2048, NULL);
+
+        printf("PE %d coupled to %d / %d other PEs on iter %d %s. %d updates, "
+                "%d / %d locally infected, %d / %d globally infected. "
+                "Aborting? %d\n", ctx->pe,
+                n_coupled_pes, ctx->npes, ctx->iter,
+                "", // coupled_pes_str,
+                sum_updates,
+                (int)hvr_vertex_get(0, local_coupled_metric, ctx),
+                actors_per_cell,
+                (int)hvr_vertex_get(0, global_coupled_metric, ctx),
+                ctx->npes * actors_per_cell, aborting);
+    }
+
+    return aborting;
 }
 
 int main(int argc, char **argv) {
@@ -667,6 +693,9 @@ int main(int argc, char **argv) {
     shmem_longlong_max_to_all(&max_elapsed, &elapsed_time, 1, 0, 0, npes, p_wrk,
             p_sync);
     shmem_barrier_all();
+    shmem_int_min_to_all(&all_max_modeled_timestep, &max_modeled_timestep, 1, 0,
+            0, npes, int_p_wrk, p_sync);
+    shmem_barrier_all();
 
     if (pe == 0) {
         printf("%d PEs, %d timesteps, infection radius of %f, total CPU time = "
@@ -674,8 +703,8 @@ int main(int argc, char **argv) {
                 "iters\n", npes, max_num_timesteps, infection_radius,
                 (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
                 actors_per_cell, hvr_ctx->iter);
-        printf("Max modeled timestep = %d, # vertices = %lu\n",
-                max_modeled_timestep, hvr_n_allocated(hvr_ctx));
+        printf("Max modeled timestep across all PEs = %d, # vertices on PE 0 = "
+                "%lu\n", all_max_modeled_timestep, hvr_n_allocated(hvr_ctx));
     }
 
     hvr_finalize(hvr_ctx);

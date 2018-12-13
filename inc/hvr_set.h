@@ -41,8 +41,6 @@ extern int hvr_set_insert(uint64_t val, hvr_set_t *set);
  */
 extern int hvr_set_contains(uint64_t val, hvr_set_t *set);
 
-extern int hvr_set_contains_atomic(uint64_t val, hvr_set_t *set);
-
 /*
  * Count how many elements are in this set.
  */

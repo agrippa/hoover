@@ -10,10 +10,11 @@
 
 #include <sys/types.h>
 
+#define MSPACES 1
 #define ONLY_MSPACES 1
 #define HAVE_MORECORE 0
 #define HAVE_MMAP 0
-#define USE_LOCKS 1
+#define USE_LOCKS 0
 
 typedef void *mspace;
 

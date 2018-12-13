@@ -51,49 +51,49 @@ srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
     $HOME/hoover/bin/mailbox_test
 
-echo ""
-echo "RUNNING GRID TEST"
-echo ""
-export HVR_SYMM_POOL_SIZE=40000
-export HVR_VEC_CACHE_PREALLOCS=60000
-export HVR_DISABLE_PROFILING_PRINTS=1
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/init_test 50
-
-echo ""
-echo "RUNNING INTERACT TEST"
-echo ""
-export HVR_SYMM_POOL_SIZE=40000
-export HVR_VEC_CACHE_PREALLOCS=60000
-export HVR_DISABLE_PROFILING_PRINTS=1
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/interact_test
-
-echo ""
-echo "RUNNING ADD VERTICES TEST"
-echo ""
-export HVR_SYMM_POOL_SIZE=40000
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/add_vertices_test 40
-
-echo ""
-echo "RUNNING REMOVE VERTICES TEST"
-echo ""
-export HVR_SYMM_POOL_SIZE=40000
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/remove_vertices_test 40
-
-echo ""
-echo "RUNNING OWN EDGE TEST"
-echo ""
-export HVR_SYMM_POOL_SIZE=40000
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/own_edge_test
+# echo ""
+# echo "RUNNING GRID TEST"
+# echo ""
+# export HVR_SYMM_POOL_SIZE=40000
+# export HVR_VEC_CACHE_PREALLOCS=60000
+# export HVR_DISABLE_PROFILING_PRINTS=1
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/init_test 50
+# 
+# echo ""
+# echo "RUNNING INTERACT TEST"
+# echo ""
+# export HVR_SYMM_POOL_SIZE=40000
+# export HVR_VEC_CACHE_PREALLOCS=60000
+# export HVR_DISABLE_PROFILING_PRINTS=1
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/interact_test
+# 
+# echo ""
+# echo "RUNNING ADD VERTICES TEST"
+# echo ""
+# export HVR_SYMM_POOL_SIZE=40000
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/add_vertices_test 40
+# 
+# echo ""
+# echo "RUNNING REMOVE VERTICES TEST"
+# echo ""
+# export HVR_SYMM_POOL_SIZE=40000
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/remove_vertices_test 40
+# 
+# echo ""
+# echo "RUNNING OWN EDGE TEST"
+# echo ""
+# export HVR_SYMM_POOL_SIZE=40000
+# srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
+#     --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+#     $HOME/hoover/bin/own_edge_test
 
 # echo ""
 # echo "RUNNING LOCK STRESS TEST"

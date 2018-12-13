@@ -53,7 +53,8 @@ typedef void (*hvr_update_metadata_func)(hvr_vertex_t *vert,
  * Optional callback at the start of every timestep, usually used to update
  * non-graph data structures or insert/remove vertices.
  */
-typedef void (*hvr_start_time_step)(hvr_vertex_iter_t *iter, hvr_ctx_t ctx);
+typedef void (*hvr_start_time_step)(hvr_vertex_iter_t *iter,
+        hvr_set_t *couple_with, hvr_ctx_t ctx);
 
 /*
  * API for checking if the simulation for this PE should be aborted based on the
@@ -66,8 +67,12 @@ typedef void (*hvr_update_coupled_val_func)(hvr_vertex_iter_t *iter,
  * Callback to check if this PE should leave the simulation.
  */
 typedef int (*hvr_should_terminate_func)(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_vertex_t *local_coupled_val, hvr_vertex_t *global_coupled_val,
-        hvr_set_t *coupled_pes, int n_coupled_pes, int *updates_on_this_iter);
+        hvr_vertex_t *local_coupled_val,
+        hvr_vertex_t *all_coupled_vals,
+        hvr_vertex_t *global_coupled_val,
+        hvr_set_t *coupled_pes, int n_coupled_pes,
+        int *updates_on_this_iter,
+        hvr_set_t *terminated_coupled_pes);
 
 /*
  * API for checking if this PE might have any vertices that interact with
@@ -114,6 +119,7 @@ typedef struct _hvr_dead_pe_msg_t {
 
 #define MSG_COUPLING_NEW 0
 #define MSG_COUPLING_VAL 1
+#define MSG_COUPLING_DEAD 2
 typedef struct _hvr_coupling_msg_t {
     int type;
     int pe;
@@ -189,6 +195,9 @@ typedef struct _hvr_internal_ctx_t {
     hvr_set_t *prev_coupled_pes;
     hvr_set_t *coupled_pes;
     hvr_set_t *coupled_pes_received_from;
+    hvr_set_t *all_terminated_pes;
+    hvr_coupling_msg_t *buffered_coupling_msgs;
+    int *have_buffered_coupling_msgs;
 
     // Values retrieved from each coupled PE
     hvr_vertex_t *coupled_pes_values;
@@ -255,6 +264,10 @@ typedef struct _hvr_internal_ctx_t {
 
 #define N_VERTICES_PER_BUF 10240
     hvr_partition_t *vert_partition_buf;
+
+#define MAX_MODIFICATIONS 1024
+    hvr_edge_info_t modify_buffer[MAX_MODIFICATIONS];
+    hvr_edge_type_t modify_buffer_info[MAX_MODIFICATIONS];
 } hvr_internal_ctx_t;
 
 /*
@@ -299,9 +312,8 @@ extern int hvr_my_pe(hvr_ctx_t ctx);
 // Simple utility for time measurement in microseconds
 extern unsigned long long hvr_current_time_us();
 
-extern void hvr_get_neighbors(hvr_vertex_t *vert,
-        hvr_edge_info_t **out_neighbors,
-        int *out_n_neighbors, hvr_ctx_t in_ctx);
+extern int hvr_get_neighbors(hvr_vertex_t *vert,
+        hvr_map_val_list_t *neighbors, hvr_ctx_t in_ctx);
 
 extern hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t ctx);
 

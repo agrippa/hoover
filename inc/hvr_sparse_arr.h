@@ -2,6 +2,7 @@
 #define _HVR_SPARSE_ARR_H
 
 #include <stdlib.h>
+#include "dlmalloc.h"
 
 #define HVR_SPARSE_ARR_SEGMENT_SIZE 1024
 
@@ -9,12 +10,18 @@ typedef struct _hvr_sparse_arr_seg_t {
     int *seg[HVR_SPARSE_ARR_SEGMENT_SIZE];
     unsigned seg_lengths[HVR_SPARSE_ARR_SEGMENT_SIZE];
     unsigned seg_capacities[HVR_SPARSE_ARR_SEGMENT_SIZE];
+    struct _hvr_sparse_arr_seg_t *next;
 } hvr_sparse_arr_seg_t;
 
 typedef struct _hvr_sparse_arr_t {
     hvr_sparse_arr_seg_t **segs;
     unsigned capacity;
     unsigned nsegs;
+
+    hvr_sparse_arr_seg_t *preallocated;
+
+    void *pool;
+    mspace tracker;
 } hvr_sparse_arr_t;
 
 extern void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity);

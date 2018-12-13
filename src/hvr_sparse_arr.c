@@ -19,6 +19,26 @@ void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity) {
 
     arr->capacity = capacity;
     arr->nsegs = nsegs;
+
+    int prealloc = 1024;
+    if (getenv("HVR_SPARSE_ARR_SEGS")) {
+        prealloc = atoi(getenv("HVR_SPARSE_ARR_SEGS"));
+    }
+    hvr_sparse_arr_seg_t *pool = (hvr_sparse_arr_seg_t *)malloc(
+            prealloc * sizeof(*pool));
+    assert(pool);
+    arr->preallocated = pool;
+    for (unsigned i = 0; i < prealloc - 1; i++) {
+        pool[i].next = pool + (i + 1);
+    }
+    pool[prealloc - 1].next = NULL;
+
+    int pool_size = 1024 * 1024;
+    if (getenv("HVR_SPARSE_ARR_POOL")) {
+        pool_size = atoi(getenv("HVR_SPARSE_ARR_POOL"));
+    }
+    arr->pool = malloc(pool_size);
+    arr->tracker = create_mspace_with_base(arr->pool, pool_size, 0);
 }
 
 void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
@@ -29,9 +49,10 @@ void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
 
     if (arr->segs[seg] == NULL) {
         // No segment allocated yet
-        arr->segs[seg] = (hvr_sparse_arr_seg_t *)malloc(
-                sizeof(hvr_sparse_arr_seg_t));
+        arr->segs[seg] = arr->preallocated;
         assert(arr->segs[seg]);
+        arr->preallocated = arr->preallocated->next;
+
         hvr_sparse_arr_seg_init(arr->segs[seg]);
     }
 
@@ -49,13 +70,15 @@ void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
         // First initialization
         const unsigned initial_capacity = 16;
         segment->seg_capacities[seg_index] = initial_capacity;
-        segment->seg[seg_index] = (int *)malloc(initial_capacity * sizeof(int));
+        segment->seg[seg_index] = (int *)mspace_malloc(arr->tracker,
+                initial_capacity * sizeof(int));
         assert(segment->seg[seg_index]);
     } else if ((segment->seg_lengths)[seg_index] ==
             (segment->seg_capacities)[seg_index]) {
         // No more space left
         (segment->seg_capacities)[seg_index] *= 2;
-        (segment->seg)[seg_index] = (int *)realloc(segment->seg[seg_index],
+        (segment->seg)[seg_index] = (int *)mspace_realloc(arr->tracker,
+                segment->seg[seg_index],
                 (segment->seg_capacities)[seg_index] * sizeof(int));
         assert((segment->seg)[seg_index]);
     }
@@ -139,12 +162,7 @@ unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
     int *stored_values = segment->seg[seg_index];
     int n_stored_values = segment->seg_lengths[seg_index];
 
-    if (*capacity < n_stored_values) {
-        *capacity = n_stored_values;
-        *out_arr = (int *)realloc(*out_arr, *capacity * sizeof(**out_arr));
-        assert(*out_arr);
-    }
-    memcpy(*out_arr, stored_values, n_stored_values * sizeof(**out_arr));
+    *out_arr = stored_values;
     return n_stored_values;
 }
 
