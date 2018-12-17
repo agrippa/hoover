@@ -47,12 +47,6 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
     cache->pool_size = n_preallocs;
 
     cache->n_cached_vertices = 0;
-
-    cache->dist_from_local_vert = (uint8_t *)malloc(
-            n_preallocs * sizeof(cache->dist_from_local_vert[0]));
-    assert(cache->dist_from_local_vert);
-    memset(cache->dist_from_local_vert, 0xff,
-            n_preallocs * sizeof(cache->dist_from_local_vert[0]));
 }
 
 /*
@@ -131,7 +125,6 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         abort();
     }
 
-    const unsigned bucket = CACHE_BUCKET(vert->id);
     memcpy(&new_node->vert, vert, sizeof(*vert));
     new_node->part = part;
     new_node->n_local_neighbors = 0;

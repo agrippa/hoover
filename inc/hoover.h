@@ -216,9 +216,6 @@ typedef struct _hvr_internal_ctx_t {
     unsigned partitions_per_pe;
     unsigned *local_pes_per_partition_buffer;
 
-    // Track hits/missed by the cached_timestamp field of each vertex
-    unsigned n_vector_cache_hits, n_vector_cache_misses;
-
     // For debug printing
     char my_hostname[1024];
 

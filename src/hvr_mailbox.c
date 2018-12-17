@@ -10,16 +10,22 @@ const static unsigned sentinel = 0xdeed;
 const static unsigned clear_sentinel = 0x0;
 
 void hvr_mailbox_init(hvr_mailbox_t *mailbox, size_t capacity_in_bytes) {
+    // So that sentinel values are always cohesive
+    assert(capacity_in_bytes % sizeof(sentinel) == 0);
+
     memset(mailbox, 0x00, sizeof(*mailbox));
     mailbox->indices = (uint64_t *)shmem_malloc(sizeof(*(mailbox->indices)));
     assert(mailbox->indices);
     *(mailbox->indices) = 0;
+    mailbox->indices_curr_val = 0;
 
     mailbox->capacity_in_bytes = capacity_in_bytes;
 
     mailbox->buf = (char *)shmem_malloc(capacity_in_bytes);
     assert(mailbox->buf);
     memset(mailbox->buf, 0x00, capacity_in_bytes);
+
+    mailbox->pe = shmem_my_pe();
 
     shmem_barrier_all();
 }
@@ -65,20 +71,23 @@ static void get_from_mailbox_with_rotation(uint64_t starting_offset, void *data,
         uint64_t data_len, hvr_mailbox_t* mailbox) {
     if (starting_offset + data_len <= mailbox->capacity_in_bytes) {
         shmem_getmem(data, mailbox->buf + starting_offset, data_len,
-                shmem_my_pe());
+                mailbox->pe);
     } else {
         uint64_t rotate_index = mailbox->capacity_in_bytes - starting_offset;
         shmem_getmem(data, mailbox->buf + starting_offset, rotate_index,
-                shmem_my_pe());
+                mailbox->pe);
         shmem_getmem((char *)data + rotate_index, mailbox->buf,
-                data_len - rotate_index, shmem_my_pe());
+                data_len - rotate_index, mailbox->pe);
     }
 }
 
 int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
         int max_tries, hvr_mailbox_t *mailbox, uint64_t *out_tries) {
+    // So that sentinel values are always cohesive
+    assert(msg_len % sizeof(sentinel) == 0);
+
     uint64_t full_msg_len = sizeof(sentinel) + sizeof(msg_len) + msg_len;
-    assert(full_msg_len <= mailbox->capacity_in_bytes);
+    assert(full_msg_len < mailbox->capacity_in_bytes);
 
     uint64_t indices = shmem_uint64_atomic_fetch(mailbox->indices, target_pe);
     uint32_t start_send_index = 0;
@@ -90,7 +99,7 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
 
         uint32_t consumed = used_bytes(read_index, write_index, mailbox);
         uint32_t free_bytes = mailbox->capacity_in_bytes - consumed;
-        if (free_bytes >= full_msg_len) {
+        if (free_bytes > full_msg_len) {
             // Enough room to try
             uint32_t new_write_index = (write_index + full_msg_len) %
                 mailbox->capacity_in_bytes;
@@ -140,14 +149,35 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
 
 int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
         hvr_mailbox_t *mailbox) {
-    // Wait for at least one message to arrive
-    uint64_t indices = shmem_uint64_atomic_fetch(mailbox->indices,
-            shmem_my_pe());
     uint32_t read_index, write_index;
-    unpack_indices(indices, &read_index, &write_index);
-    uint32_t used = used_bytes(read_index, write_index, mailbox);
+    uint64_t curr_indices;
 
-    if (used == 0) return 0;
+    unpack_indices(mailbox->indices_curr_val, &read_index, &write_index);
+    if (used_bytes(read_index, write_index, mailbox) > 0) {
+        /*
+         * If the previously saved current value of indices indicates there are
+         * pending messages, we can assume that is still the case without
+         * actually having to check the mailbox.
+         */
+        curr_indices = mailbox->indices_curr_val;
+    } else {
+        /*
+         * Otherwise, the last time we checked the mailbox it was empty. We have
+         * to check if that's still the case.
+         */
+        int changed = shmem_uint64_test(mailbox->indices, SHMEM_CMP_NE,
+                mailbox->indices_curr_val);
+        if (changed) {
+            curr_indices = shmem_uint64_atomic_fetch(mailbox->indices,
+                    mailbox->pe);
+        } else {
+            return 0;
+        }
+    }
+
+    unpack_indices(curr_indices, &read_index, &write_index);
+    uint32_t used = used_bytes(read_index, write_index, mailbox);
+    assert(used > 0);
 
     // Wait for the sentinel value to appear
     uint64_t start_msg_offset = read_index;
@@ -156,11 +186,12 @@ int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
     uint64_t msg_offset = ((read_index + sizeof(sentinel) + sizeof(*msg_len)) %
             mailbox->capacity_in_bytes);
 
+    // Assert that the sentinel value is cohesive
     unsigned expect_sentinel;
-    do {
-        get_from_mailbox_with_rotation(start_msg_offset, &expect_sentinel,
-                sizeof(expect_sentinel), mailbox);
-    } while (expect_sentinel != sentinel);
+    assert(start_msg_offset + sizeof(expect_sentinel) <=
+            mailbox->capacity_in_bytes);
+    shmem_uint_wait_until((unsigned *)(mailbox->buf + start_msg_offset),
+            SHMEM_CMP_EQ, sentinel);
 
     size_t recv_msg_len;
     get_from_mailbox_with_rotation(msg_len_offset, &recv_msg_len,
@@ -180,7 +211,7 @@ int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
      * increment the read index.
      */
     put_in_mailbox_with_rotation(&clear_sentinel, sizeof(clear_sentinel),
-            start_msg_offset, mailbox, shmem_my_pe());
+            start_msg_offset, mailbox, mailbox->pe);
     shmem_fence();
 
     uint32_t new_read_index = (read_index + sizeof(sentinel) +
@@ -188,16 +219,17 @@ int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
     uint64_t new_indices = pack_indices(new_read_index, write_index);
     while (1) {
         uint64_t old = shmem_uint64_atomic_compare_swap(mailbox->indices,
-                indices, new_indices, shmem_my_pe());
-        if (old == indices) break;
+                curr_indices, new_indices, mailbox->pe);
+        if (old == curr_indices) break;
 
         uint32_t this_read_index, this_write_index;
         unpack_indices(old, &this_read_index, &this_write_index);
         assert(read_index == this_read_index);
 
-        indices = old;
+        curr_indices = old;
         new_indices = pack_indices(new_read_index, this_write_index);
     }
+    mailbox->indices_curr_val = new_indices;
 
     shmem_quiet();
 

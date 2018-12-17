@@ -45,18 +45,6 @@ void hvr_vertex_init(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     vert->needs_send = 1;
 }
 
-static int uint_compare(const void *_a, const void *_b) {
-    unsigned a = *((unsigned *)_a);
-    unsigned b = *((unsigned *)_b);
-    if (a < b) {
-        return -1;
-    } else if (a > b) {
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
 void hvr_vertex_dump(hvr_vertex_t *vert, char *buf, const size_t buf_size,
         hvr_ctx_t ctx) {
     char *iter = buf;

@@ -457,20 +457,22 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     hvr_vertex_set(0, (double)nset, out_coupled_metric, ctx);
 }
 
-int previous_ninfected = -1;
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *local_coupled_metric, // coupled_pes[shmem_my_pe()]
+        hvr_vertex_t *all_coupled_metrics, // Each PE's val
         hvr_vertex_t *global_coupled_metric, // Sum reduction of coupled_pes
         hvr_set_t *coupled_pes, // An array of size npes, with each PE's val
-        int n_coupled_pes, int *updates_on_this_iter) {
-
-    int sum_updates = 0;
-    for (int i = 0; i < ctx->npes; i++) {
-        sum_updates += updates_on_this_iter[i];
-    }
+        int n_coupled_pes, int *updates_on_this_iter,
+        hvr_set_t *terminated_coupled_pes) {
 
     int aborting = 0;
     if (n_coupled_pes == ctx->npes) {
+
+        int sum_updates = 0;
+        for (int i = 0; i < ctx->npes; i++) {
+            sum_updates += updates_on_this_iter[i];
+        }
+
         if (sum_updates == 0) {
             int ninfected = (int)hvr_vertex_get(0, local_coupled_metric, ctx);
             double percent_infected = (double)ninfected /
@@ -482,21 +484,21 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         }
     }
 
-    if (n_coupled_pes > 1) {
-        char coupled_pes_str[2048];
-        hvr_set_to_string(coupled_pes, coupled_pes_str, 2048, NULL);
+    // if (n_coupled_pes > 1) {
+    //     char coupled_pes_str[2048];
+    //     hvr_set_to_string(coupled_pes, coupled_pes_str, 2048, NULL);
 
-        printf("PE %d coupled to %d / %d other PEs on iter %d %s. %d updates, "
-                "%d / %d locally infected, %d / %d globally infected. "
-                "Aborting? %d\n", ctx->pe,
-                n_coupled_pes, ctx->npes, ctx->iter,
-                "", // coupled_pes_str,
-                sum_updates,
-                (int)hvr_vertex_get(0, local_coupled_metric, ctx),
-                actors_per_cell,
-                (int)hvr_vertex_get(0, global_coupled_metric, ctx),
-                ctx->npes * actors_per_cell, aborting);
-    }
+    //     printf("PE %d coupled to %d / %d other PEs on iter %d %s. %d updates, "
+    //             "%d / %d locally infected, %d / %d globally infected. "
+    //             "Aborting? %d\n", ctx->pe,
+    //             n_coupled_pes, ctx->npes, ctx->iter,
+    //             "", // coupled_pes_str,
+    //             sum_updates,
+    //             (int)hvr_vertex_get(0, local_coupled_metric, ctx),
+    //             actors_per_cell,
+    //             (int)hvr_vertex_get(0, global_coupled_metric, ctx),
+    //             ctx->npes * actors_per_cell, aborting);
+    // }
 
     return aborting;
 }

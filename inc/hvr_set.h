@@ -18,14 +18,13 @@ typedef unsigned long long bit_vec_element_type;
  * manipulate them.
  */
 typedef struct _hvr_set_t {
-    // Number of elements in the set
-    uint64_t nelements;
-
     // Total number of elements inserted in this cache
     uint64_t n_contained;
+    uint64_t max_n_contained;
 
     // Backing bit vector
     bit_vec_element_type *bit_vector;
+    uint64_t bit_vector_len;
 } hvr_set_t;
 
 
@@ -77,6 +76,11 @@ extern hvr_set_t *hvr_create_full_set(const uint64_t nvals);
  * Make 'set' the union of 'set' and 'other'.
  */
 extern void hvr_set_merge(hvr_set_t *set, hvr_set_t *other);
+
+/*
+ * Set every member of the set.
+ */
+extern void hvr_set_fill(hvr_set_t *set);
 
 /*
  * Copy src to dst.

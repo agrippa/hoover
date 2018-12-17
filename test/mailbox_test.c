@@ -9,7 +9,7 @@
 int main(int argc, char **argv) {
     shmem_init();
     hvr_mailbox_t mailbox;
-    hvr_mailbox_init(&mailbox, 18);
+    hvr_mailbox_init(&mailbox, 20);
 
     assert(shmem_n_pes() >= 2);
 
@@ -42,8 +42,6 @@ int main(int argc, char **argv) {
                 success = hvr_mailbox_recv(&msg, &msg_capacity, &msg_len,
                         &mailbox);
             }
-            uint64_t temp;
-            memcpy(&temp, mailbox.indices, sizeof(temp));
             assert(msg_len == sizeof(i));
             assert(i == *((unsigned *)msg));
         }

@@ -25,13 +25,11 @@ hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
 
 void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
-    for (int p = 0; p < npes; p++) {
-        hvr_set_insert(p, couple_with);
+    if (pe < npes) {
+        for (int i = 0; i < npes; i++) {
+            hvr_set_insert(i, couple_with);
+        }
     }
-}
-
-void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
-        hvr_ctx_t ctx) {
 }
 
 void might_interact(const hvr_partition_t partition,
@@ -56,17 +54,17 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_set_t *coupled_pes, // Set of coupled PEs
         int n_coupled_pes, int *updates_on_this_iter,
         hvr_set_t *terminated_coupled_pes) {
-    static hvr_vertex_t *prev_values = NULL;
 
     int sum_updates = 0;
-    for (int i = 0; i < ctx->npes; i++) {
+    for (int i = 0; i < npes; i++) {
         sum_updates += updates_on_this_iter[i];
     }
 
+    static hvr_vertex_t *prev_values = NULL;
     assert(n_coupled_pes == 1 || n_coupled_pes == npes);
     if (n_coupled_pes == npes) {
 
-        for (int i = 0; i < ctx->npes; i++) {
+        for (int i = 0; i < npes; i++) {
             assert((int)hvr_vertex_get(0, all_coupled_metrics + i, ctx) == i);
 
             if (prev_values) {
@@ -83,8 +81,8 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         memcpy(prev_values, all_coupled_metrics, npes * sizeof(*prev_values));
     }
 
-    printf("PE %d on iter %d did %d updates with %d coupled PEs.\n", pe,
-            ctx->iter, sum_updates, n_coupled_pes);
+    // printf("PE %d on iter %d did %d updates with %d coupled PEs.\n", pe,
+    //         ctx->iter, sum_updates, n_coupled_pes);
     return 0;
 }
 
@@ -106,10 +104,14 @@ int main(int argc, char **argv) {
     pe = shmem_my_pe();
     npes = shmem_n_pes();
 
+    if (pe == 0) {
+        fprintf(stderr, "Running with %d\n", npes);
+    }
+
     hvr_ctx_create(&hvr_ctx);
 
     hvr_init(1,
-            update_metadata,
+            NULL, // update_metadata
             might_interact,
             update_coupled_val,
             actor_to_partition,
@@ -120,7 +122,8 @@ int main(int argc, char **argv) {
             1, // max_graph_traverse_depth
             hvr_ctx);
 
-    hvr_body(hvr_ctx);
+    hvr_exec_info info = hvr_body(hvr_ctx);
+    printf("PE %d ran for %d iterations\n", shmem_my_pe(), info.executed_iters);
 
     shmem_barrier_all();
 

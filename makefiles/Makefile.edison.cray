@@ -1,4 +1,4 @@
-CFLAGS=-g -O0 -Iinc -std=c99 -Wall
+CFLAGS=-g -O2 -Iinc -std=c99 -Wall
 SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DUSE_LOCKS=0 -L$(OPENSHMEM_INSTALL)/lib64 -lsma
 CC=cc
 CXX=cc
@@ -38,11 +38,11 @@ bin/test_sparse_arr: test/test_sparse_arr.c
 
 bin/infectious_test: test/infectious_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/infectious_test.c -o bin/infectious_test.o
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/infectious_test.o -o $@ -lhoover -lm
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/infectious_test.o -o $@ -lhoover -lm -lpthread
 
 bin/coupled_test: test/coupled_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/coupled_test.c -o bin/coupled_test.o
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/coupled_test.o -o $@ -lhoover -lm
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/coupled_test.o -o $@ -lhoover -lm -lpthread
 
 bin/edge_set_test: test/edge_set_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
@@ -81,8 +81,8 @@ bin/interact_test: test/interact_test.c
 bin/own_edge_test: test/own_edge_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
-bin/mailbox_test: test/mailbox_test.c
-	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+bin/mailbox_test: test/mailbox_test.c bin/libhoover.a
+	$(CC) $(CFLAGS) test/mailbox_test.c -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
 bin/pas: test/pas.cpp
 	$(CXX) -std=c++11 $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)

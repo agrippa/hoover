@@ -6,10 +6,12 @@
 #include "hvr_common.h"
 
 static hvr_set_t *hvr_create_empty_set_helper(const uint64_t nelements,
-        hvr_set_t *set, bit_vec_element_type *bit_vector) {
-    set->bit_vector = bit_vector;
-    set->nelements = nelements;
+        const uint64_t max_n_contained, hvr_set_t *set,
+        bit_vec_element_type *bit_vector) {
     set->n_contained = 0;
+    set->max_n_contained = max_n_contained;
+    set->bit_vector = bit_vector;
+    set->bit_vector_len = nelements;
 
     memset(set->bit_vector, 0x00, nelements * sizeof(bit_vec_element_type));
 
@@ -25,16 +27,17 @@ hvr_set_t *hvr_create_empty_set(const unsigned nvals) {
     bit_vec_element_type *bit_vector = (bit_vec_element_type *)malloc(
             nelements * sizeof(bit_vec_element_type));
     assert(bit_vector);
-    return hvr_create_empty_set_helper(nelements, set, bit_vector);
+    return hvr_create_empty_set_helper(nelements, nvals, set, bit_vector);
 }
 
-void hvr_fill_set(hvr_set_t *s) {
-    memset(s->bit_vector, 0xff, s->nelements * sizeof(*(s->bit_vector)));
+void hvr_set_fill(hvr_set_t *s) {
+    memset(s->bit_vector, 0xff, s->bit_vector_len * sizeof(*(s->bit_vector)));
+    s->n_contained = s->max_n_contained;
 }
 
 hvr_set_t *hvr_create_full_set(const uint64_t nvals) {
     hvr_set_t *empty_set = hvr_create_empty_set(nvals);
-    hvr_fill_set(empty_set);
+    hvr_set_fill(empty_set);
     return empty_set;
 }
 
@@ -58,7 +61,8 @@ int hvr_set_insert(uint64_t val, hvr_set_t *set) {
 }
 
 void hvr_set_wipe(hvr_set_t *set) {
-    memset(set->bit_vector, 0x00, set->nelements * sizeof(*(set->bit_vector)));
+    memset(set->bit_vector, 0x00,
+            set->bit_vector_len * sizeof(*(set->bit_vector)));
     set->n_contained = 0;
 }
 
@@ -87,7 +91,7 @@ void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen,
         unsigned *values) {
     int offset = snprintf(buf, buflen, "{");
 
-    const size_t nvals = set->nelements * sizeof(bit_vec_element_type) *
+    const size_t nvals = set->bit_vector_len * sizeof(bit_vec_element_type) *
         BITS_PER_BYTE;
     for (unsigned i = 0; i < nvals; i++) {
         if (hvr_set_contains(i, set)) {
@@ -105,16 +109,14 @@ void hvr_set_to_string(hvr_set_t *set, char *buf, unsigned buflen,
 }
 
 void hvr_set_merge(hvr_set_t *set, hvr_set_t *other) {
-    assert(set->nelements == other->nelements);
+    assert(set->bit_vector_len == other->bit_vector_len);
 
-    for (int i = 0; i < set->nelements; i++) {
+    for (int i = 0; i < set->bit_vector_len; i++) {
         (set->bit_vector)[i] = ((set->bit_vector)[i] | (other->bit_vector)[i]);
     }
 
     uint64_t new_count = 0;
-    for (uint64_t i = 0;
-            i < set->nelements * sizeof(bit_vec_element_type) * BITS_PER_BYTE;
-            i++) {
+    for (uint64_t i = 0; i < set->max_n_contained; i++) {
         if (hvr_set_contains(i, set)) {
             new_count++;
         }
@@ -124,6 +126,6 @@ void hvr_set_merge(hvr_set_t *set, hvr_set_t *other) {
 
 void hvr_set_copy(hvr_set_t *dst, hvr_set_t *src) {
     memcpy(dst->bit_vector, src->bit_vector,
-            src->nelements * sizeof(bit_vec_element_type));
+            src->bit_vector_len * sizeof(bit_vec_element_type));
     memcpy(dst, src, offsetof(hvr_set_t, bit_vector));
 }

@@ -3,8 +3,10 @@
 
 typedef struct _hvr_mailbox_t {
     uint64_t *indices;
+    uint64_t indices_curr_val;
     uint32_t capacity_in_bytes;
     char *buf;
+    int pe;
 } hvr_mailbox_t;
 
 /*

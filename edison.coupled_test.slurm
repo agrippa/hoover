@@ -1,11 +1,12 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:02:00
+#SBATCH -t 00:03:00
 #SBATCH -J hoover
 #SBATCH --exclusive
+#SBATCH --contiguous
 #SBATCH --mail-type=ALL
 
 ulimit -c unlimited
@@ -23,11 +24,11 @@ export LD_LIBRARY_PATH=$OFI_HOME/lib:$LD_LIBRARY_PATH
 export LD_PRELOAD=/opt/intel/compilers_and_libraries_2018.2.199/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
-export SHMEM_SYMMETRIC_SIZE=$((2 * 1024 * 1024 * 1024))
+export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
-export CORES_PER_SOCKET=12
+export CORES_PER_SOCKET=1
 export SOCKETS_PER_NODE=2
 export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
@@ -46,11 +47,14 @@ export HVR_SPARSE_ARR_POOL=$((32 * 1024 * 1024));
 # export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-# export HVR_HANG_ABORT=240
+# export HVR_HANG_ABORT=150
 # export HVR_HANG_ABORT_PE=17
 
 cd $SCRATCH
 
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/bin/coupled_test 60
+srun --ntasks-per-socket=$CORES_PER_SOCKET \
+    --cpus-per-task=12 \
+    --cpu_bind=verbose,cores \
+    --cpu-freq=High \
+    --mem-bind=local \
+    $HOME/hoover/bin/coupled_test 120

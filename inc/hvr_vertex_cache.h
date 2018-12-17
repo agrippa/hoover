@@ -30,13 +30,19 @@ typedef struct _hvr_vertex_cache_node_t {
     struct _hvr_vertex_cache_node_t *part_prev;
     struct _hvr_vertex_cache_node_t *tmp;
 
+    /*
+     * Used to construct a list of remote, mirrored vertices that have an edge
+     * with local vertices.
+     */
     struct _hvr_vertex_cache_node_t *local_neighbors_next;
     struct _hvr_vertex_cache_node_t *local_neighbors_prev;
 
-    // Partition for this vert. Think of this as a secondary key, after vert.id
+    // Partition for this vert.
     hvr_partition_t part;
 
     unsigned n_local_neighbors;
+    uint8_t dist_from_local_vert;
+    hvr_time_t dist_from_local_vert_iter;
 } hvr_vertex_cache_node_t;
 
 /*
@@ -67,13 +73,10 @@ typedef struct _hvr_vertex_cache_t {
     hvr_vertex_cache_node_t *pool_mem;
     unsigned pool_size;
 
-    uint8_t *dist_from_local_vert;
-
     // Keeps a count of mirrored vertices
     unsigned long long n_cached_vertices;
 
     struct {
-        unsigned long long quiet_counter;
         unsigned long long fetch_neighbors_time;
         unsigned long long quiet_neighbors_time;
         unsigned long long update_metadata_time;
@@ -83,20 +86,20 @@ typedef struct _hvr_vertex_cache_t {
 } hvr_vertex_cache_t;
 
 static inline void set_dist_from_local_vert(hvr_vertex_cache_node_t *node,
-        uint8_t dist, hvr_vertex_cache_t *cache) {
-    size_t offset = node - cache->pool_mem;
-    if (VERTEX_ID_PE(node->vert.id) != shmem_my_pe()) {
-        cache->dist_from_local_vert[offset] = dist;
-    }
+        uint8_t dist, hvr_time_t curr_iter, int my_pe,
+        hvr_vertex_cache_t *cache) {
+    node->dist_from_local_vert = dist;
+    node->dist_from_local_vert_iter = curr_iter;
 }
 
 static inline uint8_t get_dist_from_local_vert(hvr_vertex_cache_node_t *node,
-        hvr_vertex_cache_t *cache, int pe) {
-    size_t offset = node - cache->pool_mem;
-    if (VERTEX_ID_PE(node->vert.id) == pe) {
+        hvr_time_t curr_iter, int my_pe, hvr_vertex_cache_t *cache) {
+    if (VERTEX_ID_PE(node->vert.id) == my_pe) {
         return 0;
+    } else if (node->dist_from_local_vert_iter != curr_iter) {
+        return UINT8_MAX;
     } else {
-        return cache->dist_from_local_vert[offset];
+        return node->dist_from_local_vert;
     }
 }
 

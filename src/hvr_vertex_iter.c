@@ -28,7 +28,8 @@ static void hvr_vertex_iter_init_helper(hvr_vertex_iter_t *iter,
     }
 }
 
-void hvr_vertex_iter_init(hvr_vertex_iter_t *iter, hvr_internal_ctx_t *ctx) {
+void hvr_vertex_iter_init(hvr_vertex_iter_t *iter,
+        hvr_internal_ctx_t *ctx) {
     hvr_vertex_iter_init_helper(iter, ctx, 0);
 }
 

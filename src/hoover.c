@@ -24,10 +24,6 @@
 #define MAX_INTERACTING_PARTITIONS 3000
 #define N_SEND_ATTEMPTS 10
 
-#define FINE_GRAIN_TIMING
-
-// #define TRACK_VECTOR_GET_CACHE
-
 static int print_profiling = 1;
 // Purely for performance testing, should not be used live
 static int dead_pe_processing = 1;
@@ -35,6 +31,47 @@ static FILE *profiling_fp = NULL;
 static volatile int this_pe_has_exited = 0;
 
 static const hvr_time_t check_producers_freq = 3;
+
+typedef struct _profiling_info_t {
+    unsigned long long start_iter;
+    unsigned long long end_start_time_step;
+    unsigned long long end_update_vertices;
+    unsigned long long end_update_dist;
+    unsigned long long end_update_partitions;
+    unsigned long long end_partition_window;
+    unsigned long long end_neighbor_updates;
+    unsigned long long end_send_updates;
+    unsigned long long end_vertex_updates;
+    unsigned long long end_update_coupled;
+    int count_updated;
+    unsigned n_updates_sent;
+    process_perf_info_t perf_info;
+    unsigned long long time_updating_partitions;
+    unsigned long long time_updating_producers;
+    unsigned long long time_updating_subscribers;
+    unsigned long long dead_pe_time;
+    unsigned long long time_sending;
+    int should_abort;
+    unsigned long long coupling_sending;
+    unsigned long long coupling_waiting;
+    unsigned long long coupling_after;
+    unsigned long long coupling_should_terminate;
+    unsigned long long coupling_resends;
+    unsigned long long coupling_count_failures;
+    unsigned long long coupling_count_successes;
+    unsigned n_coupled_pes;
+    hvr_time_t iter;
+    int pe;
+    unsigned n_producer_partitions;
+    hvr_partition_t n_partitions;
+    unsigned n_subscriber_partitions;
+    uint64_t n_allocated_verts;
+    unsigned long long n_mirrored_verts;
+} profiling_info_t;
+
+#define MAX_PROFILED_ITERS 200000
+profiling_info_t saved_profiling_info[MAX_PROFILED_ITERS];
+static volatile unsigned n_profiled_iters = 0;
 
 typedef enum {
     CREATE, DELETE, UPDATE
@@ -267,7 +304,8 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
                 hvr_vertex_cache_node_t *node = seg->data[j].inline_vals[0].cached_vert;
                 update_vertex_partitions_for_vertex(&node->vert, ctx,
                         ctx->mirror_partition_lists,
-                        get_dist_from_local_vert(node, &ctx->vec_cache, ctx->pe));
+                        get_dist_from_local_vert(node, ctx->iter, ctx->pe,
+                            &ctx->vec_cache));
             }
             seg = seg->next;
         }
@@ -630,6 +668,11 @@ void hvr_init(const hvr_partition_t n_partitions,
         sprintf(profiling_filename, "%d.prof", new_ctx->pe);
         profiling_fp = fopen(profiling_filename, "w");
         assert(profiling_fp);
+        if (new_ctx->pe == 0) {
+            fprintf(stderr, "WARNING: Using %lu bytes of space for profiling "
+                    "data structures\n",
+                    MAX_PROFILED_ITERS * sizeof(profiling_info_t));
+        }
     }
 
     if (getenv("HVR_DISABLE_DEAD_PE_PROCESSING")) {
@@ -907,7 +950,6 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
     if (base_is_local != neighbor_is_local &&
             (base_is_local || neighbor_is_local)) {
         hvr_vertex_cache_node_t *remote_node = (base_is_local ? neighbor : base);
-        hvr_vertex_id_t remote = remote_node->vert.id;
 
         if (local_neighbor_list_contains(remote_node, &ctx->vec_cache)) {
             if (remote_node->n_local_neighbors == 0) {
@@ -969,8 +1011,7 @@ static void create_new_edges(hvr_vertex_cache_node_t *updated,
         hvr_vertex_cache_node_t *cache_iter =
             ctx->vec_cache.partitions[other_part];
         while (cache_iter) {
-            int edge_created = create_new_edges_helper(cache_iter, updated,
-                    ctx);
+            create_new_edges_helper(cache_iter, updated, ctx);
             cache_iter = cache_iter->part_next;
             local_count_new_should_have_edges++;
         }
@@ -1182,21 +1223,12 @@ static hvr_vertex_cache_node_t *add_neighbors_to_q(
         hvr_vertex_id_t vert = EDGE_INFO_VERTEX(edge_info);
         hvr_vertex_cache_node_t *cached_neighbor =
             hvr_vertex_cache_lookup(vert, &ctx->vec_cache);
-        if (!cached_neighbor) {
-            hvr_map_val_list_t vals_list;
-            int n = hvr_map_linearize(EDGE_INFO_VERTEX(edge_info),
-                    &ctx->vec_cache.cache_map,
-                    &vals_list);
-            fprintf(stderr, "PE %d Failed fetching vert for (%lu,%lu) n=%d\n",
-                    ctx->pe, VERTEX_ID_PE(vert), VERTEX_ID_OFFSET(vert), n);
-            abort();
-        }
         assert(cached_neighbor);
 
-        if (get_dist_from_local_vert(cached_neighbor, &ctx->vec_cache,
-                    ctx->pe) == UINT8_MAX) {
-            set_dist_from_local_vert(cached_neighbor, UINT8_MAX - 1,
-                    &ctx->vec_cache);
+        if (get_dist_from_local_vert(cached_neighbor, ctx->iter, ctx->pe,
+                    &ctx->vec_cache) == UINT8_MAX) {
+            set_dist_from_local_vert(cached_neighbor, UINT8_MAX - 1, ctx->iter,
+                    ctx->pe, &ctx->vec_cache);
             cached_neighbor->tmp = newq;
             newq = cached_neighbor;
         }
@@ -1211,14 +1243,10 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
      * Clear all distances of mirrored vertices to an invalid value before
      * recomputing
      */
-    memset(ctx->vec_cache.dist_from_local_vert, 0xff,
-            ctx->vec_cache.pool_size *
-            sizeof(ctx->vec_cache.dist_from_local_vert[0]));
-
     hvr_vertex_cache_node_t *newq = NULL;
     hvr_vertex_cache_node_t *q = ctx->vec_cache.local_neighbors_head;
     while (q) {
-        set_dist_from_local_vert(q, 1, &ctx->vec_cache);
+        set_dist_from_local_vert(q, 1, ctx->iter, ctx->pe, &ctx->vec_cache);
         newq = add_neighbors_to_q(q, newq, ctx);
         q = q->local_neighbors_next;
     }
@@ -1228,7 +1256,7 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
         newq = NULL;
         while (q) {
             hvr_vertex_cache_node_t *next_q = q->tmp;
-            set_dist_from_local_vert(q, l, &ctx->vec_cache);
+            set_dist_from_local_vert(q, l, ctx->iter, ctx->pe, &ctx->vec_cache);
             newq = add_neighbors_to_q(q, newq, ctx);
             q = next_q;
         }
@@ -1393,9 +1421,13 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         hvr_vertex_t *coupled_metric, int count_updated,
         unsigned long long *time_sending,
         unsigned long long *time_waiting,
+        unsigned long long *time_after,
+        unsigned long long *time_should_terminate,
         unsigned long long *out_nresends,
         unsigned long long *out_count_failures,
         unsigned long long *out_count_successes) {
+    const unsigned long long start = hvr_current_time_us();
+
     unsigned long long nresends = 0;
     // Copy the present value of the coupled metric locally
     memcpy(coupled_metric, ctx->coupled_pes_values + ctx->pe,
@@ -1445,8 +1477,6 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     hvr_set_wipe(ctx->coupled_pes_received_from);
     memset(ctx->updates_on_this_iter, 0x00,
             ctx->npes * sizeof(ctx->updates_on_this_iter[0]));
-
-    const unsigned long long start = hvr_current_time_us();
 
     for (unsigned p = 0; p < ctx->npes; p++) {
         if (hvr_set_contains(p, ctx->coupled_pes)) {
@@ -1508,10 +1538,6 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     }
 
     const unsigned long long interm = hvr_current_time_us();
-
-    int *iters_waiting = (int *)malloc(ctx->npes * sizeof(int));
-    assert(iters_waiting);
-    memset(iters_waiting, 0x00, ctx->npes * sizeof(int));
 
     unsigned long long count_successes = 0;
     unsigned long long count_failures = 0;
@@ -1610,30 +1636,9 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         } else {
             count_failures++;
         }
-
-        for (int p = 0; p < ctx->npes; p++) {
-            if (hvr_set_contains(p, ctx->coupled_pes) &&
-                    !hvr_set_contains(p, ctx->coupled_pes_received_from)) {
-                iters_waiting[p] += 1;
-            }
-        }
     }
-
-    for (int p = 0; p < ctx->npes; p++) {
-        if (hvr_set_contains(p, ctx->coupled_pes)) {
-            fprintf(stderr, "PE %d spent %d iters waiting for PE %d, sending "
-                    "on iter %d\n",
-                    ctx->pe, iters_waiting[p], p, ctx->iter);
-        }
-    }
-    free(iters_waiting);
 
     const unsigned long long done = hvr_current_time_us();
-    *time_sending = (interm - start);
-    *time_waiting = (done - interm);
-    *out_nresends = nresends;
-    *out_count_failures = count_failures;
-    *out_count_successes = count_successes;
 
     hvr_set_copy(ctx->prev_coupled_pes, ctx->coupled_pes);
 
@@ -1650,6 +1655,8 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             ncoupled++;
         }
     }
+
+    const unsigned long long before_should_terminate = hvr_current_time_us();
 
     hvr_vertex_iter_all_init(&iter, ctx);
     int should_abort = ctx->should_terminate(&iter, ctx,
@@ -1670,9 +1677,20 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     //             "(%s)\n", ctx->pe, buf, ncoupled, coupled_pes_str);
     // }
 
+    const unsigned long long end_func = hvr_current_time_us();
+
+    *time_sending = (interm - start);
+    *time_waiting = (done - interm);
+    *time_after = (before_should_terminate - done);
+    *time_should_terminate = (end_func - before_should_terminate);
+    *out_nresends = nresends;
+    *out_count_failures = count_failures;
+    *out_count_successes = count_successes;
+
     return should_abort;
 }
 
+#ifdef DETAILED_PRINTS
 static size_t bytes_used_by_subcopy_arr(hvr_dist_bitvec_local_subcopy_t *arr,
         size_t N, hvr_set_t *window) {
     size_t bytes = N * sizeof(*arr);
@@ -1683,8 +1701,9 @@ static size_t bytes_used_by_subcopy_arr(hvr_dist_bitvec_local_subcopy_t *arr,
     }
     return bytes;
 }
+#endif
 
-static void print_profiling_info(
+static void save_profiling_info(
         unsigned long long start_iter,
         unsigned long long end_start_time_step,
         unsigned long long end_update_vertices,
@@ -1706,81 +1725,133 @@ static void print_profiling_info(
         int should_abort,
         unsigned long long coupling_sending,
         unsigned long long coupling_waiting,
+        unsigned long long coupling_after,
+        unsigned long long coupling_should_terminate,
         unsigned long long coupling_resends,
         unsigned long long coupling_count_failures,
         unsigned long long coupling_count_successes,
         unsigned n_coupled_pes,
         hvr_internal_ctx_t *ctx) {
+    if (n_profiled_iters == MAX_PROFILED_ITERS) {
+        fprintf(stderr, "WARNING: PE %d exceeded number of iters that can be "
+                "profiled. Remaining iterations will not be reported.\n",
+                ctx->pe);
+        n_profiled_iters++;
+        return;
+    } else if (n_profiled_iters > MAX_PROFILED_ITERS) {
+        return;
+    }
 
-    char partition_time_window_str[2048] = {'\0'};
-// #ifdef DETAILED_PRINTS
-//     hvr_set_to_string(ctx->producer_partition_time_window,
-//             partition_time_window_str, 2048, ctx->partition_lists_lengths);
-// #endif
+    saved_profiling_info[n_profiled_iters].start_iter = start_iter;
+    saved_profiling_info[n_profiled_iters].end_start_time_step = end_start_time_step;
+    saved_profiling_info[n_profiled_iters].end_update_vertices = end_update_vertices;
+    saved_profiling_info[n_profiled_iters].end_update_dist = end_update_dist;
+    saved_profiling_info[n_profiled_iters].end_update_partitions = end_update_partitions;
+    saved_profiling_info[n_profiled_iters].end_partition_window = end_partition_window;
+    saved_profiling_info[n_profiled_iters].end_neighbor_updates = end_neighbor_updates;
+    saved_profiling_info[n_profiled_iters].end_send_updates = end_send_updates;
+    saved_profiling_info[n_profiled_iters].end_vertex_updates = end_vertex_updates;
+    saved_profiling_info[n_profiled_iters].end_update_coupled = end_update_coupled;
+    saved_profiling_info[n_profiled_iters].count_updated = count_updated;
+    saved_profiling_info[n_profiled_iters].n_updates_sent = n_updates_sent;
+    memcpy(&saved_profiling_info[n_profiled_iters].perf_info,
+            perf_info, sizeof(*perf_info));
+    saved_profiling_info[n_profiled_iters].time_updating_partitions = time_updating_partitions;
+    saved_profiling_info[n_profiled_iters].time_updating_producers = time_updating_producers;
+    saved_profiling_info[n_profiled_iters].time_updating_subscribers = time_updating_subscribers;
+    saved_profiling_info[n_profiled_iters].dead_pe_time = dead_pe_time;
+    saved_profiling_info[n_profiled_iters].time_sending = time_sending;
+    saved_profiling_info[n_profiled_iters].should_abort = should_abort;
+    saved_profiling_info[n_profiled_iters].coupling_sending = coupling_sending;
+    saved_profiling_info[n_profiled_iters].coupling_waiting = coupling_waiting;
+    saved_profiling_info[n_profiled_iters].coupling_after = coupling_after;
+    saved_profiling_info[n_profiled_iters].coupling_should_terminate =
+        coupling_should_terminate;
+    saved_profiling_info[n_profiled_iters].coupling_resends = coupling_resends;
+    saved_profiling_info[n_profiled_iters].coupling_count_failures =
+        coupling_count_failures;
+    saved_profiling_info[n_profiled_iters].coupling_count_successes =
+        coupling_count_successes;
+
+    saved_profiling_info[n_profiled_iters].iter = ctx->iter;
+    saved_profiling_info[n_profiled_iters].pe = ctx->pe;
+
+    saved_profiling_info[n_profiled_iters].n_partitions = ctx->n_partitions;
+    saved_profiling_info[n_profiled_iters].n_producer_partitions =
+        hvr_set_count(ctx->producer_partition_time_window);
+    saved_profiling_info[n_profiled_iters].n_subscriber_partitions =
+        hvr_set_count(ctx->subscriber_partition_time_window);
+    saved_profiling_info[n_profiled_iters].n_allocated_verts =
+        hvr_n_allocated(ctx);
+    saved_profiling_info[n_profiled_iters].n_mirrored_verts =
+        ctx->vec_cache.n_cached_vertices;
+
+    n_profiled_iters++;
+}
+
+static void print_profiling_info(profiling_info_t *info) {
 
     fprintf(profiling_fp, "PE %d - iter %d - total %f ms\n",
-            ctx->pe, ctx->iter,
-            (double)(end_update_coupled - start_iter) / 1000.0);
+            info->pe, info->iter,
+            (double)(info->end_update_coupled - info->start_iter) / 1000.0);
     fprintf(profiling_fp, "  start time step %f\n",
-            (double)(end_start_time_step - start_iter) / 1000.0);
+            (double)(info->end_start_time_step - info->start_iter) / 1000.0);
     fprintf(profiling_fp, "  update vertices %f - %d updates\n",
-            (double)(end_update_vertices - end_start_time_step) / 1000.0,
-            count_updated);
+            (double)(info->end_update_vertices - info->end_start_time_step) / 1000.0,
+            info->count_updated);
     fprintf(profiling_fp, "  update distances %f\n",
-            (double)(end_update_dist - end_update_vertices) / 1000.0);
+            (double)(info->end_update_dist - info->end_update_vertices) / 1000.0);
     fprintf(profiling_fp, "  update actor partitions %f\n",
-            (double)(end_update_partitions - end_update_dist) / 1000.0);
+            (double)(info->end_update_partitions - info->end_update_dist) / 1000.0);
     fprintf(profiling_fp, "  update partition window %f - update time = "
             "(parts=%f producers=%f subscribers=%f) dead PE time %f\n",
-            (double)(end_partition_window - end_update_partitions) / 1000.0,
-            (double)time_updating_partitions / 1000.0,
-            (double)time_updating_producers / 1000.0,
-            (double)time_updating_subscribers / 1000.0,
-            (double)dead_pe_time / 1000.0);
+            (double)(info->end_partition_window - info->end_update_partitions) / 1000.0,
+            (double)info->time_updating_partitions / 1000.0,
+            (double)info->time_updating_producers / 1000.0,
+            (double)info->time_updating_subscribers / 1000.0,
+            (double)info->dead_pe_time / 1000.0);
     fprintf(profiling_fp, "  update neighbors %f\n",
-            (double)(end_neighbor_updates - end_partition_window) / 1000.0);
+            (double)(info->end_neighbor_updates - info->end_partition_window) / 1000.0);
     fprintf(profiling_fp, "  send updates %f - %u changes, %f ms sending\n",
-            (double)(end_send_updates - end_neighbor_updates) / 1000.0,
-            n_updates_sent, (double)time_sending / 1000.0);
+            (double)(info->end_send_updates - info->end_neighbor_updates) / 1000.0,
+            info->n_updates_sent, (double)info->time_sending / 1000.0);
     fprintf(profiling_fp, "  process vertex updates %f - %u received\n",
-            (double)(end_vertex_updates - end_send_updates) / 1000.0,
-            perf_info->n_received_updates);
+            (double)(info->end_vertex_updates - info->end_send_updates) / 1000.0,
+            info->perf_info.n_received_updates);
     fprintf(profiling_fp, "    %f on deletes\n",
-            (double)perf_info->time_handling_deletes / 1000.0);
+            (double)info->perf_info.time_handling_deletes / 1000.0);
     fprintf(profiling_fp, "    %f on news\n",
-            (double)perf_info->time_handling_news / 1000.0);
+            (double)info->perf_info.time_handling_news / 1000.0);
     fprintf(profiling_fp, "      %f s on creating new\n",
-            (double)perf_info->time_creating / 1000.0);
+            (double)info->perf_info.time_creating / 1000.0);
     fprintf(profiling_fp, "      %f s on updates - %f updating edges, "
             "%f creating edges - %u should_have_edges\n",
-            (double)perf_info->time_updating / 1000.0,
-            (double)perf_info->time_updating_edges / 1000.0,
-            (double)perf_info->time_creating_edges / 1000.0,
-            perf_info->count_new_should_have_edges);
-    fprintf(profiling_fp, "  coupling %f - %f s sending, %f s waiting, %llu "
+            (double)info->perf_info.time_updating / 1000.0,
+            (double)info->perf_info.time_updating_edges / 1000.0,
+            (double)info->perf_info.time_creating_edges / 1000.0,
+            info->perf_info.count_new_should_have_edges);
+    fprintf(profiling_fp, "  coupling %f - %f ms sending, %f ms waiting, %f ms "
+            "adding, %f ms on should terminate, %llu "
             "resends, %llu failed recvs, %llu successful recvs, %u coupled\n",
-            (double)(end_update_coupled - end_vertex_updates) / 1000.0,
-            (double)coupling_sending / 1000.0,
-            (double)coupling_waiting / 1000.0,
-            coupling_resends, coupling_count_failures, coupling_count_successes,
-            n_coupled_pes);
-    fprintf(profiling_fp, "  partition window = %s, %d / %d producer "
+            (double)(info->end_update_coupled - info->end_vertex_updates) / 1000.0,
+            (double)info->coupling_sending / 1000.0,
+            (double)info->coupling_waiting / 1000.0,
+            (double)info->coupling_after / 1000.0,
+            (double)info->coupling_should_terminate / 1000.0,
+            info->coupling_resends,
+            info->coupling_count_failures,
+            info->coupling_count_successes,
+            info->n_coupled_pes);
+    fprintf(profiling_fp, "  %d / %d producer "
             "partitions and %d / %d subscriber partitions for %lu "
-            "local vertices, %lu mirrored vertices\n", partition_time_window_str,
-            hvr_set_count(ctx->producer_partition_time_window),
-            ctx->n_partitions,
-            hvr_set_count(ctx->subscriber_partition_time_window),
-            ctx->n_partitions, hvr_n_allocated(ctx),
-            ctx->vec_cache.n_cached_vertices);
-    fprintf(profiling_fp, "  aborting? %d - remote "
-            "cache hits=%llu misses=%llu, feature cache hits=%u misses=%u "
-            "quiets=%llu\n",
-            should_abort,
-            ctx->vec_cache.cache_perf_info.nhits,
-            ctx->vec_cache.cache_perf_info.nmisses,
-            ctx->n_vector_cache_hits,
-            ctx->n_vector_cache_misses,
-            ctx->vec_cache.cache_perf_info.quiet_counter);
+            "local vertices, %llu mirrored vertices\n",
+            info->n_producer_partitions,
+            info->n_partitions,
+            info->n_subscriber_partitions,
+            info->n_partitions,
+            info->n_allocated_verts,
+            info->n_mirrored_verts);
+    fprintf(profiling_fp, "  aborting? %d\n", info->should_abort);
 
 #ifdef DETAILED_PRINTS
     size_t edge_set_capacity, edge_set_used, vertex_cache_capacity,
@@ -1814,7 +1885,6 @@ static void print_profiling_info(
             "len=%u\n", vertex_cache_val_used, vertex_cache_val_capacity,
             vertex_cache_max_len);
 #endif
-    fflush(profiling_fp);
 }
 
 static void save_current_state_to_dump_file(hvr_internal_ctx_t *ctx) {
@@ -1950,15 +2020,17 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     const unsigned long long end_vertex_updates = hvr_current_time_us();
 
     hvr_vertex_t coupled_metric;
-    unsigned long long coupling_sending, coupling_waiting, coupling_resends,
+    unsigned long long coupling_sending, coupling_waiting, coupling_after,
+                  coupling_should_terminate, coupling_resends,
                   coupling_count_failures, coupling_count_successes;
     int should_abort = update_coupled_values(ctx, &coupled_metric, 0,
-            &coupling_sending, &coupling_waiting, &coupling_resends,
+            &coupling_sending, &coupling_waiting, &coupling_after,
+            &coupling_should_terminate, &coupling_resends,
             &coupling_count_failures, &coupling_count_successes);
     const unsigned long long end_update_coupled = hvr_current_time_us();
 
     if (print_profiling) {
-        print_profiling_info(
+        save_profiling_info(
                 start_body,
                 start_body,
                 start_body,
@@ -1978,7 +2050,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 dead_pe_time,
                 time_sending,
                 should_abort,
-                coupling_sending, coupling_waiting, coupling_resends,
+                coupling_sending, coupling_waiting, coupling_after,
+                coupling_should_terminate, coupling_resends,
                 coupling_count_failures, coupling_count_successes,
                 0,
                 ctx);
@@ -2010,7 +2083,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long end_start_time_step = hvr_current_time_us();
 
         // Must come before everything else
-        int count_updated = update_vertices(to_couple_with, ctx);
+        const int count_updated = update_vertices(to_couple_with, ctx);
 
         // Update my local information on PEs I am coupled with.
         hvr_set_merge(ctx->coupled_pes, to_couple_with);
@@ -2046,13 +2119,14 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         should_abort = update_coupled_values(ctx, &coupled_metric,
                 count_updated, &coupling_sending, &coupling_waiting,
+                &coupling_after, &coupling_should_terminate,
                 &coupling_resends, &coupling_count_failures,
                 &coupling_count_successes);
 
         const unsigned long long end_update_coupled = hvr_current_time_us();
 
         if (print_profiling) {
-            print_profiling_info(
+            save_profiling_info(
                     start_iter,
                     end_start_time_step,
                     end_update_vertices,
@@ -2072,7 +2146,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     dead_pe_time,
                     time_sending,
                     should_abort,
-                    coupling_sending, coupling_waiting, coupling_resends,
+                    coupling_sending, coupling_waiting, coupling_after,
+                    coupling_should_terminate, coupling_resends,
                     coupling_count_failures, coupling_count_successes,
                     hvr_set_count(ctx->coupled_pes),
                     ctx);
@@ -2143,6 +2218,13 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
 void hvr_finalize(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    if (print_profiling) {
+        for (unsigned i = 0; i < n_profiled_iters; i++) {
+            print_profiling_info(&saved_profiling_info[i]);
+        }
+        fclose(profiling_fp);
+    }
+
     if (ctx->dump_mode) {
         fclose(ctx->dump_file);
     }
@@ -2155,7 +2237,11 @@ int hvr_my_pe(hvr_ctx_t ctx) {
 }
 
 unsigned long long hvr_current_time_us() {
-    struct timeval curr_time;
-    gettimeofday(&curr_time, NULL);
-    return curr_time.tv_sec * 1000000ULL + curr_time.tv_usec;
+    struct timespec monotime;
+    clock_gettime(CLOCK_MONOTONIC, &monotime);
+    return monotime.tv_sec * 1000000ULL + monotime.tv_nsec / 1000;
+
+    // struct timeval curr_time;
+    // gettimeofday(&curr_time, NULL);
+    // return curr_time.tv_sec * 1000000ULL + curr_time.tv_usec;
 }
