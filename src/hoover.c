@@ -1910,6 +1910,8 @@ static void save_profiling_info(
         coupling_count_failures;
     saved_profiling_info[n_profiled_iters].coupling_count_successes =
         coupling_count_successes;
+    saved_profiling_info[n_profiled_iters].n_coupled_pes =
+        hvr_set_count(ctx->coupled_pes);
 
     saved_profiling_info[n_profiled_iters].iter = ctx->iter;
     saved_profiling_info[n_profiled_iters].pe = ctx->pe;
