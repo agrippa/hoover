@@ -691,6 +691,8 @@ void hvr_init(const hvr_partition_t n_partitions,
     assert(new_ctx->have_buffered_coupling_msgs);
     memset(new_ctx->have_buffered_coupling_msgs, 0x00,
             new_ctx->npes * sizeof(int));
+    new_ctx->finalized_pe_couplings = (int *)malloc(new_ctx->npes * sizeof(int));
+    assert(new_ctx->finalized_pe_couplings);
     hvr_set_insert(new_ctx->pe, new_ctx->coupled_pes);
 
     new_ctx->coupled_pes_values = (hvr_vertex_t *)malloc(
@@ -1417,6 +1419,227 @@ static unsigned send_updates(hvr_internal_ctx_t *ctx,
     return n_updates_sent;
 }
 
+static void notify_cluster_of_new_member(int new_pe, hvr_internal_ctx_t *ctx) {
+    for (int pp = 0; pp < ctx->npes; pp++) {
+        if (pp == ctx->pe || pp == new_pe) continue;
+
+        if (hvr_set_contains(pp, ctx->coupled_pes)) {
+            hvr_coupling_msg_t tmp_coupling_msg;
+            tmp_coupling_msg.type = MSG_COUPLING_NEW;
+            tmp_coupling_msg.pe = new_pe;
+
+            // Tell existing coupling about the new PE
+            hvr_mailbox_send(&tmp_coupling_msg,
+                    sizeof(tmp_coupling_msg), pp, -1,
+                    &ctx->coupling_mailbox, NULL);
+            // Tell the new PE about existing
+            tmp_coupling_msg.pe = pp;
+            hvr_mailbox_send(&tmp_coupling_msg,
+                    sizeof(tmp_coupling_msg), new_pe, -1,
+                    &ctx->coupling_mailbox, NULL);
+        }
+    }
+}
+
+static void receive_coupled_val(hvr_coupling_msg_t *msg) {
+    assert(msg->type == MSG_COUPLING_VAL);
+    hvr_set_insert(msg->pe, ctx->coupled_pes_received_from);
+    ctx->updates_on_this_iter[msg->pe] = msg->updates_on_this_iter;
+    memcpy(ctx->coupled_pes_values + msg->pe, &msg->val, sizeof(msg->val));
+}
+
+static int all_agreed_on_cluster_size(hvr_internal_ctx_t *ctx) {
+    int expected = ctx->finalized_pe_couplings[ctx->pe];
+    if (expected <= 1) return 0;
+
+    for (int p = 0; p < ctx->npes; p++) {
+        if (hvr_set_contains(p, ctx->coupled_pes)) {
+            if (ctx->finalized_pe_couplings[p] == -1) {
+                return 0; // Don't have information from this PE yet
+            } else {
+                if (expected != ctx->finalized_pe_couplings[p]) {
+                    return 0;
+                }
+            }
+        }
+    }
+
+    return 1;
+}
+
+static int requires_message_processing(hvr_internal_ctx_t *ctx) {
+    int my_count = ctx->finalized_pe_couplings[ctx->pe];
+    assert(my_count > 0);
+    for (int p = 0; p < ctx->npes; p++) {
+        if (p != ctx->pe && hvr_set_contains(p, ctx->coupled_pes)) {
+            if (ctx->finalized_pe_couplings[p] > my_count) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static void process_all_messages(hvr_internal_ctx_t *ctx,
+        unsigned long long *count_successes,
+        unsigned long long *count_failures) {
+    // Loop until we have a coupled val from everyone
+    while (hvr_set_count(ctx->coupled_pes_received_from) <
+            hvr_set_count(ctx->coupled_pes)) {
+        size_t msg_len;
+        int success = hvr_mailbox_recv(&ctx->msg_buf, &ctx->msg_buf_capacity,
+                &msg_len, &ctx->coupling_mailbox);
+        if (success) {
+            *count_successes++;
+
+            assert(msg_len == sizeof(hvr_coupling_msg_t));
+            hvr_coupling_msg_t *msg = (hvr_coupling_msg_t *)ctx->msg_buf;
+
+            switch (msg->type) {
+                case (MSG_COUPLING_NEW):
+                    const int new_pe = msg->pe;
+                    if (!hvr_set_contains(new_pe, ctx->coupled_pes)) {
+                        // Add this newly coupled PE to my set of coupled PEs
+                        hvr_set_insert(new_pe, ctx->coupled_pes);
+
+                        // And forward that information to all existing coupled PEs
+                        notify_cluster_of_new_member(new_pe, ctx);
+
+                        /*
+                         * Send the new PE my coupled value for the current
+                         * iteration, and forward it everyone I am currently
+                         * coupled with.
+                         */
+                        hvr_mailbox_send(&coupled_val_msg, sizeof(coupled_val_msg),
+                                new_pe, -1, &ctx->coupling_mailbox, NULL);
+
+                        if (ctx->have_buffered_coupling_msgs[new_pe]) {
+                            /*
+                             * Coupling and coupled val messages are not guaranteed
+                             * to arrive in order. Therefore, we may already have a
+                             * buffered value.
+                             */
+                            hvr_coupling_msg_t *buffered =
+                                ctx->buffered_coupling_msgs + new_pe;
+                            receive_coupled_val(buffered);
+                            ctx->have_buffered_coupling_msgs[new_pe] = 0;
+                        }
+                    }
+                    break;
+                case (MSG_COUPLING_VAL):
+                    if (!hvr_set_contains(msg->pe, ctx->coupled_pes) ||
+                            hvr_set_contains(msg->pe,
+                                ctx->coupled_pes_received_from)) {
+                        /*
+                         * Don't know about this coupling yet, or already have a
+                         * value for this PE. Buffer it.
+                         */
+                        assert(!ctx->have_buffered_coupling_msgs[msg->pe]);
+                        memcpy(ctx->buffered_coupling_msgs + msg->pe,
+                                msg, sizeof(*msg));
+                        ctx->have_buffered_coupling_msgs[msg->pe] = 1;
+                        nresends++;
+                    } else {
+                        receive_coupled_val(msg);
+                    }
+                    break;
+                case (MSG_COUPLING_DEAD):
+                    hvr_set_insert(msg->pe, ctx->all_terminated_pes);
+                    if (hvr_set_contains(msg->pe, ctx->coupled_pes)) {
+                        hvr_set_insert(msg->pe, ctx->coupled_pes_received_from);
+                    }
+                    break;
+                case (MSG_COUPLING_FINISHED):
+                    if (hvr_set_contains(msg->pe, ctx->coupled_pes)) {
+                        /*
+                         * If I know about this coupling, save the number of PEs
+                         * they are coupled with.
+                         */
+                        new_ctx->finalized_pe_couplings[msg->pe] = msg->npes;
+                    } else {
+                        // Otherwise, resend to myself to buffer it
+                        hvr_mailbox_send(msg, sizeof(*msg), ctx->pe, -1,
+                                &ctx->coupling_mailbox, NULL);
+                    }
+                    break;
+                default:
+                    abort();
+            }
+        } else {
+            *count_failures++;
+        }
+    }
+}
+
+static int process_finished_messages(int my_coupled_pes,
+        hvr_internal_ctx_t *ctx) {
+    size_t msg_len;
+    int success = hvr_mailbox_recv(&ctx->msg_buf,
+            &ctx->msg_buf_capacity, &msg_len, &ctx->coupling_mailbox);
+    if (success) {
+        assert(msg_len == sizeof(hvr_coupling_msg_t));
+        hvr_coupling_msg_t *msg = (hvr_coupling_msg_t *)ctx->msg_buf;
+
+        switch (msg->type) {
+            case (MSG_COUPLING_NEW):
+            case (MSG_COUPLING_VAL):
+                // Don't handle new couplings or coupling values
+                hvr_mailbox_send(msg, sizeof(*msg), ctx->pe, -1,
+                        &ctx->coupling_mailbox, NULL);
+                break;
+            case (MSG_COUPLING_DEAD):
+                // Must not be a coupled PE, so we just save this info
+                hvr_set_insert(msg->pe, ctx->all_terminated_pes);
+                break;
+            case (MSG_COUPLING_FINISHED):
+                int n_coupled_pes = msg->npes;
+
+                if (hvr_set_contains(msg->pe, ctx->coupled_pes)) {
+                    if (n_coupled_pes <= my_coupled_pes) {
+                        /*
+                         * No need to do anything, the other PE may need
+                         * to do some re-processing to get to the right
+                         * cluster size.
+                         */
+                        new_ctx->finalized_pe_couplings[msg->pe] = msg->npes;
+                    } else {
+                        /*
+                         * The other PE knows about more PEs than I do. Need
+                         * to re-enter processing of messages.
+                         */
+                        return 1;
+                    }
+                } else {
+                    /*
+                     * We got a finished message from a PE we don't know
+                     * about. We must now be coupled to them. Have to
+                     * enter re-processing.
+                     */
+                    hvr_mailbox_send(msg, sizeof(*msg), ctx->pe, -1,
+                            &ctx->coupling_mailbox, NULL);
+
+                    hvr_set_insert(msg->pe, ctx->coupled_pes);
+                    notify_cluster_of_new_member(msg->pe, ctx);
+                    hvr_mailbox_send(&coupled_val_msg,
+                            sizeof(coupled_val_msg),
+                            msg->pe, -1, &ctx->coupling_mailbox, NULL);
+
+                    if (ctx->have_buffered_coupling_msgs[msg->pe]) {
+                        hvr_coupling_msg_t *buffered =
+                            ctx->buffered_coupling_msgs + msg->pe;
+                        receive_coupled_val(buffered);
+                        ctx->have_buffered_coupling_msgs[msg->pe] = 0;
+                    }
+                    return 1;
+                }
+                break;
+            default:
+                abort();
+        }
+    }
+    return 0;
+}
+
 static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         hvr_vertex_t *coupled_metric, int count_updated,
         unsigned long long *time_sending,
@@ -1441,27 +1664,26 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
      * The coupling logic is a bit complicated because any PE can decide at any
      * time to become coupled with any other PE. The basic steps are as follows:
      *
-     *   1. Send out messages to the mailboxes of any PEs which I am newly
-     *      coupled with on this iteration, informing them that I am now
-     *      coupled..
-     *   3. Send out values to all PEs I am coupled to.
-     *   2. Iteratively, check for:
-     *      a. New messages from other PEs saying that I am now coupled with
-     *         them. If this is a new coupling, forward it to everyone I am
-     *         coupled with and then send that PE back a value from me.
-     *         Otherwise, don't forward. The received message may itself have
-     *         been forwarded.
-     *      b. Messages from other PEs that I am coupled with, informing me of
-     *         their coupled values for the current iteration. These have the
-     *         potential to arrive out of order, in which case I receive a
-     *         coupled value from another PE before I realize I am coupled with
-     *         it. In that case, we should just resend it to myself. I may also
-     *         receive a duplicate coupled value (a second value, when I've
-     *         already received a first for the current iteration). This should
-     *         simply be resent to myself and processed later.
-     *
-     * We will need to poll on these messages until we reach a point where we
-     * have a coupled value for every PE that we know we are coupled to.
+     *   1. Send out new coupling notifications. This includes both notifying
+     *      the PEs we are newly coupled with (at our own decision) as well as
+     *      notifying everyone in the existing cluster that they should also be
+     *      coupled to that PE now.
+     *   2. Send out values to all PEs I am now coupled with.
+     *   3. Spin and wait to receive values or termination messages from all PEs
+     *      that I am coupled with, while also accepting new couplings if
+     *      notifications arrive. If I get a new coupling notification and have
+     *      never seen it before, forward it to the other members of my cluster.
+     *   4. Once I have received values from all PEs, I send out a second set of
+     *      notifications to everyone I am coupled with saying that I am
+     *      finished, with info on how many PEs I ended up being coupled with on
+     *      this iteration. I then enter a spin loop waiting for everyone else
+     *      to send me the same notification with the same number of PEs. During
+     *      this spin loop I do not accept any new coupled values or couplings.
+     *      I can either exit this loop when (1) I have received matching
+     *      notifications from all coupled PEs, (2) when I receive a
+     *      final notification from a PE I don't recognize, or (3) if I receive
+     *      a notification from a PE that I recognize but which has a greater
+     *      number of PEs embedded.
      */
 
     hvr_coupling_msg_t new_coupling_msg;
@@ -1477,6 +1699,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     hvr_set_wipe(ctx->coupled_pes_received_from);
     memset(ctx->updates_on_this_iter, 0x00,
             ctx->npes * sizeof(ctx->updates_on_this_iter[0]));
+    memset(new_ctx->finalized_pe_couplings, 0xff, new_ctx->npes * sizeof(int));
 
     for (unsigned p = 0; p < ctx->npes; p++) {
         if (hvr_set_contains(p, ctx->coupled_pes)) {
@@ -1494,25 +1717,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                      * know all of the PEs I am coupled with and let all PEs
                      * that I am coupled with know about it.
                      */
-                    for (int pp = 0; pp < ctx->npes; pp++) {
-                        if (pp == ctx->pe || pp == p) continue;
-
-                        if (hvr_set_contains(pp, ctx->coupled_pes)) {
-                            hvr_coupling_msg_t tmp_coupling_msg;
-                            tmp_coupling_msg.type = MSG_COUPLING_NEW;
-                            tmp_coupling_msg.pe = p;
-                            // Tell existing coupling about the new PE
-                            hvr_mailbox_send(&tmp_coupling_msg,
-                                    sizeof(tmp_coupling_msg), pp, -1,
-                                    &ctx->coupling_mailbox, NULL);
-                            // Tell the new PE about existing
-                            tmp_coupling_msg.pe = pp;
-                            hvr_mailbox_send(&tmp_coupling_msg,
-                                    sizeof(tmp_coupling_msg), p, -1,
-                                    &ctx->coupling_mailbox, NULL);
-                        }
-                    }
-
+                    notify_cluster_of_new_member(p, ctx);
                 }
 
                 // Send my updated value to a coupled PE
@@ -1541,100 +1746,33 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
 
     unsigned long long count_successes = 0;
     unsigned long long count_failures = 0;
-    while (hvr_set_count(ctx->coupled_pes_received_from) <
-            hvr_set_count(ctx->coupled_pes)) {
-        size_t msg_len;
-        int success = hvr_mailbox_recv(&ctx->msg_buf, &ctx->msg_buf_capacity,
-                &msg_len, &ctx->coupling_mailbox);
-        if (success) {
-            count_successes++;
 
-            assert(msg_len == sizeof(hvr_coupling_msg_t));
-            hvr_coupling_msg_t *msg = (hvr_coupling_msg_t *)ctx->msg_buf;
+    while (!all_agreed_on_cluster_size(ctx)) {
+        process_all_messages(ctx, &count_successes, &count_failures);
 
-            if (msg->type == MSG_COUPLING_NEW) {
-                const int new_pe = msg->pe;
-                if (!hvr_set_contains(new_pe, ctx->coupled_pes)) {
-                    // Add this newly coupled PE to my set of coupled PEs
-                    hvr_set_insert(new_pe, ctx->coupled_pes);
+        /*
+         * Once we have a coupled val from everyone, let everyone know that
+         * we're finished and the number of PEs we are coupled with. Don't allow
+         * any new couplings - only accept messages from other PEs indicating
+         * they are finished and the number of PEs they are coupled with.
+         */
+        int my_coupled_pes = hvr_set_count(ctx->coupled_pes_received_from);
+        hvr_coupling_msg_t finished_msg;
+        finished_msg.type = MSG_COUPLING_FINISHED;
+        finished_msg.pe = ctx->pe;
+        finished_msg.npes = my_coupled_pes;
 
-                    // And forward that information to all existing coupled PEs
-                    for (unsigned p = 0; p < ctx->npes; p++) {
-                        if (hvr_set_contains(p, ctx->coupled_pes) &&
-                                p != new_pe && p != ctx->pe) {
-                            hvr_mailbox_send(msg, sizeof(*msg), p, -1,
-                                    &ctx->coupling_mailbox, NULL);
-                        }
-                    }
-
-                    /*
-                     * Send the new PE my coupled value for the current
-                     * iteration, and forward it everyone I am currently
-                     * coupled with.
-                     */
-                    hvr_mailbox_send(&coupled_val_msg, sizeof(coupled_val_msg),
-                            new_pe, -1, &ctx->coupling_mailbox, NULL);
-
-                    for (int p = 0; p < ctx->npes; p++) {
-                        if (p == ctx->pe || p == new_pe) continue;
-
-                        if (hvr_set_contains(p, ctx->coupled_pes)) {
-                            hvr_coupling_msg_t tmp_coupling_msg;
-                            tmp_coupling_msg.type = MSG_COUPLING_NEW;
-                            tmp_coupling_msg.pe = p;
-                            hvr_mailbox_send(&tmp_coupling_msg,
-                                    sizeof(tmp_coupling_msg), new_pe, -1,
-                                    &ctx->coupling_mailbox, NULL);
-                        }
-                    }
-
-                    if (ctx->have_buffered_coupling_msgs[new_pe]) {
-                        /*
-                         * Coupling and coupled val messages are not guaranteed
-                         * to arrive in order. Therefore, we may already have a
-                         * buffered value.
-                         */
-                        hvr_coupling_msg_t *buffered =
-                            ctx->buffered_coupling_msgs + new_pe;
-                        hvr_set_insert(new_pe, ctx->coupled_pes_received_from);
-                        ctx->updates_on_this_iter[new_pe] =
-                            buffered->updates_on_this_iter;
-                        memcpy(ctx->coupled_pes_values + new_pe, &buffered->val,
-                                sizeof(ctx->coupled_pes_values[0]));
-
-                        ctx->have_buffered_coupling_msgs[new_pe] = 0;
-                    }
-                }
-            } else if (msg->type == MSG_COUPLING_VAL) {
-                if (!hvr_set_contains(msg->pe, ctx->coupled_pes) ||
-                        hvr_set_contains(msg->pe,
-                            ctx->coupled_pes_received_from)) {
-                    /*
-                     * Don't know about this coupling yet, or already have a
-                     * value for this PE. Buffer it.
-                     */
-                    assert(!ctx->have_buffered_coupling_msgs[msg->pe]);
-                    memcpy(ctx->buffered_coupling_msgs + msg->pe,
-                            msg, sizeof(*msg));
-                    ctx->have_buffered_coupling_msgs[msg->pe] = 1;
-                    nresends++;
-                } else {
-                    hvr_set_insert(msg->pe, ctx->coupled_pes_received_from);
-                    ctx->updates_on_this_iter[msg->pe] =
-                        msg->updates_on_this_iter;
-                    memcpy(ctx->coupled_pes_values + msg->pe, &msg->val,
-                            sizeof(msg->val));
-                }
-            } else if (msg->type == MSG_COUPLING_DEAD) {
-                hvr_set_insert(msg->pe, ctx->all_terminated_pes);
-                if (hvr_set_contains(msg->pe, ctx->coupled_pes)) {
-                    hvr_set_insert(msg->pe, ctx->coupled_pes_received_from);
-                }
-            } else {
-                abort();
+        for (int p = 0; p < ctx->npes; p++) {
+            if (hvr_set_contains(p, ctx->coupled_pes)) {
+                hvr_mailbox_send(&finished_msg, sizeof(finished_msg), p, -1,
+                        &ctx->coupling_mailbox, NULL);
             }
-        } else {
-            count_failures++;
+        }
+        ctx->finalized_pe_couplings[ctx->pe] = my_coupled_pes;
+
+        int need_reprocessing = 0;
+        while (!need_reprocessing && !all_agreed_on_cluster_size(ctx)) {
+            need_reprocessing = process_finished_messages(ctx);
         }
     }
 

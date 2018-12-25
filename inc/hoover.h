@@ -120,9 +120,11 @@ typedef struct _hvr_dead_pe_msg_t {
 #define MSG_COUPLING_NEW 0
 #define MSG_COUPLING_VAL 1
 #define MSG_COUPLING_DEAD 2
+#define MSG_COUPLING_FINISHED 3
 typedef struct _hvr_coupling_msg_t {
     int type;
     int pe;
+    int npes;
     int updates_on_this_iter;
     hvr_vertex_t val;
 } hvr_coupling_msg_t;
@@ -198,6 +200,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_set_t *all_terminated_pes;
     hvr_coupling_msg_t *buffered_coupling_msgs;
     int *have_buffered_coupling_msgs;
+    int *finalized_pe_couplings;
 
     // Values retrieved from each coupled PE
     hvr_vertex_t *coupled_pes_values;
