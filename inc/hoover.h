@@ -18,6 +18,7 @@ extern "C" {
 #include "hvr_set.h"
 #include "hvr_dist_bitvec.h"
 #include "hvr_sparse_arr.h"
+#include "hvr_set_msg.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -117,17 +118,26 @@ typedef struct _hvr_dead_pe_msg_t {
     hvr_partition_t partition;
 } hvr_dead_pe_msg_t;
 
-#define MSG_COUPLING_NEW 0
-#define MSG_COUPLING_VAL 1
-#define MSG_COUPLING_DEAD 2
-#define MSG_COUPLING_FINISHED 3
 typedef struct _hvr_coupling_msg_t {
-    int type;
     int pe;
-    int npes;
     int updates_on_this_iter;
+    hvr_time_t iter;
     hvr_vertex_t val;
 } hvr_coupling_msg_t;
+
+typedef struct _start_iter_msg_t {
+    int pe;
+} start_iter_msg_t;
+
+typedef struct _new_coupling_msg_t {
+    int pe;
+    hvr_time_t iter;
+} new_coupling_msg_t;
+
+typedef struct _cluster_ack_msg_t {
+    int pe;
+    unsigned nforwards;
+} cluster_ack_msg_t;
 
 /*
  * Per-PE data structure for storing all information about the running problem
@@ -196,11 +206,11 @@ typedef struct _hvr_internal_ctx_t {
     // Set of PEs we are in coupled execution with
     hvr_set_t *prev_coupled_pes;
     hvr_set_t *coupled_pes;
-    hvr_set_t *coupled_pes_received_from;
+    hvr_set_t *received_from;
     hvr_set_t *all_terminated_pes;
-    hvr_coupling_msg_t *buffered_coupling_msgs;
-    int *have_buffered_coupling_msgs;
-    int *finalized_pe_couplings;
+    hvr_set_msg_t coupled_pes_msg;
+    hvr_set_t **finalized_sets;
+    hvr_set_t *ack_set;
 
     // Values retrieved from each coupled PE
     hvr_vertex_t *coupled_pes_values;
@@ -241,7 +251,16 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t vertex_update_mailbox;
     hvr_mailbox_t vertex_delete_mailbox;
     hvr_mailbox_t forward_mailbox;
-    hvr_mailbox_t coupling_mailbox;
+
+    // Actually used
+    hvr_mailbox_t start_iter_mailbox;
+    hvr_mailbox_t start_iter_ack_mailbox;
+    hvr_mailbox_t new_coupling_mailbox;
+    hvr_mailbox_t cluster_mailbox;
+    hvr_mailbox_t coupling_val_mailbox;
+    hvr_mailbox_t dead_mailbox;
+
+    hvr_time_t *coupled_pe_iter;
 
     hvr_dist_bitvec_t partition_producers;
     hvr_dist_bitvec_t terminated_pes;

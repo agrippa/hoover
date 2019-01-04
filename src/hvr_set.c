@@ -129,3 +129,54 @@ void hvr_set_copy(hvr_set_t *dst, hvr_set_t *src) {
             src->bit_vector_len * sizeof(bit_vec_element_type));
     memcpy(dst, src, offsetof(hvr_set_t, bit_vector));
 }
+
+int hvr_set_equal(hvr_set_t *a, hvr_set_t *b) {
+    assert(a->max_n_contained == b->max_n_contained);
+    if (a->n_contained != b->n_contained) {
+        return 0;
+    }
+
+    for (uint64_t i = 0; i < a->max_n_contained; i++) {
+        if (hvr_set_contains(i, a) != hvr_set_contains(i, b)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void hvr_set_or(hvr_set_t *dst, hvr_set_t *src) {
+    assert(dst->max_n_contained == src->max_n_contained);
+    assert(dst->bit_vector_len == src->bit_vector_len);
+
+    for (uint64_t i = 0; i < dst->bit_vector_len; i++) {
+        (dst->bit_vector)[i] = ((dst->bit_vector)[i] | (src->bit_vector)[i]);
+    }
+
+    unsigned count_contained = 0;
+    for (unsigned i = 0; i < dst->max_n_contained; i++) {
+        if (hvr_set_contains(i, dst)) {
+            count_contained++;
+        }
+    }
+    dst->n_contained = count_contained;
+}
+
+void hvr_set_and(hvr_set_t *dst, hvr_set_t *src1, hvr_set_t *src2) {
+    assert(dst->max_n_contained == src1->max_n_contained);
+    assert(dst->max_n_contained == src2->max_n_contained);
+
+    assert(dst->bit_vector_len == src1->bit_vector_len);
+    assert(dst->bit_vector_len == src2->bit_vector_len);
+
+    for (uint64_t i = 0; i < dst->bit_vector_len; i++) {
+        (dst->bit_vector)[i] = ((src1->bit_vector)[i] & (src2->bit_vector)[i]);
+    }
+
+    unsigned count_contained = 0;
+    for (unsigned i = 0; i < dst->max_n_contained; i++) {
+        if (hvr_set_contains(i, dst)) {
+            count_contained++;
+        }
+    }
+    dst->n_contained = count_contained;
+}

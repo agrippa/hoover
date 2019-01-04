@@ -28,9 +28,10 @@ export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
-export CORES_PER_SOCKET=1
+export TASKS_PER_SOCKET=12
+export CORES_PER_SOCKET=12
 export SOCKETS_PER_NODE=2
-export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
+export CORES_PER_TASK=$(( $CORES_PER_SOCKET / $TASKS_PER_SOCKET ))
 
 export HVR_SYMM_POOL_SIZE=2084000
 export HVR_SYMM_POOL_NNODES=1024
@@ -52,8 +53,9 @@ export HVR_DISABLE_DEAD_PE_PROCESSING=1
 
 cd $SCRATCH
 
-srun --ntasks-per-socket=$CORES_PER_SOCKET \
-    --cpus-per-task=12 \
+srun --ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
+    --ntasks-per-socket=$TASKS_PER_SOCKET \
+    --cpus-per-task=$CORES_PER_TASK \
     --cpu_bind=verbose,cores \
     --cpu-freq=High \
     --mem-bind=local \

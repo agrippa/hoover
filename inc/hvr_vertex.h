@@ -51,7 +51,6 @@ static inline double hvr_vertex_get(const unsigned feature,
  */
 static inline void hvr_vertex_set(const unsigned feature, const double val,
         hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     assert(feature < HVR_MAX_VECTOR_SIZE);
     if (val != vert->values[feature]) {
         vert->needs_send = 1;

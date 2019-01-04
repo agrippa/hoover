@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:20:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -30,9 +30,10 @@ export SHMEM_SYMMETRIC_SIZE=$((2 * 1024 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
+export TASKS_PER_SOCKET=12
 export CORES_PER_SOCKET=12
 export SOCKETS_PER_NODE=2
-export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
+export CORES_PER_TASK=$(( $CORES_PER_SOCKET / $TASKS_PER_SOCKET ))
 
 # export HVR_DEFAULT_SPARSE_VEC_VAL=0.0
 # srun --ntasks=1 ./bin/sparse_vec_test
@@ -94,7 +95,7 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=200
+export MAX_NUM_TIMESTEPS=80
 export INFECTION_RADIUS=300
 
 export HVR_SYMM_POOL_SIZE=2084000
@@ -104,19 +105,26 @@ export HVR_VERT_CACHE_SEGS=20000
 export HVR_EDGE_SET_SEGS=20000
 export HVR_EDGE_SET_VALS=$((1024 * 1024 * 1024))
 export HVR_EDGE_SET_NODES=262144
+export HVR_DIST_BITVEC_POOL_SIZE=$((16 * 1024 * 1024))
+export HVR_SPARSE_ARR_SEGS=2048
+export HVR_SPARSE_ARR_POOL=$((32 * 1024 * 1024));
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-# export HVR_HANG_ABORT=120
+export HVR_HANG_ABORT=180
 
 cd $SCRATCH
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
-    $HOME/hoover/infectious_test+pat $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
+srun --ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
+    --ntasks-per-socket=$TASKS_PER_SOCKET \
+    --cpus-per-task=$CORES_PER_TASK \
+    --cpu_bind=verbose,cores \
+    --cpu-freq=High \
+    --mem-bind=local \
+    $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    300
+    120

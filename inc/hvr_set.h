@@ -27,7 +27,6 @@ typedef struct _hvr_set_t {
     uint64_t bit_vector_len;
 } hvr_set_t;
 
-
 extern hvr_set_t *hvr_create_empty_set(const unsigned nvals);
 
 /*
@@ -86,6 +85,15 @@ extern void hvr_set_fill(hvr_set_t *set);
  * Copy src to dst.
  */
 extern void hvr_set_copy(hvr_set_t *dst, hvr_set_t *src);
+
+// Check if two sets are identical
+extern int hvr_set_equal(hvr_set_t *a, hvr_set_t *b);
+
+// Do an element-wise logical OR of dst and src. Store the result in dst.
+extern void hvr_set_or(hvr_set_t *dst, hvr_set_t *src);
+
+// Do an element-wise logical AND of src1 and src2, storing the result in dst.
+extern void hvr_set_and(hvr_set_t *dst, hvr_set_t *src1, hvr_set_t *src2);
 
 #ifdef __cplusplus
 }

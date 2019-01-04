@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 #SBATCH --contiguous
@@ -113,7 +113,7 @@ export HVR_SPARSE_ARR_POOL=$((32 * 1024 * 1024));
 # export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-# export HVR_HANG_ABORT=240
+export HVR_HANG_ABORT=200
 # export HVR_HANG_ABORT_PE=17
 
 cd $SCRATCH
@@ -128,4 +128,4 @@ srun --ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
     --mem-bind=local \
     $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    480
+    180
