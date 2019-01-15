@@ -13,15 +13,19 @@ int main(int argc, char **argv) {
     hvr_sparse_arr_insert(3, 3, &arr);
     assert(hvr_sparse_arr_contains(3, 3, &arr) == 1);
     assert(hvr_sparse_arr_contains(4, 4, &arr) == 0);
+    assert(hvr_sparse_arr_contains(3, 4, &arr) == 0);
+    assert(hvr_sparse_arr_contains(3, 1, &arr) == 0);
 
     hvr_sparse_arr_insert(1500, 1500, &arr);
     assert(hvr_sparse_arr_contains(1500, 1500, &arr) == 1);
+    assert(hvr_sparse_arr_contains(3, 3, &arr) == 1);
+    assert(hvr_sparse_arr_contains(4, 4, &arr) == 0);
+    assert(hvr_sparse_arr_contains(3, 4, &arr) == 0);
+    assert(hvr_sparse_arr_contains(3, 1, &arr) == 0);
 
     int *tmp_arr = NULL;
-    unsigned capacity = 0;
-    unsigned len = hvr_sparse_arr_linearize_row(3, &tmp_arr, &capacity, &arr);
+    unsigned len = hvr_sparse_arr_linearize_row(3, &tmp_arr, &arr);
     assert(len == 1);
-    assert(capacity == 1);
     assert(tmp_arr[0] == 3);
 
     hvr_sparse_arr_remove(3, 3, &arr);

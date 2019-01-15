@@ -169,6 +169,8 @@ static inline void hvr_vertex_cache_add_to_local_neighbor_list(
 extern void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
         hvr_partition_t npartitions);
 
+extern void hvr_vertex_cache_destroy(hvr_vertex_cache_t *cache);
+
 /*
  * Given a vertex ID on a remote PE, look up that vertex in our local cache.
  * Only returns an entry if the newest timestep stored in that entry is new

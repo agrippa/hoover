@@ -144,3 +144,9 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
     return new_node;
 }
+
+void hvr_vertex_cache_destroy(hvr_vertex_cache_t *cache) {
+    hvr_map_destroy(&cache->cache_map);
+    free(cache->partitions);
+    free(cache->pool_mem);
+}

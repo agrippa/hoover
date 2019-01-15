@@ -125,9 +125,12 @@ void hvr_set_merge(hvr_set_t *set, hvr_set_t *other) {
 }
 
 void hvr_set_copy(hvr_set_t *dst, hvr_set_t *src) {
+    assert(dst->bit_vector_len == src->bit_vector_len);
+    assert(dst->max_n_contained == src->max_n_contained);
+
+    dst->n_contained = src->n_contained;
     memcpy(dst->bit_vector, src->bit_vector,
             src->bit_vector_len * sizeof(bit_vec_element_type));
-    memcpy(dst, src, offsetof(hvr_set_t, bit_vector));
 }
 
 int hvr_set_equal(hvr_set_t *a, hvr_set_t *b) {

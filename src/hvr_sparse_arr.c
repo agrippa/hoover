@@ -24,14 +24,14 @@ void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity) {
     if (getenv("HVR_SPARSE_ARR_SEGS")) {
         prealloc = atoi(getenv("HVR_SPARSE_ARR_SEGS"));
     }
-    hvr_sparse_arr_seg_t *pool = (hvr_sparse_arr_seg_t *)malloc(
-            prealloc * sizeof(*pool));
-    assert(pool);
-    arr->preallocated = pool;
+    arr->preallocated = (hvr_sparse_arr_seg_t *)malloc(
+            prealloc * sizeof(arr->preallocated[0]));
+    assert(arr->preallocated);
     for (unsigned i = 0; i < prealloc - 1; i++) {
-        pool[i].next = pool + (i + 1);
+        arr->preallocated[i].next = arr->preallocated + (i + 1);
     }
-    pool[prealloc - 1].next = NULL;
+    arr->preallocated[prealloc - 1].next = NULL;
+    arr->segs_pool = arr->preallocated;
 
     int pool_size = 1024 * 1024;
     if (getenv("HVR_SPARSE_ARR_POOL")) {
@@ -39,6 +39,14 @@ void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity) {
     }
     arr->pool = malloc(pool_size);
     arr->tracker = create_mspace_with_base(arr->pool, pool_size, 0);
+    assert(arr->tracker);
+}
+
+void hvr_sparse_arr_destroy(hvr_sparse_arr_t *arr) {
+    free(arr->segs);
+    free(arr->preallocated);
+    destroy_mspace(arr->tracker);
+    free(arr->pool);
 }
 
 void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
@@ -49,9 +57,9 @@ void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
 
     if (arr->segs[seg] == NULL) {
         // No segment allocated yet
-        arr->segs[seg] = arr->preallocated;
+        arr->segs[seg] = arr->segs_pool;
         assert(arr->segs[seg]);
-        arr->preallocated = arr->preallocated->next;
+        arr->segs_pool = arr->segs_pool->next;
 
         hvr_sparse_arr_seg_init(arr->segs[seg]);
     }
@@ -148,7 +156,7 @@ unsigned hvr_sparse_arr_row_length(unsigned i, hvr_sparse_arr_t *arr) {
 }
 
 unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
-        unsigned *capacity, hvr_sparse_arr_t *arr) {
+        hvr_sparse_arr_t *arr) {
     assert(i < arr->capacity);
 
     const unsigned seg = i / HVR_SPARSE_ARR_SEGMENT_SIZE;

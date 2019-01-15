@@ -110,12 +110,32 @@ void hvr_map_init(hvr_map_t *m, unsigned n_segs, size_t vals_pool_size,
     }
     prealloc[n_segs - 1].next = NULL;
     m->seg_pool = prealloc;
+    m->prealloc_seg_pool = prealloc;
     m->n_prealloc = n_segs;
 
+    /*
+     * vals_pool_size may be zero if we know we will never need dynamically
+     * allocated values from this map (i.e. all entries are guaranteed to have a
+     * small enough number of values that they fit in the statically allocated
+     * portion of the value space.
+     */
     m->val_pool = malloc(vals_pool_size * sizeof(hvr_map_val_t));
     assert(m->val_pool || vals_pool_size == 0);
-    m->tracker = create_mspace_with_base(m->val_pool,
-            vals_pool_size * sizeof(hvr_map_val_t), 0);
+    if (vals_pool_size > 0) {
+        m->tracker = create_mspace_with_base(m->val_pool,
+                vals_pool_size * sizeof(hvr_map_val_t), 0);
+        assert(m->tracker);
+    } else {
+        m->tracker = 0;
+    }
+}
+
+void hvr_map_destroy(hvr_map_t *m) {
+    free(m->prealloc_seg_pool);
+    if (m->tracker) {
+        destroy_mspace(m->tracker);
+    }
+    free(m->val_pool);
 }
 
 void hvr_map_add(hvr_vertex_id_t key, hvr_map_val_t to_insert,

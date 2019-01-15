@@ -32,4 +32,6 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
 int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
         hvr_mailbox_t *mailbox);
 
+void hvr_mailbox_destroy(hvr_mailbox_t *mailbox);
+
 #endif // _HVR_MAILBOX

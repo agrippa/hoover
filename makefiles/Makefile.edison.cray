@@ -12,7 +12,8 @@ all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge
 bin/libhoover.a: src/hoover.c \
 	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c \
 	src/hvr_set.c src/hvr_edge_set.c src/hvr_vertex.c \
-	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_sparse_arr.c src/hvr_map.c src/hvr_set_msg.c
+	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_sparse_arr.c src/hvr_map.c src/hvr_set_msg.c src/hvr_msg_buf_pool.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_msg_buf_pool.o src/hvr_msg_buf_pool.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_set_msg.o src/hvr_set_msg.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hoover.o src/hoover.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_vertex_pool.o src/hvr_vertex_pool.c
@@ -29,13 +30,15 @@ bin/libhoover.a: src/hoover.c \
 	ar rcs bin/libhoover.a bin/hoover.o \
 		bin/hvr_vertex_pool.o bin/hvr_vertex_iter.o bin/hvr_mailbox.o bin/hvr_set.o \
 		bin/hvr_edge_set.o bin/hvr_vertex.o bin/hvr_vertex_cache.o \
-		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o bin/dlmalloc.o bin/hvr_set_msg.o
+		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o bin/dlmalloc.o \
+		bin/hvr_set_msg.o bin/hvr_msg_buf_pool.o
 
 bin/init_test: test/init_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
-bin/test_sparse_arr: test/test_sparse_arr.c
-	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+bin/test_sparse_arr: test/test_sparse_arr.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/test_sparse_arr.c -o bin/test_sparse_arr.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/test_sparse_arr.o -o $@ -lhoover -lm -lpthread
 
 bin/infectious_test: test/infectious_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/infectious_test.c -o bin/infectious_test.o
@@ -73,8 +76,9 @@ bin/intrusion_detection: test/intrusion_detection.cpp bin/libhoover.a
 	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/intrusion_detection.cpp -o bin/intrusion_detection.o
 	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/intrusion_detection.o -o $@ -lhoover -lm -lpthread -lstdc++
 
-bin/hvr_dist_bitvec_test: test/hvr_dist_bitvec_test.c
-	$(CXX) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+bin/hvr_dist_bitvec_test: test/hvr_dist_bitvec_test.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_dist_bitvec_test.c -o bin/hvr_dist_bitvec_test.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_dist_bitvec_test.o -o $@ -lhoover -lm -lpthread
 
 bin/interact_test: test/interact_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
@@ -83,7 +87,8 @@ bin/own_edge_test: test/own_edge_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
 
 bin/mailbox_test: test/mailbox_test.c bin/libhoover.a
-	$(CC) $(CFLAGS) test/mailbox_test.c -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/mailbox_test.c -o bin/mailbox_test.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/mailbox_test.o -o $@ -lhoover -lm -lpthread
 
 bin/pas: test/pas.cpp
 	$(CXX) -std=c++11 $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)

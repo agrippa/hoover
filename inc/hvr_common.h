@@ -109,4 +109,6 @@ typedef struct _process_perf_info_t {
     unsigned long long time_creating;
 } process_perf_info_t;
 
+extern void *shmem_malloc_wrapper(size_t nbytes);
+
 #endif

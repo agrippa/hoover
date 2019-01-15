@@ -3,10 +3,10 @@
 #SBATCH -p debug
 #SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:05:00
+#SBATCH -t 00:03:00
 #SBATCH -J hoover
 #SBATCH --exclusive
-#SBATCH --contiguous
+####SBATCH --contiguous
 #SBATCH --mail-type=ALL
 
 # set -e
@@ -60,7 +60,7 @@ elif [[ $SLURM_NNODES -eq 4 ]]; then
     export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 256))
     # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 128))
     export PE_ROWS=8
-    export PE_COLS=12
+    export PE_COLS=16
 elif [[ $SLURM_NNODES -eq 16 ]]; then
     # 16 nodes, big run
     export CELL_DIM=1000.0
@@ -95,7 +95,7 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=80
+export MAX_NUM_TIMESTEPS=100
 export INFECTION_RADIUS=300
 
 export HVR_SYMM_POOL_SIZE=2084000
@@ -113,7 +113,7 @@ export HVR_SPARSE_ARR_POOL=$((32 * 1024 * 1024));
 # export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-export HVR_HANG_ABORT=200
+export HVR_HANG_ABORT=100
 # export HVR_HANG_ABORT_PE=17
 
 cd $SCRATCH
@@ -128,4 +128,4 @@ srun --ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
     --mem-bind=local \
     $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    180
+    60

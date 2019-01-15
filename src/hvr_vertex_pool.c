@@ -190,6 +190,7 @@ void hvr_range_tracker_init(size_t capacity, int n_nodes,
             n_nodes * sizeof(*prealloc));
     assert(prealloc || n_nodes == 0);
     tracker->preallocated_nodes = prealloc;
+    tracker->mem = prealloc;
     for (int i = 0; i < n_nodes - 1; i++) {
         prealloc[i].next = prealloc + (i + 1);
     }
@@ -200,6 +201,11 @@ void hvr_range_tracker_init(size_t capacity, int n_nodes,
     tracker->capacity = capacity;
     tracker->used = 0;
     tracker->n_nodes = n_nodes;
+    
+}
+
+void hvr_range_tracker_destroy(hvr_range_tracker_t *tracker) {
+    free(tracker->mem);
 }
 
 size_t hvr_range_tracker_reserve(size_t space, hvr_range_tracker_t *tracker) {
@@ -263,7 +269,8 @@ size_t hvr_range_tracker_size_in_bytes(hvr_range_tracker_t *tracker) {
 
 void hvr_vertex_pool_create(size_t pool_size, size_t n_nodes,
         hvr_vertex_pool_t *pool) {
-    pool->pool = (hvr_vertex_t *)shmem_malloc(pool_size * sizeof(hvr_vertex_t));
+    pool->pool = (hvr_vertex_t *)shmem_malloc_wrapper(
+            pool_size * sizeof(hvr_vertex_t));
     if (pool->pool == NULL) {
         fprintf(stderr, "PE %d failed allocating sparse vec pool of size %lu "
                 "bytes\n", shmem_my_pe(), pool_size * sizeof(hvr_vertex_t));
@@ -319,4 +326,9 @@ size_t hvr_pool_size_in_bytes(hvr_ctx_t in_ctx) {
     hvr_vertex_pool_t *pool = &ctx->pool;
 
     return hvr_range_tracker_size_in_bytes(&pool->tracker);
+}
+
+void hvr_vertex_pool_destroy(hvr_vertex_pool_t *pool) {
+    shmem_free(pool->pool);
+    hvr_range_tracker_destroy(&pool->tracker);
 }

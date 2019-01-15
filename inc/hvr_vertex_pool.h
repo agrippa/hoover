@@ -16,6 +16,9 @@ typedef struct _hvr_range_tracker_t {
     hvr_range_node_t *free_list;
     hvr_range_node_t *used_list;
     hvr_range_node_t *preallocated_nodes;
+
+    hvr_range_node_t *mem;
+
     size_t capacity;
     size_t used;
     int n_nodes;
@@ -32,6 +35,8 @@ typedef struct _hvr_vertex_pool_t {
  */
 extern void hvr_vertex_pool_create(size_t pool_size, size_t n_nodes,
         hvr_vertex_pool_t *pool);
+
+extern void hvr_vertex_pool_destroy(hvr_vertex_pool_t *pool);
 
 /*
  * Allocate 'nvecs' sparse vectors from the specified memory pool.

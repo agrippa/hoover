@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "hvr_mailbox.h"
+#include "hvr_common.h"
 
 const static unsigned sentinel = 0xdeed;
 const static unsigned clear_sentinel = 0x0;
@@ -14,14 +15,15 @@ void hvr_mailbox_init(hvr_mailbox_t *mailbox, size_t capacity_in_bytes) {
     assert(capacity_in_bytes % sizeof(sentinel) == 0);
 
     memset(mailbox, 0x00, sizeof(*mailbox));
-    mailbox->indices = (uint64_t *)shmem_malloc(sizeof(*(mailbox->indices)));
+    mailbox->indices = (uint64_t *)shmem_malloc_wrapper(
+            sizeof(*(mailbox->indices)));
     assert(mailbox->indices);
     *(mailbox->indices) = 0;
     mailbox->indices_curr_val = 0;
 
     mailbox->capacity_in_bytes = capacity_in_bytes;
 
-    mailbox->buf = (char *)shmem_malloc(capacity_in_bytes);
+    mailbox->buf = (char *)shmem_malloc_wrapper(capacity_in_bytes);
     assert(mailbox->buf);
     memset(mailbox->buf, 0x00, capacity_in_bytes);
 
@@ -69,15 +71,15 @@ static void put_in_mailbox_with_rotation(const void *data, size_t data_len,
 
 static void get_from_mailbox_with_rotation(uint64_t starting_offset, void *data,
         uint64_t data_len, hvr_mailbox_t* mailbox) {
+    const int target_pe = mailbox->pe;
     if (starting_offset + data_len <= mailbox->capacity_in_bytes) {
-        shmem_getmem(data, mailbox->buf + starting_offset, data_len,
-                mailbox->pe);
+        shmem_getmem(data, mailbox->buf + starting_offset, data_len, target_pe);
     } else {
         uint64_t rotate_index = mailbox->capacity_in_bytes - starting_offset;
         shmem_getmem(data, mailbox->buf + starting_offset, rotate_index,
-                mailbox->pe);
+                target_pe);
         shmem_getmem((char *)data + rotate_index, mailbox->buf,
-                data_len - rotate_index, mailbox->pe);
+                data_len - rotate_index, target_pe);
     }
 }
 
@@ -165,11 +167,10 @@ int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
          * Otherwise, the last time we checked the mailbox it was empty. We have
          * to check if that's still the case.
          */
-        int changed = shmem_uint64_test(mailbox->indices, SHMEM_CMP_NE,
-                mailbox->indices_curr_val);
-        if (changed) {
-            curr_indices = shmem_uint64_atomic_fetch(mailbox->indices,
-                    mailbox->pe);
+        uint64_t new_indices = shmem_uint64_atomic_fetch(mailbox->indices,
+                    shmem_my_pe() /* mailbox->pe */ );
+        if (new_indices != mailbox->indices_curr_val) {
+            curr_indices = new_indices;
         } else {
             return 0;
         }
@@ -199,9 +200,7 @@ int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
     *msg_len = recv_msg_len;
 
     if (*msg_capacity < recv_msg_len) {
-        *msg = (void *)realloc(*msg, recv_msg_len);
-        assert(*msg);
-        *msg_capacity = recv_msg_len;
+        abort();
     }
 
     get_from_mailbox_with_rotation(msg_offset, *msg, recv_msg_len, mailbox);
@@ -234,4 +233,9 @@ int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
     shmem_quiet();
 
     return 1;
+}
+
+void hvr_mailbox_destroy(hvr_mailbox_t *mailbox) {
+    shmem_free(mailbox->indices);
+    shmem_free(mailbox->buf);
 }

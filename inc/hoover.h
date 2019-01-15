@@ -19,6 +19,7 @@ extern "C" {
 #include "hvr_dist_bitvec.h"
 #include "hvr_sparse_arr.h"
 #include "hvr_set_msg.h"
+#include "hvr_msg_buf_pool.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -224,10 +225,10 @@ typedef struct _hvr_internal_ctx_t {
      *
      * These per-partition bit vectors are spread across all PEs.
      */
-    unsigned *pes_per_partition;
-    unsigned partitions_per_pe_vec_length_in_words;
-    unsigned partitions_per_pe;
-    unsigned *local_pes_per_partition_buffer;
+    hvr_partition_t *pes_per_partition;
+    hvr_partition_t partitions_per_pe_vec_length_in_words;
+    hvr_partition_t partitions_per_pe;
+    hvr_partition_t *local_pes_per_partition_buffer;
 
     // For debug printing
     char my_hostname[1024];
@@ -270,9 +271,6 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_local_subcopy_t *producer_info;
     hvr_dist_bitvec_local_subcopy_t *dead_info;
 
-    void *msg_buf;
-    size_t msg_buf_capacity;
-
     // Edge from PE -> partitions we need to notify it about
     hvr_sparse_arr_t pe_subscription_info;
 
@@ -280,6 +278,8 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_vertex_update_t *buffered_updates;
     hvr_vertex_update_t *buffered_deletes;
+
+    hvr_msg_buf_pool_t msg_buf_pool;
 
 #define N_VERTICES_PER_BUF 10240
     hvr_partition_t *vert_partition_buf;

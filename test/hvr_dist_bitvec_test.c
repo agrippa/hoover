@@ -7,6 +7,11 @@
 int main(int argc, char **argv) {
     shmem_init();
 
+    if (shmem_my_pe() == 0) {
+        fprintf(stderr, "Running with %d PEs, sizeof(unsigned)=%lu\n",
+                shmem_n_pes(), sizeof(unsigned));
+    }
+
     const int N = 2000;
     hvr_dist_bitvec_t vec;
     hvr_dist_bitvec_init(N, shmem_n_pes(), &vec);

@@ -33,7 +33,6 @@
 #define MAX_DST_DELTA 500.0
 
 int max_modeled_timestep = 0;
-int all_max_modeled_timestep = 0;
 unsigned *max_timestep_created = NULL;
 
 static unsigned time_partition_dim = 0;
@@ -53,9 +52,6 @@ static portal_t *portals = NULL;
 static int n_global_portals = 0;
 static int actors_per_cell;
 static double cell_dim;
-long long total_time = 0;
-long long max_elapsed = 0;
-long long elapsed_time = 0;
 static double infection_radius;
 static int max_num_timesteps;
 
@@ -528,6 +524,8 @@ int main(int argc, char **argv) {
     time_partition_dim = max_num_timesteps;
     y_partition_dim = 200;
     x_partition_dim = 200;
+    hvr_partition_t npartitions = time_partition_dim * y_partition_dim *
+        x_partition_dim;
 
     const double global_x_dim = (double)pe_cols * cell_dim;
     const double global_y_dim = (double)pe_rows * cell_dim;
@@ -559,10 +557,18 @@ int main(int argc, char **argv) {
      * plane, train routes). If an actor hits one of these portals, they are
      * "teleported" to the other end of the portal.
      */
-    portals = (portal_t *)shmem_malloc(n_global_portals * sizeof(*portals));
-    assert((n_global_portals == 0) || portals);
+    if (n_global_portals > 0) {
+        portals = (portal_t *)shmem_malloc(n_global_portals * sizeof(*portals));
+        assert(portals);
+    } else {
+        portals = NULL;
+    }
+
     if (pe == 0) {
         fprintf(stderr, "Running for at most %d seconds\n", time_limit);
+        fprintf(stderr, "Using %u partitions (%u time partitions * %u y "
+                "partitions * %u x partitions)\n", npartitions,
+                time_partition_dim, y_partition_dim, x_partition_dim);
         fprintf(stderr, "Creating %d portals\n", n_global_portals);
         fprintf(stderr, "%d actors per cell, %d actors in total, %d vertices "
                 "in total\n", actors_per_cell, actors_per_cell * npes,
@@ -611,10 +617,7 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     // Seed the location of local actors.
-    // hvr_vertex_t *actors = hvr_vertex_create_n(
-    //         actors_per_cell * max_num_timesteps, hvr_ctx);
-    hvr_vertex_t *actors = hvr_vertex_create_n(
-            actors_per_cell, hvr_ctx);
+    hvr_vertex_t *actors = hvr_vertex_create_n(actors_per_cell, hvr_ctx);
 
     const int t = 0;
     for (int a = 0; a < actors_per_cell; a++) {
@@ -673,7 +676,7 @@ int main(int argc, char **argv) {
                 &actors[index], hvr_ctx);
     }
 
-    hvr_init(time_partition_dim * y_partition_dim * x_partition_dim,
+    hvr_init(npartitions,
             update_metadata,
             might_interact,
             update_coupled_val,
@@ -687,17 +690,36 @@ int main(int argc, char **argv) {
 
     const long long start_time = hvr_current_time_us();
     hvr_body(hvr_ctx);
-    elapsed_time = hvr_current_time_us() - start_time;
+    const long long elapsed_time = hvr_current_time_us() - start_time;
 
-    shmem_longlong_sum_to_all(&total_time, &elapsed_time, 1, 0, 0, npes, p_wrk,
-            p_sync);
+    long long *elapsed_times = (long long *)shmem_malloc(
+            npes * sizeof(*elapsed_times));
+    assert(elapsed_times);
+    shmem_longlong_put(elapsed_times + pe, &elapsed_time, 1, 0);
     shmem_barrier_all();
-    shmem_longlong_max_to_all(&max_elapsed, &elapsed_time, 1, 0, 0, npes, p_wrk,
-            p_sync);
+
+    long long total_time = 0;
+    for (int p = 0; p < npes; p++) {
+        total_time += elapsed_times[p];
+    }
+    long long max_elapsed = 0;
+    for (int p = 0; p < npes; p++) {
+        if (elapsed_times[p] > max_elapsed) {
+            max_elapsed = elapsed_times[p];
+        }
+    }
+
+    int *modeled_timesteps = (int *)shmem_malloc(
+            npes * sizeof(*modeled_timesteps));
+    assert(modeled_timesteps);
+    shmem_int_put(modeled_timesteps + pe, &max_modeled_timestep, 1, 0);
     shmem_barrier_all();
-    shmem_int_min_to_all(&all_max_modeled_timestep, &max_modeled_timestep, 1, 0,
-            0, npes, int_p_wrk, p_sync);
-    shmem_barrier_all();
+    int all_max_modeled_timestep = modeled_timesteps[0];
+    for (int p = 1; p < npes; p++) {
+        if (modeled_timesteps[p] < all_max_modeled_timestep) {
+            all_max_modeled_timestep = modeled_timesteps[p];
+        }
+    }
 
     if (pe == 0) {
         printf("%d PEs, %d timesteps, infection radius of %f, total CPU time = "
@@ -707,10 +729,14 @@ int main(int argc, char **argv) {
                 actors_per_cell, hvr_ctx->iter);
         printf("Max modeled timestep across all PEs = %d, # vertices on PE 0 = "
                 "%lu\n", all_max_modeled_timestep, hvr_n_allocated(hvr_ctx));
+        for (int p = 0; p < npes; p++) {
+            printf("  PE %d got to timestep %d\n", p, modeled_timesteps[p]);
+        }
     }
 
     hvr_finalize(hvr_ctx);
 
+    shmem_free(initial_infected);
     shmem_finalize();
 
     return 0;

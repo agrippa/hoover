@@ -1,6 +1,7 @@
 #include <shmem.h>
 #include <string.h>
 #include <limits.h>
+#include <stdio.h>
 
 #include "hvr_common.h"
 #include "hvr_dist_bitvec.h"
@@ -16,8 +17,9 @@ void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
 
     vec->dim0_per_pe = (dim0 + shmem_n_pes() - 1) / shmem_n_pes();
 
-    vec->symm_vec = (hvr_dist_bitvec_ele_t *)shmem_malloc(vec->dim0_per_pe *
-            vec->dim1_length_in_words * sizeof(hvr_dist_bitvec_ele_t));
+    vec->symm_vec = (hvr_dist_bitvec_ele_t *)shmem_malloc_wrapper(
+            vec->dim0_per_pe * vec->dim1_length_in_words *
+            sizeof(hvr_dist_bitvec_ele_t));
     assert(vec->symm_vec);
     memset(vec->symm_vec, 0x00, vec->dim0_per_pe * vec->dim1_length_in_words *
             sizeof(hvr_dist_bitvec_ele_t));
@@ -26,10 +28,11 @@ void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
     if (getenv("HVR_DIST_BITVEC_POOL_SIZE")) {
         pool_size = atoi(getenv("HVR_DIST_BITVEC_POOL_SIZE"));
     }
-    vec->pool = shmem_malloc(pool_size);
+    vec->pool = shmem_malloc_wrapper(pool_size);
     assert(vec->pool || pool_size == 0);
     vec->tracker = create_mspace_with_base(vec->pool,
             pool_size, 0);
+    assert(vec->tracker);
 
     shmem_barrier_all();
 }
@@ -43,8 +46,7 @@ void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
     const unsigned coord1_bit = coord1 % BITS_PER_WORD;
     unsigned coord1_mask = (1U << coord1_bit);
 
-    assert(sizeof(hvr_dist_bitvec_ele_t) == sizeof(unsigned int));
-    shmem_uint_atomic_or(
+    shmem_uint64_atomic_or(
             vec->symm_vec + (coord0_offset * vec->dim1_length_in_words) +
             coord1_word, coord1_mask, coord0_pe);
 }
@@ -59,8 +61,7 @@ void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
     unsigned coord1_mask = (1U << coord1_bit);
     coord1_mask = ~coord1_mask;
 
-    assert(sizeof(hvr_dist_bitvec_ele_t) == sizeof(unsigned int));
-    shmem_uint_atomic_and(
+    shmem_uint64_atomic_and(
             vec->symm_vec + (coord0_offset * vec->dim1_length_in_words) +
             coord1_word, coord1_mask, coord0_pe);
 }
@@ -84,7 +85,8 @@ void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,
 
     out->coord0 = coord0;
     for (unsigned i = 0; i < vec->dim1_length_in_words; i++) {
-        out->subvec[i] = shmem_uint_atomic_fetch(
+        out->subvec[i] =
+            shmem_uint64_atomic_fetch(
                 vec->symm_vec + (coord0_offset * vec->dim1_length_in_words + i),
                 coord0_pe);
     }

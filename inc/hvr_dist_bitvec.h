@@ -16,8 +16,8 @@ extern "C" {
  * error to specify a first dimension that is less than the number of PEs.
  */
 
-typedef unsigned hvr_dist_bitvec_size_t;
-typedef unsigned hvr_dist_bitvec_ele_t;
+typedef uint64_t hvr_dist_bitvec_size_t;
+typedef uint64_t hvr_dist_bitvec_ele_t;
 typedef struct _hvr_dist_bitvec_t {
     // Outermost dimension of the distributed vector
     hvr_dist_bitvec_size_t dim0;
