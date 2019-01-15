@@ -139,7 +139,6 @@ export EXE_ARGS="$CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
 echo "RUNNING INFECTIOUS MODEL"
 echo ""
 srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
-# srun $SLURM_ARGS $HOME/hoover/bin/mailbox_test
 
 # module load valgrind4hpc
 # valgrind4hpc -n $(( $SLURM_NNODES * $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \

@@ -18,7 +18,7 @@ void hvr_mailbox_init(hvr_mailbox_t *mailbox, size_t capacity_in_bytes) {
     mailbox->indices = (uint64_t *)shmem_malloc_wrapper(
             sizeof(*(mailbox->indices)));
     assert(mailbox->indices);
-    *(mailbox->indices) = 0;
+    shmem_uint64_p(mailbox->indices, 0, shmem_my_pe());
     mailbox->indices_curr_val = 0;
 
     mailbox->capacity_in_bytes = capacity_in_bytes;
@@ -168,7 +168,7 @@ int hvr_mailbox_recv(void **msg, size_t msg_capacity, size_t *msg_len,
          * to check if that's still the case.
          */
         uint64_t new_indices = shmem_uint64_atomic_fetch(mailbox->indices,
-                    shmem_my_pe() /* mailbox->pe */ );
+                    mailbox->pe);
         if (new_indices != mailbox->indices_curr_val) {
             curr_indices = new_indices;
         } else {

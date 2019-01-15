@@ -1404,6 +1404,7 @@ static void receive_coupled_val(hvr_coupling_msg_t *msg,
 }
 
 static int check_for_dead_pe(hvr_internal_ctx_t *ctx) {
+    int err_code = -1;
     size_t msg_len;
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
@@ -1430,10 +1431,11 @@ static int check_for_dead_pe(hvr_internal_ctx_t *ctx) {
 
         hvr_set_insert(msg->pe, ctx->all_terminated_pes);
 
-        return msg->pe;
+        err_code = msg->pe;
     }
+
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
-    return -1;
+    return err_code;
 }
 
 static inline int is_dead_pe(int pe, hvr_internal_ctx_t *ctx) {
@@ -1441,6 +1443,7 @@ static inline int is_dead_pe(int pe, hvr_internal_ctx_t *ctx) {
 }
 
 static int drain_cluster_info_mailbox(hvr_internal_ctx_t *ctx) {
+    int release_msg_node = 1;
     size_t msg_len;
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
@@ -1450,19 +1453,28 @@ static int drain_cluster_info_mailbox(hvr_internal_ctx_t *ctx) {
         assert(msg_len == ctx->coupled_pes_msg.msg_buf_len);
         hvr_internal_set_msg_t *msg =
             (hvr_internal_set_msg_t *)msg_buf_node->ptr;
-        assert(hvr_set_contains(msg->pe, ctx->coupled_pes));
-        /*
-         * TODO assert that this message matches the current iteration we expect
-         * from this PE?
-         */
 
-        cluster_ack_msg_t ack;
-        ack.pe = ctx->pe;
-        ack.nforwards = 0;
-        hvr_mailbox_send(&ack, sizeof(ack), msg->pe, -1,
-                        &ctx->cluster_mailbox, NULL);
+        /*
+         * todo assert that this message matches the current iteration we expect
+         * from this pe?
+         */
+        if (hvr_set_contains(msg->pe, ctx->coupled_pes)) {
+            cluster_ack_msg_t ack;
+            ack.pe = ctx->pe;
+            ack.nforwards = 0;
+            hvr_mailbox_send(&ack, sizeof(ack), msg->pe, -1,
+                    &ctx->cluster_mailbox, NULL);
+        } else {
+            msg_buf_node->next = ctx->buffered_msgs;
+            ctx->buffered_msgs = msg_buf_node;
+            release_msg_node = 0;
+        }
     }
-    hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
+
+    if (release_msg_node) {
+        hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
+    }
+
     return success;
 }
 
@@ -1495,6 +1507,13 @@ static void pes_barrier(hvr_set_t *pes, int check_dead,
             assert(!hvr_set_contains(msg->pe, ctx->received_from));
             assert(hvr_set_contains(msg->pe, pes));
             hvr_set_insert(msg->pe, ctx->received_from);
+
+            // if (check_dead) {
+            //     fprintf(stderr, "PE %d on iter %d spent %f ms waiting for %d\n",
+            //             ctx->pe, ctx->iter,
+            //             (hvr_current_time_us() - start_time) / 1000.0,
+            //             msg->pe);
+            // }
         }
 
         if (check_dead) {
@@ -1573,7 +1592,6 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     for (int p = 0; p < ctx->npes; p++) {
         if (hvr_set_contains(p, ctx->coupled_pes) &&
                 !hvr_set_contains(p, ctx->prev_coupled_pes)) {
-            // fprintf(stderr, "PE %d sending new coupling to %d\n", ctx->pe, p);
             hvr_mailbox_send(&msg, sizeof(msg), p, -1,
                     &ctx->new_coupling_mailbox, NULL);
         }
@@ -1606,6 +1624,28 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     }
 
     unsigned long long start_main_loop = hvr_current_time_us();
+
+    while (ctx->buffered_msgs) {
+        hvr_msg_buf_node_t *msg_buf_node = ctx->buffered_msgs;
+
+        hvr_internal_set_msg_t *msg =
+            (hvr_internal_set_msg_t *)msg_buf_node->ptr;
+
+        /*
+         * todo assert that this message matches the current iteration we expect
+         * from this pe?
+         */
+        assert(hvr_set_contains(msg->pe, ctx->coupled_pes));
+        cluster_ack_msg_t ack;
+        ack.pe = ctx->pe;
+        ack.nforwards = 0;
+        hvr_mailbox_send(&ack, sizeof(ack), msg->pe, -1,
+                &ctx->cluster_mailbox, NULL);
+
+        hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
+
+        ctx->buffered_msgs = msg_buf_node->next;
+    }
 
     // So that we can differentiate by message size alone
     assert(sizeof(cluster_ack_msg_t) != ctx->coupled_pes_msg.msg_buf_len);
@@ -1685,10 +1725,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
 
     pes_barrier(ctx->coupled_pes, 0, drain_cluster_info_mailbox, ctx);
 
-    /*
-     * Drain any remaining cluster info messages, asserting we've already
-     * received all of them.
-     */
+    // Assert there are no pending cluster info messages
     size_t msg_len;
     success = hvr_mailbox_recv(&msg_buf_node->ptr,
             msg_buf_node->buf_size, &msg_len, &ctx->cluster_mailbox);
@@ -1696,9 +1733,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
 
     unsigned long long start_third_barrier = hvr_current_time_us();
 
-    // fprintf(stderr, "PE %d entering third barrier\n", ctx->pe);
     pes_barrier(ctx->coupled_pes, 0, NULL, ctx);
-    // fprintf(stderr, "PE %d leaving third barrier\n", ctx->pe);
 
     hvr_set_copy(ctx->prev_coupled_pes, ctx->coupled_pes);
 
@@ -2181,7 +2216,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     ctx->iter += 1;
 
-#if 0
     while (!should_abort && hvr_current_time_us() - start_body <
             ctx->max_elapsed_seconds * 1000000ULL) {
 
@@ -2289,7 +2323,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         ctx->iter += 1;
     }
-#endif
 
     shmem_quiet();
 
@@ -2353,6 +2386,8 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     if (ctx->dump_mode) {
         fclose(ctx->dump_file);
     }
+
+    shmem_barrier_all();
 
     hvr_vertex_pool_destroy(&ctx->pool);
     shmem_free(ctx->vertex_partitions);

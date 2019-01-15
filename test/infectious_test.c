@@ -610,10 +610,12 @@ int main(int argc, char **argv) {
         for (int i = 0; i < n_initial_infected; i++) {
             initial_infected[i] = random_int_in_range(npes * actors_per_cell);
         }
+        assert(sizeof(int) == 4);
+        for (int p = 1; p < npes; p++) {
+            shmem_int_put(initial_infected, initial_infected,
+                    n_initial_infected, p);
+        }
     }
-    assert(sizeof(int) == 4);
-    shmem_broadcast32(initial_infected, initial_infected, n_initial_infected, 0,
-            0, 0, npes, p_sync);
     shmem_barrier_all();
 
     // Seed the location of local actors.

@@ -281,6 +281,8 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_msg_buf_pool_t msg_buf_pool;
 
+    hvr_msg_buf_node_t *buffered_msgs;
+
 #define N_VERTICES_PER_BUF 10240
     hvr_partition_t *vert_partition_buf;
 
