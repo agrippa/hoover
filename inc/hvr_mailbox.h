@@ -29,7 +29,7 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
  * stored in msg, msg_len is updated to reflect the length of the message, and 1
  * is returned. Otherwise, 0 is returned to indicate no message was found.
  */
-int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
+int hvr_mailbox_recv(void **msg, size_t msg_capacity, size_t *msg_len,
         hvr_mailbox_t *mailbox);
 
 void hvr_mailbox_destroy(hvr_mailbox_t *mailbox);

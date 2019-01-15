@@ -149,7 +149,7 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
     return 1;
 }
 
-int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
+int hvr_mailbox_recv(void **msg, size_t msg_capacity, size_t *msg_len,
         hvr_mailbox_t *mailbox) {
     uint32_t read_index, write_index;
     uint64_t curr_indices;
@@ -199,9 +199,7 @@ int hvr_mailbox_recv(void **msg, size_t *msg_capacity, size_t *msg_len,
             sizeof(recv_msg_len), mailbox);
     *msg_len = recv_msg_len;
 
-    if (*msg_capacity < recv_msg_len) {
-        abort();
-    }
+    assert(msg_capacity >= recv_msg_len);
 
     get_from_mailbox_with_rotation(msg_offset, *msg, recv_msg_len, mailbox);
 
