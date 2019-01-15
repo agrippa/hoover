@@ -522,8 +522,8 @@ int main(int argc, char **argv) {
     int time_limit = atoi(argv[9]);
 
     time_partition_dim = max_num_timesteps;
-    y_partition_dim = 200;
-    x_partition_dim = 200;
+    y_partition_dim = 250;
+    x_partition_dim = 250;
     hvr_partition_t npartitions = time_partition_dim * y_partition_dim *
         x_partition_dim;
 
