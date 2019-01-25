@@ -28,7 +28,7 @@ export SHMEM_MEMINFO_DISPLAY=1
 # export LD_PRELOAD=/opt/intel/compilers_and_libraries_2018.2.199/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
-export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 256 * 1024 * 1024))
+export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 384 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
@@ -89,7 +89,7 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=200
+export MAX_NUM_TIMESTEPS=100
 export INFECTION_RADIUS=300
 
 # export HVR_TRACE_SHMALLOC=1
@@ -103,12 +103,14 @@ export HVR_EDGE_SET_NODES=262144
 export HVR_DIST_BITVEC_POOL_SIZE=$((16 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=4096
 export HVR_SPARSE_ARR_POOL=$((32 * 1024 * 1024));
+export HVR_MAX_BUFFERED_MSGS=5000
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-# export HVR_HANG_ABORT=540
+export HVR_HANG_ABORT=300
+export HVR_HANG_ABORT_PE=0
 
 cd $SCRATCH
 mkdir -p job.$SLURM_JOB_ID
@@ -138,7 +140,9 @@ export EXE_ARGS="$CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""
-srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
+# srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
+# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 300
+srun $SLURM_ARGS $HOME/hoover/bin/init_test 10
 
 # module load valgrind4hpc
 # valgrind4hpc -n $(( $SLURM_NNODES * $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \

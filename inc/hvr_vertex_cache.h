@@ -86,8 +86,7 @@ typedef struct _hvr_vertex_cache_t {
 } hvr_vertex_cache_t;
 
 static inline void set_dist_from_local_vert(hvr_vertex_cache_node_t *node,
-        uint8_t dist, hvr_time_t curr_iter, int my_pe,
-        hvr_vertex_cache_t *cache) {
+        uint8_t dist, hvr_time_t curr_iter) {
     node->dist_from_local_vert = dist;
     node->dist_from_local_vert_iter = curr_iter;
 }

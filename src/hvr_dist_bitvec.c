@@ -80,10 +80,14 @@ void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec_t *vec,
 
 void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,
         hvr_dist_bitvec_t *vec, hvr_dist_bitvec_local_subcopy_t *out) {
+    assert(out->subvec);
+
     const unsigned coord0_pe = coord0 / vec->dim0_per_pe;
     const unsigned coord0_offset = coord0 % vec->dim0_per_pe;
+    assert(coord0_offset < vec->dim0_per_pe);
 
     out->coord0 = coord0;
+
     for (unsigned i = 0; i < vec->dim1_length_in_words; i++) {
         out->subvec[i] =
             shmem_uint64_atomic_fetch(
@@ -128,8 +132,10 @@ void hvr_dist_bitvec_local_subcopy_copy(hvr_dist_bitvec_local_subcopy_t *dst,
             src->dim1_length_in_words * sizeof(hvr_dist_bitvec_ele_t));
 }
 
-void hvr_dist_bitvec_local_subcopy_destroy(hvr_dist_bitvec_local_subcopy_t *c) {
-    free(c->subvec);
+void hvr_dist_bitvec_local_subcopy_destroy(hvr_dist_bitvec_t *vec,
+        hvr_dist_bitvec_local_subcopy_t *c) {
+    mspace_free(vec->tracker, c->subvec);
+    memset(c, 0x00, sizeof(*c));
 }
 
 size_t hvr_dist_bitvec_local_subcopy_bytes(

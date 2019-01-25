@@ -76,21 +76,22 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      * neighbors are.
      */
     if (hvr_vertex_get(2, vertex, ctx) == 0.0) {
-        hvr_edge_info_t *neighbors;
-        int n_neighbors;
-        hvr_get_neighbors(vertex, &neighbors, &n_neighbors, ctx);
+        hvr_map_val_list_t neighbors;
+        int n_neighbors = hvr_get_neighbors(vertex, &neighbors, ctx);
 
-        for (size_t i = 0; i < n_neighbors; i++) {
-            hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[i].id, ctx);
+        for (int i = 0; i < n_neighbors; i++) {
+            hvr_edge_info_t edge_info = hvr_map_val_list_get(i,
+                    &neighbors).edge_info;
+            hvr_vertex_id_t id = EDGE_INFO_VERTEX(edge_info);
+            hvr_vertex_t *neighbor = hvr_get_vertex(id, ctx);
             if (hvr_vertex_get(2, neighbor, ctx)) {
                 const int infected_by = hvr_vertex_get_owning_pe(neighbor);
                 hvr_set_insert(infected_by, couple_with);
-                // fprintf(stderr, "PE %d coupling with PE %d\n", shmem_my_pe(), infected_by);
+                printf("PE %d coupling with PE %d\n", shmem_my_pe(), infected_by);
                 hvr_vertex_set(2, 1.0, vertex, ctx);
                 break;
             }
         }
-        free(neighbors);
     }
 }
 
@@ -179,8 +180,15 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 }
 
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_vertex_t *local_coupled_metric, hvr_vertex_t *global_coupled_metric,
-        hvr_set_t *coupled_pes, int n_coupled_pes) {
+        hvr_vertex_t *local_coupled_metric,
+        hvr_vertex_t *all_coupled_metrics,
+        hvr_vertex_t *global_coupled_metric,
+        hvr_set_t *coupled_pes,
+        int n_coupled_pes, int *updates_on_this_iter,
+        hvr_set_t *terminated_coupled_pes) {
+    // printf("PE %d iter %d - %d / %d infected\n", shmem_my_pe(), ctx->iter,
+    //         (int)hvr_vertex_get(0, local_coupled_metric, ctx),
+    //         (int)hvr_vertex_get(1, local_coupled_metric, ctx));
     if ((int)hvr_vertex_get(0, global_coupled_metric, ctx) ==
             grid_dim * grid_dim) {
         assert(n_coupled_pes == shmem_n_pes());
@@ -271,7 +279,7 @@ int main(int argc, char **argv) {
             NULL, // start_time_step
             should_have_edge,
             should_terminate,
-            20, // max_elapsed_seconds
+            480, // max_elapsed_seconds
             1, // max_graph_traverse_depth
             hvr_ctx);
 

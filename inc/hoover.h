@@ -138,6 +138,7 @@ typedef struct _new_coupling_msg_t {
 typedef struct _cluster_ack_msg_t {
     int pe;
     unsigned nforwards;
+    int requires_resend;
 } cluster_ack_msg_t;
 
 /*
@@ -266,7 +267,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_t partition_producers;
     hvr_dist_bitvec_t terminated_pes;
 
-    hvr_dist_bitvec_local_subcopy_t tmp_local_partition_membership;
+    hvr_dist_bitvec_local_subcopy_t local_partition_producers;
+    hvr_dist_bitvec_local_subcopy_t local_terminated_pes;
 
     hvr_dist_bitvec_local_subcopy_t *producer_info;
     hvr_dist_bitvec_local_subcopy_t *dead_info;
@@ -281,7 +283,10 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_msg_buf_pool_t msg_buf_pool;
 
+#if 0
     hvr_msg_buf_node_t *buffered_msgs;
+    unsigned n_buffered_msgs;
+#endif
 
 #define N_VERTICES_PER_BUF 10240
     hvr_partition_t *vert_partition_buf;

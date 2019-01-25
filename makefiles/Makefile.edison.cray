@@ -1,5 +1,5 @@
-CFLAGS=-g -O2 -Iinc -std=c99 -Wall
-SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DUSE_LOCKS=0 -L$(OPENSHMEM_INSTALL)/lib64 -lsma
+CFLAGS=-g -O0 -Iinc -std=c99 -Wall
+SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1 -L$(OPENSHMEM_INSTALL)/lib64 -lsma
 CC=cc
 CXX=cc
 
@@ -33,8 +33,9 @@ bin/libhoover.a: src/hoover.c \
 		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o bin/dlmalloc.o \
 		bin/hvr_set_msg.o bin/hvr_msg_buf_pool.o
 
-bin/init_test: test/init_test.c
-	$(CC) $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+bin/init_test: test/init_test.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/init_test.c -o bin/init_test.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/init_test.o -o $@ -lhoover -lm -lpthread
 
 bin/test_sparse_arr: test/test_sparse_arr.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/test_sparse_arr.c -o bin/test_sparse_arr.o

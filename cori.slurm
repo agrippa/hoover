@@ -28,7 +28,7 @@ export SHMEM_MEMINFO_DISPLAY=1
 # export LD_PRELOAD=/opt/intel/compilers_and_libraries_2018.2.199/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
-export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 256 * 1024 * 1024))
+export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
@@ -99,9 +99,9 @@ export HVR_VERT_CACHE_SEGS=40000
 export HVR_EDGE_SET_SEGS=40000
 export HVR_EDGE_SET_VALS=$((1024 * 1024 * 1024))
 export HVR_EDGE_SET_NODES=65536
-export HVR_DIST_BITVEC_POOL_SIZE=$((16 * 1024 * 1024))
-export HVR_SPARSE_ARR_SEGS=4096
-export HVR_SPARSE_ARR_POOL=$((32 * 1024 * 1024));
+export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
+export HVR_SPARSE_ARR_SEGS=8192
+export HVR_SPARSE_ARR_POOL=$((192 * 1024 * 1024));
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1
@@ -124,17 +124,24 @@ cd job.$SLURM_JOB_ID
 #
 # For some reason, SHMEM_OPTIMIZED_MEMCPY=0 seems to trigger bus errors on
 # Edison/Cori for some workloads.
-export SHMEM_OPTIMIZED_MEMCPY=1
+export SHMEM_OPTIMIZED_MEMCPY=0
 
-
-echo "RUNNING INFECTIOUS MODEL"
-echo ""
-srun --ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
+export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
     --ntasks-per-socket=$TASKS_PER_SOCKET \
     --cpus-per-task=$CORES_PER_TASK \
     --cpu_bind=verbose,cores \
     --cpu-freq=High \
-    --mem-bind=local \
-    $HOME/hoover/bin/infectious_test $CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
+    --mem-bind=local"
+export EXE_ARGS="$CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    480
+    480"
+
+echo "RUNNING INFECTIOUS MODEL"
+echo ""
+srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
+# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480
+# srun $SLURM_ARGS $HOME/hoover/bin/hvr_dist_bitvec_test
+
+# module load valgrind4hpc
+# valgrind4hpc -n $(( $SLURM_NNODES * $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
+#     --launcher-args="$SLURM_ARGS" $HOME/hoover/bin/infectious_test $EXE_ARGS

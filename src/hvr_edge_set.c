@@ -53,11 +53,6 @@ void hvr_clear_edge_set(hvr_edge_set_t *set) {
     hvr_map_clear(&set->map);
 }
 
-void hvr_release_edge_set(hvr_edge_set_t *set) {
-    hvr_map_clear(&set->map);
-    free(set);
-}
-
 void hvr_print_edge_set(hvr_edge_set_t *set) {
     printf("hvr_print_edge_set unsupported at the moment\n");
 }

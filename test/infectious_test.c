@@ -349,9 +349,9 @@ void might_interact(const hvr_partition_t partition,
      * For the given partition, the (time, row, column) coordinate of this
      * partition in a 2D space.
      */
-    const int partition_time = partition / (y_partition_dim * x_partition_dim);
-    const int partition_y = (partition / x_partition_dim) % y_partition_dim;
-    const int partition_x = partition % x_partition_dim;
+    unsigned partition_time = partition / (y_partition_dim * x_partition_dim);
+    unsigned partition_y = (partition / x_partition_dim) % y_partition_dim;
+    unsigned partition_x = partition % x_partition_dim;
 
     double min_time = (double)partition_time * time_dim;
     double max_time = min_time + time_dim;
@@ -400,10 +400,10 @@ void might_interact(const hvr_partition_t partition,
     assert(min_partition_time <= max_partition_time);
 
     unsigned count_interacting_partitions = 0;
-    for (int t = min_partition_time; t <= max_partition_time; t++) {
-        for (int r = min_partition_y; r <= max_partition_y; r++) {
-            for (int c = min_partition_x; c <= max_partition_x; c++) {
-                const int part = t * y_partition_dim * x_partition_dim +
+    for (unsigned t = min_partition_time; t <= max_partition_time; t++) {
+        for (unsigned r = min_partition_y; r <= max_partition_y; r++) {
+            for (unsigned c = min_partition_x; c <= max_partition_x; c++) {
+                const unsigned part = t * y_partition_dim * x_partition_dim +
                     r * x_partition_dim + c;
                 if (count_interacting_partitions >= interacting_partitions_capacity) {
                     fprintf(stderr, "time = (%d, %d) y = (%d, %d) x = (%d, %d) "
@@ -415,8 +415,6 @@ void might_interact(const hvr_partition_t partition,
                             interacting_partitions_capacity);
                     abort();
                 }
-                assert(count_interacting_partitions <
-                        interacting_partitions_capacity);
                 interacting_partitions[count_interacting_partitions++] = part;
             }
         }
@@ -522,8 +520,8 @@ int main(int argc, char **argv) {
     int time_limit = atoi(argv[9]);
 
     time_partition_dim = max_num_timesteps;
-    y_partition_dim = 250;
-    x_partition_dim = 250;
+    y_partition_dim = 200;
+    x_partition_dim = 200;
     hvr_partition_t npartitions = time_partition_dim * y_partition_dim *
         x_partition_dim;
 

@@ -84,11 +84,11 @@ void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
     } else if ((segment->seg_lengths)[seg_index] ==
             (segment->seg_capacities)[seg_index]) {
         // No more space left
-        (segment->seg_capacities)[seg_index] *= 2;
-        (segment->seg)[seg_index] = (int *)mspace_realloc(arr->tracker,
+        segment->seg_capacities[seg_index] *= 2;
+        segment->seg[seg_index] = (int *)mspace_realloc(arr->tracker,
                 segment->seg[seg_index],
                 (segment->seg_capacities)[seg_index] * sizeof(int));
-        assert((segment->seg)[seg_index]);
+        assert(segment->seg[seg_index]);
     }
 
     stored_values = segment->seg[seg_index];

@@ -40,26 +40,23 @@ static void hvr_map_seg_add(hvr_vertex_id_t key, hvr_map_val_t val,
     }
 }
 
-static inline int binarySearch(const hvr_vertex_id_t *arr, const int l,
-        const int r, const hvr_vertex_id_t x) 
+static inline int binarySearch(const hvr_vertex_id_t *arr,
+        const hvr_vertex_id_t x) 
 {
-    if (r >= l) 
-    { 
+    int l = 0;
+    int r = HVR_MAP_SEG_SIZE - 1;
+    while (r >= l) {
         const int mid = l + (r - l)/2; 
 
         // If the element is present at the middle  
         // itself 
-        if (arr[mid] == x)   
-            return mid; 
-
-        // If element is smaller than mid, then  
-        // it can only be present in left subarray 
-        if (arr[mid] > x)  
-            return binarySearch(arr, l, mid-1, x); 
-
-        // Else the element can only be present 
-        // in right subarray 
-        return binarySearch(arr, mid+1, r, x); 
+        if (arr[mid] == x) {
+            return mid;
+        } else if (arr[mid] > x) {
+            r = mid - 1;
+        } else {
+            l = mid + 1;
+        }
     } 
 
     // We reach here when element is not  
@@ -75,7 +72,7 @@ static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
     while (seg) {
         const unsigned nkeys = seg->nkeys;
         if (nkeys == HVR_MAP_SEG_SIZE) {
-            int index = binarySearch(seg->keys, 0, HVR_MAP_SEG_SIZE - 1, key);
+            int index = binarySearch(seg->keys, key);
             if (index >= 0) {
                 *out_seg = seg;
                 *out_index = index;

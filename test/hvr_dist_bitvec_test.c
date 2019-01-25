@@ -83,6 +83,27 @@ int main(int argc, char **argv) {
 
     shmem_barrier_all();
 
+    hvr_dist_bitvec_t vec2;
+    hvr_dist_bitvec_init(16000000, shmem_n_pes(), &vec2);
+
+    hvr_dist_bitvec_local_subcopy_t copy2;
+    hvr_dist_bitvec_local_subcopy_init(&vec2, &copy2);
+
+    for (unsigned i = 0; i < 16000000; i += 5) {
+        hvr_dist_bitvec_set(i, shmem_my_pe(), &vec2);
+    }
+
+    shmem_barrier_all();
+
+    for (unsigned i = 0; i < 16000000; i += 5) {
+        for (int j = 0; j < shmem_n_pes(); j++) {
+            hvr_dist_bitvec_copy_locally(i, &vec2, &copy2);
+            assert(hvr_dist_bitvec_local_subcopy_contains(j, &copy2));
+        }
+    }
+
+    shmem_barrier_all();
+
     if (shmem_my_pe() == 0) {
         printf("Done!\n");
     }

@@ -32,7 +32,6 @@ extern size_t hvr_count_edges(const hvr_vertex_id_t local_vertex_id,
         hvr_edge_set_t *set);
 
 extern void hvr_clear_edge_set(hvr_edge_set_t *set);
-extern void hvr_release_edge_set(hvr_edge_set_t *set);
 extern void hvr_print_edge_set(hvr_edge_set_t *set);
 
 typedef struct _hvr_partition_list_node_t {
