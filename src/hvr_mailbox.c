@@ -96,6 +96,10 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
 
     unsigned try = 0;
     while (max_tries < 0 || try < max_tries) {
+        if (try > 100000) {
+            fprintf(stderr, "WARNING PE %d hitting many failed tries\n",
+                    shmem_my_pe());
+        }
         uint32_t read_index, write_index;
         unpack_indices(indices, &read_index, &write_index);
 

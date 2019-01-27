@@ -60,6 +60,25 @@ int hvr_set_insert(uint64_t val, hvr_set_t *set) {
     return changed;
 }
 
+static int hvr_set_clear_internal(uint64_t val,
+        bit_vec_element_type *bit_vector) {
+    const uint64_t element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const uint64_t bit = val % (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const bit_vec_element_type old_val = bit_vector[element];
+    const bit_vec_element_type new_val =
+        (old_val & (~((bit_vec_element_type)1 << bit)));
+    bit_vector[element] = new_val;
+    return old_val != new_val;
+}
+
+int hvr_set_clear(uint64_t val, hvr_set_t *set) {
+    const int changed = hvr_set_clear_internal(val, set->bit_vector);
+    if (changed) {
+        set->n_contained--;
+    }
+    return changed;
+}
+
 void hvr_set_wipe(hvr_set_t *set) {
     memset(set->bit_vector, 0x00,
             set->bit_vector_len * sizeof(*(set->bit_vector)));

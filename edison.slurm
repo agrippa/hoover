@@ -109,7 +109,7 @@ export HVR_MAX_BUFFERED_MSGS=5000
 # export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-export HVR_HANG_ABORT=300
+export HVR_HANG_ABORT=400
 export HVR_HANG_ABORT_PE=0
 
 cd $SCRATCH
@@ -136,13 +136,13 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
     --mem-bind=local"
 export EXE_ARGS="$CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    480"
+    300"
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""
-# srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
-# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 300
-srun $SLURM_ARGS $HOME/hoover/bin/init_test 10
+srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
+# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
+# srun $SLURM_ARGS $HOME/hoover/bin/init_test 800
 
 # module load valgrind4hpc
 # valgrind4hpc -n $(( $SLURM_NNODES * $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \

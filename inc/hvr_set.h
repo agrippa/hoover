@@ -34,6 +34,8 @@ extern hvr_set_t *hvr_create_empty_set(const unsigned nvals);
  */
 extern int hvr_set_insert(uint64_t val, hvr_set_t *set);
 
+extern int hvr_set_clear(uint64_t val, hvr_set_t *set);
+
 /*
  * Check if a given value exists in this set.
  */

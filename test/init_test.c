@@ -87,7 +87,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
             if (hvr_vertex_get(2, neighbor, ctx)) {
                 const int infected_by = hvr_vertex_get_owning_pe(neighbor);
                 hvr_set_insert(infected_by, couple_with);
-                printf("PE %d coupling with PE %d\n", shmem_my_pe(), infected_by);
+                // printf("PE %d coupling with PE %d\n", shmem_my_pe(), infected_by);
                 hvr_vertex_set(2, 1.0, vertex, ctx);
                 break;
             }
@@ -186,13 +186,13 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_set_t *coupled_pes,
         int n_coupled_pes, int *updates_on_this_iter,
         hvr_set_t *terminated_coupled_pes) {
-    // printf("PE %d iter %d - %d / %d infected\n", shmem_my_pe(), ctx->iter,
-    //         (int)hvr_vertex_get(0, local_coupled_metric, ctx),
-    //         (int)hvr_vertex_get(1, local_coupled_metric, ctx));
     if ((int)hvr_vertex_get(0, global_coupled_metric, ctx) ==
             grid_dim * grid_dim) {
         assert(n_coupled_pes == shmem_n_pes());
-        fprintf(stderr, "PE %d leaving the simulation.\n", shmem_my_pe());
+        fprintf(stderr, "PE %d leaving the simulation, %u / %u cells infected. "
+                "%u coupled out of %u PEs\n", shmem_my_pe(),
+                (int)hvr_vertex_get(0, global_coupled_metric, ctx),
+                grid_dim * grid_dim, n_coupled_pes, shmem_n_pes());
         return 1;
     } else {
         return 0;

@@ -68,6 +68,20 @@ int main(int argc, char **argv) {
             assert(hvr_set_contains(i, custom_set) == 0);
         }
     }
+    for (int i = 0; i < 2000; i++) {
+        if (i % 2 == 0) {
+            hvr_set_clear(i, custom_set);
+        } else {
+            hvr_set_insert(i, custom_set);
+        }
+    }
+    for (int i = 0; i < 2000; i++) {
+        if (i % 2 == 0) {
+            assert(hvr_set_contains(i, custom_set) == 0);
+        } else {
+            assert(hvr_set_contains(i, custom_set) == 1);
+        }
+    }
 
     printf("Passed!\n");
 

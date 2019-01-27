@@ -116,7 +116,6 @@ typedef struct _hvr_partition_member_change_t {
 
 typedef struct _hvr_dead_pe_msg_t {
     int pe;
-    hvr_partition_t partition;
 } hvr_dead_pe_msg_t;
 
 typedef struct _hvr_coupling_msg_t {
@@ -134,6 +133,12 @@ typedef struct _new_coupling_msg_t {
     int pe;
     hvr_time_t iter;
 } new_coupling_msg_t;
+
+typedef struct _new_coupling_msg_ack_t {
+    int pe;
+    int root_pe;
+    int abort;
+} new_coupling_msg_ack_t;
 
 typedef struct _cluster_ack_msg_t {
     int pe;
@@ -206,13 +211,31 @@ typedef struct _hvr_internal_ctx_t {
     int *strict_counter_src;
 
     // Set of PEs we are in coupled execution with
-    hvr_set_t *prev_coupled_pes;
     hvr_set_t *coupled_pes;
-    hvr_set_t *received_from;
-    hvr_set_t *all_terminated_pes;
+    int coupled_pes_root;
     hvr_set_msg_t coupled_pes_msg;
+
+    // Set of PEs we were coupled with on the previous iteration
+    hvr_set_t *prev_coupled_pes;
+    // PEs we would like to be coupled with at the end of the current iteration.
+    hvr_set_t *to_couple_with;
+    hvr_set_msg_t to_couple_with_msg;
+    hvr_set_msg_t terminating_pes_msg;
+    hvr_set_msg_t new_all_terminated_cluster_pes_msg;
+
+    hvr_set_t *received_from;
+    // Accurate for everyone, using the dead_mailbox
+    hvr_set_t *all_terminated_pes;
+    // Only accurate for PEs in my cluster
+    hvr_set_t *all_terminated_cluster_pes;
+    hvr_set_t *prev_all_terminated_cluster_pes;
+    hvr_set_t *new_all_terminated_cluster_pes;
+    hvr_set_t *terminating_pes;
+    hvr_set_t *other_terminating_pes;
     hvr_set_t **finalized_sets;
-    hvr_set_t *ack_set;
+    hvr_set_t *other_to_couple_with;
+    hvr_set_t *other_coupled_pes;
+    hvr_set_t *already_coupled_with;
 
     // Values retrieved from each coupled PE
     hvr_vertex_t *coupled_pes_values;
@@ -257,12 +280,13 @@ typedef struct _hvr_internal_ctx_t {
     // Actually used
     hvr_mailbox_t start_iter_mailbox;
     hvr_mailbox_t start_iter_ack_mailbox;
-    hvr_mailbox_t new_coupling_mailbox;
+    hvr_mailbox_t coupling_mailbox;
+    hvr_mailbox_t coupling_ack_mailbox;
     hvr_mailbox_t cluster_mailbox;
     hvr_mailbox_t coupling_val_mailbox;
+    hvr_mailbox_t to_couple_with_mailbox;
+    hvr_mailbox_t root_info_mailbox;
     hvr_mailbox_t dead_mailbox;
-
-    hvr_time_t *coupled_pe_iter;
 
     hvr_dist_bitvec_t partition_producers;
     hvr_dist_bitvec_t terminated_pes;
