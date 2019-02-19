@@ -1764,8 +1764,9 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                         assert(expected_root_pe == target_pe);
                     } else { // !is_dead
                         ack = (new_coupling_msg_ack_t *)msg_buf_node->ptr;
-                        fprintf(stderr, "PE %d got ack from %d, root=%d\n",
-                                ctx->pe, ack->pe, ack->root_pe);
+                        fprintf(stderr, "PE %d got ack from %d, root=%d, "
+                                "abort=%d\n", ctx->pe, ack->pe, ack->root_pe,
+                                ack->abort);
                         assert(ack->pe == expected_root_pe);
                         expected_root_pe = ack->root_pe;
                     }
