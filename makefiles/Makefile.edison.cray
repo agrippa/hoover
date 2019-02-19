@@ -1,5 +1,8 @@
 CFLAGS=-g -O2 -Iinc -std=c99 -Wall
-SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1 -L$(OPENSHMEM_INSTALL)/lib64 -lsma
+# SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1 -L$(OPENSHMEM_INSTALL)/lib64 -lsma
+SHMEM_FLAGS=-Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1
+# CC=oshcc
+# CXX=oshcc
 CC=cc
 CXX=cc
 
@@ -7,7 +10,7 @@ all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge
 	bin/infectious_test bin/write_lock_stress \
 	bin/test_vertex_id bin/edge_info_test bin/add_vertices_test bin/mailbox_test \
 	bin/remove_vertices_test bin/intrusion_detection bin/hvr_dist_bitvec_test \
-	bin/pas bin/coupled_test
+	bin/pas bin/coupled_test bin/dummy_shmem_test
 
 bin/libhoover.a: src/hoover.c \
 	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c \
@@ -33,9 +36,13 @@ bin/libhoover.a: src/hoover.c \
 		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o bin/dlmalloc.o \
 		bin/hvr_set_msg.o bin/hvr_msg_buf_pool.o
 
+bin/dummy_shmem_test: test/dummy_shmem_test.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/dummy_shmem_test.c -o bin/dummy_shmem_test.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/dummy_shmem_test.o -o $@ -l:libhoover.a -lm -lpthread
+
 bin/init_test: test/init_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/init_test.c -o bin/init_test.o
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/init_test.o -o $@ -lhoover -lm -lpthread
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/init_test.o -o $@ -l:libhoover.a -lm -lpthread
 
 bin/test_sparse_arr: test/test_sparse_arr.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/test_sparse_arr.c -o bin/test_sparse_arr.o
@@ -44,6 +51,10 @@ bin/test_sparse_arr: test/test_sparse_arr.c bin/libhoover.a
 bin/infectious_test: test/infectious_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/infectious_test.c -o bin/infectious_test.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/infectious_test.o -o $@ -lhoover -lm -lpthread
+
+bin/hvr_set_msg_test: test/hvr_set_msg_test.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_set_msg_test.c -o bin/hvr_set_msg_test.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_set_msg_test.o -o $@ -lhoover -lm -lpthread
 
 bin/coupled_test: test/coupled_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/coupled_test.c -o bin/coupled_test.o

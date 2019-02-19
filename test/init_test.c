@@ -218,6 +218,11 @@ int main(int argc, char **argv) {
 
     // Partition cells of a 2D grid as evenly as posbible across all PEs
     const unsigned grid_size = grid_dim * grid_dim;
+    if (grid_size < npes) {
+        fprintf(stderr, "Grid size (%u) must be >= # PEs (%d)\n", grid_size, npes);
+        return 1;
+    }
+
     const unsigned cells_per_pe = grid_size / npes;
     unsigned leftover = grid_size - (npes * cells_per_pe);
     unsigned grid_cell_start, grid_cell_end;
@@ -230,6 +235,7 @@ int main(int argc, char **argv) {
         grid_cell_end = grid_cell_start + cells_per_pe;
     }
     grid_cells_this_pe = grid_cell_end - grid_cell_start;
+
 
     if (pe == 0) {
         fprintf(stderr, "%d PEs, %u x %u = %u grid points, %u grid cells per "

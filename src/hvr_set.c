@@ -97,8 +97,28 @@ int hvr_set_contains(uint64_t val, hvr_set_t *set) {
     }
 }
 
-unsigned hvr_set_count(hvr_set_t *set) {
+uint64_t hvr_set_count(hvr_set_t *set) {
     return set->n_contained;
+}
+
+uint64_t hvr_set_min_contained(hvr_set_t *s) {
+    assert(hvr_set_count(s) > 0);
+    for (uint64_t i = 0; i < s->max_n_contained; i++) {
+        if (hvr_set_contains(i, s)) {
+            return i;
+        }
+    }
+    abort();
+}
+
+uint64_t hvr_set_max_contained(hvr_set_t *s) {
+    assert(hvr_set_count(s) > 0);
+    for (uint64_t i = s->max_n_contained - 1; i >= 0; i--) {
+        if (hvr_set_contains(i, s)) {
+            return i;
+        }
+    }
+    abort();
 }
 
 void hvr_set_destroy(hvr_set_t *set) {

@@ -20,8 +20,9 @@
 #include "hvr_mailbox.h"
 
 // #define DETAILED_PRINTS
+    hvr_partition_member_change_t change;
 
-#define MAX_INTERACTING_PARTITIONS 3000
+#define MAX_INTERACTING_PARTITIONS 4000
 #define N_SEND_ATTEMPTS 10
 
 static int print_profiling = 1;
@@ -30,8 +31,6 @@ static int trace_shmem_malloc = 0;
 static int dead_pe_processing = 1;
 static FILE *profiling_fp = NULL;
 static volatile int this_pe_has_exited = 0;
-
-static const hvr_time_t check_producers_freq = 1;
 
 typedef struct _profiling_info_t {
     unsigned long long start_iter;
@@ -117,13 +116,13 @@ static void flush_buffered_updates(hvr_internal_ctx_t *ctx) {
     for (int i = 0; i < ctx->npes; i++) {
         if (ctx->buffered_updates[i].len > 0) {
             hvr_mailbox_send(ctx->buffered_updates + i,
-                    sizeof(hvr_vertex_update_t), i, -1,
+                    sizeof(ctx->buffered_updates[i]), i, -1,
                     &ctx->vertex_update_mailbox, NULL);
             ctx->buffered_updates[i].len = 0;
         }
         if (ctx->buffered_deletes[i].len > 0) {
             hvr_mailbox_send(ctx->buffered_deletes + i,
-                    sizeof(hvr_vertex_update_t), i, -1,
+                    sizeof(ctx->buffered_deletes[i]), i, -1,
                     &ctx->vertex_delete_mailbox, NULL);
             ctx->buffered_deletes[i].len = 0;
         }
@@ -203,13 +202,8 @@ static void update_vertex_partitions_for_vertex(hvr_vertex_t *curr,
     hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
 
     // Prepend to appropriate partition list
-    if (partition_lists[partition]) {
-        curr->next_in_partition = partition_lists[partition];
-        partition_lists[partition] = curr;
-    } else {
-        curr->next_in_partition = NULL;
-        partition_lists[partition] = curr;
-    }
+    curr->next_in_partition = partition_lists[partition];
+    partition_lists[partition] = curr;
 
     if (dist_from_local_vert <
             ctx->partition_min_dist_from_local_vert[partition]) {
@@ -228,9 +222,9 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
      * recompute every iteration.
      */
     memset(ctx->local_partition_lists, 0x00,
-            sizeof(hvr_vertex_t *) * ctx->n_partitions);
+            sizeof(ctx->local_partition_lists[0]) * ctx->n_partitions);
     memset(ctx->mirror_partition_lists, 0x00,
-            sizeof(hvr_vertex_t *) * ctx->n_partitions);
+            sizeof(ctx->mirror_partition_lists[0]) * ctx->n_partitions);
     memset(ctx->partition_min_dist_from_local_vert, 0xff,
             sizeof(unsigned) * ctx->n_partitions);
 
@@ -246,11 +240,12 @@ static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
         hvr_map_seg_t *seg = ctx->vec_cache.cache_map.buckets[i];
         while (seg) {
             for (unsigned j = 0; j < seg->nkeys; j++) {
-                hvr_vertex_cache_node_t *node = seg->data[j].inline_vals[0].cached_vert;
+                hvr_vertex_cache_node_t *node =
+                    seg->data[j].inline_vals[0].cached_vert;
+                uint8_t dist = get_dist_from_local_vert(node, ctx->iter,
+                        ctx->pe, &ctx->vec_cache);
                 update_vertex_partitions_for_vertex(&node->vert, ctx,
-                        ctx->mirror_partition_lists,
-                        get_dist_from_local_vert(node, ctx->iter, ctx->pe,
-                            &ctx->vec_cache));
+                        ctx->mirror_partition_lists, dist);
             }
             seg = seg->next;
         }
@@ -319,8 +314,8 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
     unsigned long long time_spent_processing_dead_pes = 0;
     const unsigned long long start = hvr_current_time_us();
 
-    hvr_set_wipe(ctx->tmp_subscriber_partition_time_window);
-    hvr_set_wipe(ctx->tmp_producer_partition_time_window);
+    hvr_set_wipe(ctx->new_subscriber_partition_time_window);
+    hvr_set_wipe(ctx->new_producer_partition_time_window);
 
     // Update the set of partitions in a temporary buffer
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
@@ -331,16 +326,15 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
          */
         if (ctx->local_partition_lists[p]) {
             // Producer
-            hvr_set_insert(p, ctx->tmp_producer_partition_time_window);
+            hvr_set_insert(p, ctx->new_producer_partition_time_window);
         }
 
         if ((ctx->local_partition_lists[p] || ctx->mirror_partition_lists[p])
                 && ctx->partition_min_dist_from_local_vert[p] <=
                     ctx->max_graph_traverse_depth - 1) {
             // Subscriber to any interacting partitions with p
-            hvr_partition_t interacting[MAX_INTERACTING_PARTITIONS];
             unsigned n_interacting;
-            ctx->might_interact(p, interacting, &n_interacting,
+            ctx->might_interact(p, ctx->interacting, &n_interacting,
                     MAX_INTERACTING_PARTITIONS, ctx);
 
             /*
@@ -348,8 +342,9 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
              * interact with.
              */
             for (unsigned i = 0; i < n_interacting; i++) {
-                hvr_set_insert(interacting[i],
-                        ctx->tmp_subscriber_partition_time_window);
+                assert(ctx->interacting[i] < ctx->n_partitions);
+                hvr_set_insert(ctx->interacting[i],
+                        ctx->new_subscriber_partition_time_window);
             }
         }
     }
@@ -357,31 +352,37 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
     const unsigned long long after_part_updates = hvr_current_time_us();
 
     /*
-     * For all partitions, check if our interest in them has changed on this
-     * iteration. If it has, notify the global registry of that.
+     * For all partitions, check if our producer relationship to any of them has
+     * changed on this iteration. If it has, notify the global registry of that.
      */
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
         update_partition_info(p,
-                ctx->tmp_producer_partition_time_window,
+                ctx->new_producer_partition_time_window,
                 ctx->producer_partition_time_window,
                 &ctx->partition_producers, ctx);
     }
 
     const unsigned long long after_producer_updates = hvr_current_time_us();
 
+    // fprintf(stderr, "PE %d has %lu active subscriptions on iter %u, min part=%lu, max part=%lu\n", ctx->pe,
+    //         hvr_set_count(ctx->new_subscriber_partition_time_window),
+    //         ctx->iter,
+    //         hvr_set_min_contained(ctx->new_subscriber_partition_time_window),
+    //         hvr_set_max_contained(ctx->new_subscriber_partition_time_window));
+
     // For each partition
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
         const int old_sub = hvr_set_contains(p,
                 ctx->subscriber_partition_time_window);
-        if (hvr_set_contains(p, ctx->tmp_subscriber_partition_time_window)) {
+        if (hvr_set_contains(p, ctx->new_subscriber_partition_time_window)) {
             if (!old_sub) {
-                // If this is a new subscription on this iteration:
-                hvr_dist_bitvec_local_subcopy_init(&ctx->partition_producers,
-                        ctx->producer_info + p);
+                // New subscription on this iteration
                 hvr_dist_bitvec_local_subcopy_init(&ctx->terminated_pes,
                         ctx->dead_info + p);
 
                 // Download the list of producers for partition p.
+                hvr_dist_bitvec_local_subcopy_init(&ctx->partition_producers,
+                        ctx->producer_info + p);
                 hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers,
                         ctx->producer_info + p);
 
@@ -389,7 +390,6 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                  * notify all producers of this partition of our subscription
                  * (they will then send us a full update).
                  */
-                hvr_partition_member_change_t change;
                 change.pe = ctx->pe;  // The subscriber/unsubscriber
                 change.partition = p; // The partition (un)subscribed to
                 change.entered = 1;   // new subscription
@@ -424,60 +424,59 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                  * semantically but could waste memory.
                  */
 
-                if (ctx->iter % check_producers_freq == 0) {
-                        hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers,
-                                &ctx->local_partition_producers);
+                hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers,
+                        &ctx->local_partition_producers);
 
-                    hvr_partition_member_change_t change;
-                    change.pe = ctx->pe;  // The subscriber/unsubscriber
-                    change.partition = p; // The partition (un)subscribed to
-                    change.entered = 1;   // new subscription
+                hvr_partition_member_change_t change;
+                change.pe = ctx->pe;  // The subscriber/unsubscriber
+                change.partition = p; // The partition (un)subscribed to
+                change.entered = 1;   // new subscription
 
-                    /*
-                     * Notify the new producer of this partition that I'm interested
-                     * in their updates.
-                     */
+                /*
+                 * Notify any new producers of this partition that I'm
+                 * interested in their updates.
+                 */
+                for (int pe = 0; pe < ctx->npes; pe++) {
+                    if (!hvr_dist_bitvec_local_subcopy_contains(pe,
+                                ctx->producer_info + p) &&
+                            hvr_dist_bitvec_local_subcopy_contains(pe,
+                                &ctx->local_partition_producers)) {
+                        assert(1);
+                        // New producer
+                        hvr_mailbox_send(&change, sizeof(change), pe,
+                                -1, &ctx->forward_mailbox, NULL);
+                    }
+                }
+
+                // Save for later
+                hvr_dist_bitvec_local_subcopy_copy(ctx->producer_info + p,
+                        &ctx->local_partition_producers);
+
+                /*
+                 * Look for newly terminated PEs that had local vertices in a
+                 * given partition. Go grab their vertices if there's a new one.
+                 */
+
+                hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
+                        &ctx->local_terminated_pes);
+
+                if (dead_pe_processing) {
+                    const unsigned long long start = hvr_current_time_us();
                     for (int pe = 0; pe < ctx->npes; pe++) {
                         if (!hvr_dist_bitvec_local_subcopy_contains(pe,
-                                    ctx->producer_info + p) &&
+                                    ctx->dead_info + p) &&
                                 hvr_dist_bitvec_local_subcopy_contains(pe,
-                                    &ctx->local_partition_producers)) {
-                            // New producer
-                            hvr_mailbox_send(&change, sizeof(change), pe,
-                                    -1, &ctx->forward_mailbox, NULL);
+                                    &ctx->local_terminated_pes)) {
+                            // New dead PE
+                            pull_vertices_from_dead_pe(pe, p, ctx);
                         }
                     }
-
-                    // Save for later
-                    hvr_dist_bitvec_local_subcopy_copy(ctx->producer_info + p,
-                            &ctx->local_partition_producers);
-
-                    /*
-                     * Look for newly terminated PEs that had local vertices in a
-                     * given partition. Go grab their vertices if there's a new one.
-                     */
-
-                    hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
-                            &ctx->local_terminated_pes);
-
-                    if (dead_pe_processing) {
-                        const unsigned long long start = hvr_current_time_us();
-                        for (int pe = 0; pe < ctx->npes; pe++) {
-                            if (!hvr_dist_bitvec_local_subcopy_contains(pe,
-                                        ctx->dead_info + p) &&
-                                    hvr_dist_bitvec_local_subcopy_contains(pe,
-                                        &ctx->local_terminated_pes)) {
-                                // New dead PE
-                                pull_vertices_from_dead_pe(pe, p, ctx);
-                            }
-                        }
-                        time_spent_processing_dead_pes += (hvr_current_time_us() -
-                                start);
-                    }
-
-                    hvr_dist_bitvec_local_subcopy_copy(ctx->dead_info + p,
-                            &ctx->local_terminated_pes);
+                    time_spent_processing_dead_pes += (hvr_current_time_us() -
+                            start);
                 }
+
+                hvr_dist_bitvec_local_subcopy_copy(ctx->dead_info + p,
+                        &ctx->local_terminated_pes);
             }
         } else {
             // If we are not subscribed to partition p
@@ -487,9 +486,6 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                  * are no longer subscribed. They will remove us from the list
                  * of people they send msgs to.
                  */
-                hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers,
-                        ctx->producer_info + p);
-
                 hvr_partition_member_change_t change;
                 change.pe = ctx->pe;  // The subscriber/unsubscriber
                 change.partition = p; // The partition (un)subscribed to
@@ -515,10 +511,10 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
      * when we need to check for changes.
      */
     hvr_set_copy(ctx->subscriber_partition_time_window,
-            ctx->tmp_subscriber_partition_time_window);
+            ctx->new_subscriber_partition_time_window);
 
     hvr_set_copy(ctx->producer_partition_time_window,
-            ctx->tmp_producer_partition_time_window);
+            ctx->new_producer_partition_time_window);
 
     const unsigned long long end = hvr_current_time_us();
 
@@ -564,9 +560,9 @@ void hvr_init(const hvr_partition_t n_partitions,
             n_partitions);
     new_ctx->producer_partition_time_window = hvr_create_empty_set(
             n_partitions);
-    new_ctx->tmp_subscriber_partition_time_window = hvr_create_empty_set(
+    new_ctx->new_subscriber_partition_time_window = hvr_create_empty_set(
             n_partitions);
-    new_ctx->tmp_producer_partition_time_window = hvr_create_empty_set(
+    new_ctx->new_producer_partition_time_window = hvr_create_empty_set(
             n_partitions);
 
     assert(n_partitions < HVR_INVALID_PARTITION);
@@ -705,18 +701,17 @@ void hvr_init(const hvr_partition_t n_partitions,
 
     hvr_vertex_cache_init(&new_ctx->vec_cache, new_ctx->n_partitions);
 
-    hvr_mailbox_init(&new_ctx->vertex_update_mailbox,   128 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->vertex_delete_mailbox,   128 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->forward_mailbox,         128 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->coupling_mailbox,         16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->coupling_ack_mailbox,     16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->cluster_mailbox,          16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->coupling_val_mailbox,     16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->start_iter_mailbox,       16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->start_iter_ack_mailbox,   16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->to_couple_with_mailbox,   16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->root_info_mailbox,        16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->dead_mailbox,             16 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->vertex_update_mailbox,        128 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->vertex_delete_mailbox,        128 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->forward_mailbox,              128 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->coupling_mailbox,              16 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->coupling_ack_and_dead_mailbox, 32 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->cluster_mailbox,               16 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->coupling_val_mailbox,          16 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->start_iter_mailbox,            16 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->start_iter_ack_mailbox,        16 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->to_couple_with_mailbox,        16 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->root_info_mailbox,             16 * 1024 * 1024);
 
     hvr_dist_bitvec_init(new_ctx->n_partitions, new_ctx->npes,
             &new_ctx->partition_producers);
@@ -778,6 +773,10 @@ void hvr_init(const hvr_partition_t n_partitions,
     }
     hvr_msg_buf_pool_init(&new_ctx->msg_buf_pool, max_msg_len, max_buffered_msgs);
 
+    new_ctx->interacting = (hvr_partition_t *)malloc(
+            MAX_INTERACTING_PARTITIONS * sizeof(new_ctx->interacting[0]));
+    assert(new_ctx->interacting);
+
     // Print the number of bytes allocated
     // shmem_malloc_wrapper(0);
     shmem_barrier_all();
@@ -809,7 +808,7 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
     size_t msg_len;
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
-    int success = hvr_mailbox_recv(&msg_buf_node->ptr, msg_buf_node->buf_size,
+    int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
             &msg_len, &ctx->forward_mailbox);
     while (success) {
         assert(msg_len == sizeof(hvr_partition_member_change_t));
@@ -820,6 +819,8 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
         hvr_partition_member_change_t *change =
             (hvr_partition_member_change_t *)msg_buf_node->ptr;
         assert(change->pe >= 0 && change->pe < ctx->npes);
+        assert(change->partition >= 0 && change->partition < ctx->n_partitions);
+        assert(change->entered == 0 || change->entered == 1);
 
         if (change->entered) {
             // Entered partition
@@ -834,8 +835,8 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
                 hvr_vertex_update_t msg;
                 msg.len = 0;
 
-                hvr_vertex_t *iter = ctx->local_partition_lists[
-                    change->partition];
+                hvr_vertex_t *iter =
+                    ctx->local_partition_lists[change->partition];
                 while (iter) {
                     memcpy(&(msg.verts[msg.len]), iter, sizeof(*iter));
                     msg.len += 1;
@@ -879,7 +880,7 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
                         &ctx->pe_subscription_info);
             }
         }
-        success = hvr_mailbox_recv(&msg_buf_node->ptr, msg_buf_node->buf_size,
+        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, &ctx->forward_mailbox);
     }
 
@@ -1048,9 +1049,8 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
     hvr_partition_t partition = wrap_actor_to_partition(new_vert, ctx);
     hvr_vertex_id_t updated_vert_id = new_vert->id;
 
-    hvr_partition_t interacting[MAX_INTERACTING_PARTITIONS];
     unsigned n_interacting;
-    ctx->might_interact(partition, interacting, &n_interacting,
+    ctx->might_interact(partition, ctx->interacting, &n_interacting,
             MAX_INTERACTING_PARTITIONS, ctx);
 
     hvr_vertex_cache_node_t *updated = hvr_vertex_cache_lookup(
@@ -1084,17 +1084,6 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
             hvr_vertex_cache_node_t *cached_neighbor =
                 hvr_vertex_cache_lookup(EDGE_INFO_VERTEX(edge_info),
                         &ctx->vec_cache);
-            if (!cached_neighbor) {
-                hvr_map_val_list_t vals_list;
-                int n = hvr_map_linearize(EDGE_INFO_VERTEX(edge_info),
-                        &ctx->vec_cache.cache_map, &vals_list);
-                hvr_vertex_id_t vert = EDGE_INFO_VERTEX(edge_info);
-                fprintf(stderr, "PE %d Failed fetching vert for (%lu,%lu) "
-                        "n=%d\n", ctx->pe, VERTEX_ID_PE(vert),
-                        VERTEX_ID_OFFSET(vert), n);
-                abort();
-            }
-
             assert(cached_neighbor);
 
             // Check this edge should still exist
@@ -1118,7 +1107,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
 
         const unsigned long long done_updating_edges = hvr_current_time_us();
 
-        create_new_edges(updated, interacting, n_interacting, ctx,
+        create_new_edges(updated, ctx->interacting, n_interacting, ctx,
                 count_new_should_have_edges);
 
         const unsigned long long done = hvr_current_time_us();
@@ -1130,7 +1119,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
         const unsigned long long start_new = hvr_current_time_us();
         // A brand new vertex, or at least this is our first update on it
         updated = hvr_vertex_cache_add(new_vert, partition, &ctx->vec_cache);
-        create_new_edges(updated, interacting, n_interacting, ctx,
+        create_new_edges(updated, ctx->interacting, n_interacting, ctx,
                 count_new_should_have_edges);
         *time_creating += (hvr_current_time_us() - start_new);
     }
@@ -1145,7 +1134,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
     // Handle deletes, then updates
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
-    int success = hvr_mailbox_recv(&msg_buf_node->ptr, msg_buf_node->buf_size,
+    int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
             &msg_len, &ctx->vertex_delete_mailbox);
     while (success) {
         assert(msg_len == sizeof(hvr_vertex_update_t));
@@ -1156,12 +1145,12 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
             n_updates++;
         }
 
-        success = hvr_mailbox_recv(&msg_buf_node->ptr, msg_buf_node->buf_size,
+        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, &ctx->vertex_delete_mailbox);
     }
 
     const unsigned long long midpoint = hvr_current_time_us();
-    success = hvr_mailbox_recv(&msg_buf_node->ptr, msg_buf_node->buf_size,
+    success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
             &msg_len, &ctx->vertex_update_mailbox);
     while (success) {
         assert(msg_len == sizeof(hvr_vertex_update_t));
@@ -1178,7 +1167,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
             n_updates++;
         }
 
-        success = hvr_mailbox_recv(&msg_buf_node->ptr, msg_buf_node->buf_size,
+        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, &ctx->vertex_update_mailbox);
     }
 
@@ -1357,6 +1346,7 @@ void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
 
         for (unsigned s = 0; s < n_subscribers; s++) {
             int sub_pe = subscribers[s];
+            assert(sub_pe < ctx->npes);
 
             hvr_vertex_update_t *msg = (is_delete ?
                     ctx->buffered_deletes + sub_pe :
@@ -1374,6 +1364,8 @@ void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
                         perf_info->n_received_updates += process_vertex_updates(
                                 ctx, perf_info);
                         start = hvr_current_time_us();
+                    } else {
+                        process_vertex_updates(ctx, perf_info);
                     }
                     success = hvr_mailbox_send(msg, sizeof(*msg), sub_pe,
                             N_SEND_ATTEMPTS, mbox, NULL);
@@ -1385,7 +1377,7 @@ void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
     *time_sending += (hvr_current_time_us() - start);
 }
 
-static unsigned send_updates(hvr_internal_ctx_t *ctx,
+static unsigned send_vertex_updates(hvr_internal_ctx_t *ctx,
         unsigned long long *time_sending,
         process_perf_info_t *perf_info) {
     unsigned n_updates_sent = 0;
@@ -1420,7 +1412,7 @@ static void wait_for_full_coupling_info(hvr_msg_buf_node_t *msg_buf_node,
         int expect_no_new_couplings_this_iter, hvr_internal_ctx_t *ctx) {
     while (1) {
         size_t msg_len;
-        int success = hvr_mailbox_recv(&msg_buf_node->ptr,
+        int success = hvr_mailbox_recv(msg_buf_node->ptr,
                 msg_buf_node->buf_size, &msg_len,
                 &ctx->coupling_mailbox);
         if (success) {
@@ -1444,7 +1436,7 @@ static void wait_for_full_coupling_info(hvr_msg_buf_node_t *msg_buf_node,
                     ack.root_pe = ctx->coupled_pes_root;
                     ack.abort = 0;
                     hvr_mailbox_send(&ack, sizeof(ack), msg->pe, -1,
-                            &ctx->coupling_ack_mailbox, NULL);
+                            &ctx->coupling_ack_and_dead_mailbox, NULL);
                 }
             } else if (msg_len == ctx->to_couple_with_msg.msg_buf_len) {
                 hvr_internal_set_msg_t *msg =
@@ -1475,7 +1467,7 @@ static size_t blocking_recv(hvr_msg_buf_node_t *msg_buf_node, hvr_mailbox_t *mb,
     size_t msg_len;
     int success;
     do {
-        success = hvr_mailbox_recv(&msg_buf_node->ptr, msg_buf_node->buf_size,
+        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, mb);
     } while (!success);
     return msg_len;
@@ -1542,80 +1534,87 @@ static int check_incoming_coupling_requests(hvr_msg_buf_node_t *msg_buf_node,
     assert(ctx->pe == ctx->coupled_pes_root);
 
     size_t msg_len;
-    int success = hvr_mailbox_recv(&msg_buf_node->ptr, msg_buf_node->buf_size,
+    int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
             &msg_len, &ctx->coupling_mailbox);
     if (success) {
         assert(msg_len == sizeof(new_coupling_msg_t));
         new_coupling_msg_t *msg =
             (new_coupling_msg_t *)msg_buf_node->ptr;
+        int request_src_pe = msg->pe;
 
         // Acknowledge the new coupling request
         new_coupling_msg_ack_t ack;
         ack.pe = ctx->pe;
         ack.root_pe = ctx->coupled_pes_root;
         ack.abort = 0;
-        hvr_mailbox_send(&ack, sizeof(ack), msg->pe, -1,
-                &ctx->coupling_ack_mailbox, NULL);
+        hvr_mailbox_send(&ack, sizeof(ack), request_src_pe, -1,
+                &ctx->coupling_ack_and_dead_mailbox, NULL);
+
+        fprintf(stderr, "PE %d got coupling request from %d\n", ctx->pe,
+                request_src_pe);
 
         // Must be another root, negotiate who will be the new root
-        int new_root = negotiate_new_root(msg->pe, msg_buf_node, ctx);
+        int new_root = negotiate_new_root(request_src_pe, msg_buf_node, ctx);
         if (new_root != ctx->pe) {
             ctx->coupled_pes_root = new_root;
         }
+        fprintf(stderr, "PE %d completing coupling request with %d, new root = "
+                "%d\n", ctx->pe, request_src_pe, ctx->coupled_pes_root);
     }
     return success;
 }
 
 static int wait_for_coupling_ack(hvr_msg_buf_node_t *msg_buf_node,
         int pe_waiting_on, hvr_internal_ctx_t *ctx) {
+    assert(sizeof(hvr_dead_pe_msg_t) != sizeof(new_coupling_msg_ack_t));
+
     int success;
     size_t msg_len;
 
+    int got_ack = 0;
     do {
-        success = hvr_mailbox_recv(&msg_buf_node->ptr,
+        success = hvr_mailbox_recv(msg_buf_node->ptr,
                 msg_buf_node->buf_size, &msg_len,
                 &ctx->coupling_mailbox);
         if (success) {
             assert(msg_len == sizeof(new_coupling_msg_t));
             new_coupling_msg_t *remote_coupling_msg =
                 (new_coupling_msg_t *)msg_buf_node->ptr;
-            if (remote_coupling_msg->pe == pe_waiting_on &&
-                    ctx->pe < pe_waiting_on) {
-                /*
-                 * The PE I'm coupling with is coupling with me at the
-                 * same time. If I am the lower PID, tell the other to
-                 * stop. Otherwise, I will be told to stop.
-                 */
-                new_coupling_msg_ack_t ack;
-                ack.pe = ctx->pe;
-                ack.root_pe = ctx->coupled_pes_root;
-                ack.abort = 1;
-                hvr_mailbox_send(&ack, sizeof(ack), pe_waiting_on,
-                        -1, &ctx->coupling_ack_mailbox, NULL);
+            /*
+             * If we get a message that someone is trying to couple with us
+             * while we are trying to couple with someone else, we tell them to
+             * abort to prevent deadlock (i.e. a loop of PEs each waiting on
+             * each other to acknowledge each other's coupling requests).
+             * There's still a chance of livelock with this scheme.
+             */
+
+            new_coupling_msg_ack_t ack;
+            ack.pe = ctx->pe;
+            ack.root_pe = ctx->coupled_pes_root;
+            ack.abort = 1;
+            hvr_mailbox_send(&ack, sizeof(ack), remote_coupling_msg->pe,
+                    -1, &ctx->coupling_ack_and_dead_mailbox, NULL);
+
+        }
+
+        success = hvr_mailbox_recv(msg_buf_node->ptr,
+                msg_buf_node->buf_size, &msg_len,
+                &ctx->coupling_ack_and_dead_mailbox);
+        if (success) {
+            if (msg_len == sizeof(hvr_dead_pe_msg_t)) {
+                hvr_dead_pe_msg_t *msg = (hvr_dead_pe_msg_t *)msg_buf_node->ptr;
+                assert(!hvr_set_contains(msg->pe, ctx->all_terminated_pes));
+                hvr_set_insert(msg->pe, ctx->all_terminated_pes);
+            } else if (msg_len == sizeof(new_coupling_msg_ack_t)) {
+                got_ack = 1;
             } else {
-                // Otherwise just resend to myself to process later
-                hvr_mailbox_send(remote_coupling_msg,
-                        sizeof(*remote_coupling_msg), ctx->pe, -1,
-                        &ctx->coupling_mailbox, NULL);
+                abort();
             }
         }
-
-        success = hvr_mailbox_recv(&msg_buf_node->ptr,
-                msg_buf_node->buf_size, &msg_len, &ctx->dead_mailbox);
-        if (success) {
-            assert(msg_len == sizeof(hvr_dead_pe_msg_t));
-            hvr_dead_pe_msg_t *msg = (hvr_dead_pe_msg_t *)msg_buf_node->ptr;
-            assert(!hvr_set_contains(msg->pe, ctx->all_terminated_pes));
-            hvr_set_insert(msg->pe, ctx->all_terminated_pes);
-        }
-
-        success = hvr_mailbox_recv(&msg_buf_node->ptr,
-                msg_buf_node->buf_size, &msg_len,
-                &ctx->coupling_ack_mailbox);
-    } while (!success &&
+    } while (!got_ack &&
             !hvr_set_contains(pe_waiting_on, ctx->all_terminated_pes));
 
-    if (success) {
+    if (got_ack) {
         assert(!hvr_set_contains(pe_waiting_on, ctx->all_terminated_pes));
         assert(msg_len == sizeof(new_coupling_msg_ack_t));
         return 0;
@@ -1658,7 +1657,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             &ctx->to_couple_with_mailbox, &ctx->to_couple_with_msg);
 
     if (ctx->pe == ctx->coupled_pes_root) {
-        fprintf(stderr, "PE %d starting iter %u as root, terminating=%d\n", ctx->pe, ctx->iter, terminating);
+        // fprintf(stderr, "PE %d starting iter %u as root, terminating=%d\n", ctx->pe, ctx->iter, terminating);
         /*
          * Wait for all currently coupled PEs to tell me who they want to become
          * coupled with.
@@ -1669,15 +1668,15 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         hvr_set_or(ctx->received_from, ctx->all_terminated_cluster_pes);
         while (!hvr_set_equal(ctx->received_from, ctx->prev_coupled_pes)) {
             size_t msg_len;
-            int success = hvr_mailbox_recv(&msg_buf_node->ptr,
+            int success = hvr_mailbox_recv(msg_buf_node->ptr,
                     msg_buf_node->buf_size, &msg_len,
                     &ctx->to_couple_with_mailbox);
             if (success) {
                 assert(msg_len == ctx->to_couple_with_msg.msg_buf_len);
                 hvr_internal_set_msg_t *msg =
                     (hvr_internal_set_msg_t *)msg_buf_node->ptr;
-                fprintf(stderr, "PE %d received to_couple_with from %d\n",
-                        ctx->pe, msg->pe);
+                // fprintf(stderr, "PE %d received to_couple_with from %d\n",
+                //         ctx->pe, msg->pe);
                 hvr_set_msg_copy(ctx->other_to_couple_with, msg);
                 hvr_set_or(ctx->to_couple_with, ctx->other_to_couple_with);
                 hvr_set_insert(msg->pe, ctx->received_from);
@@ -1688,7 +1687,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             }
         }
 
-        fprintf(stderr, "PE %d received all to_couple_with\n", ctx->pe);
+        // fprintf(stderr, "PE %d received all to_couple_with\n", ctx->pe);
 
         /*
          * prev_coupled_pes is the set of PEs that we know we are already
@@ -1716,22 +1715,25 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         //         hvr_set_equal(ctx->already_coupled_with, ctx->to_couple_with),
         //         ctx->already_coupled_with->n_contained,
         //         ctx->to_couple_with->n_contained, ctx->coupled_pes->n_contained);
+        int target_pe = 0;
         do {
             // Find a PE that we want to couple with but haven't yet.
-            int target_pe = -1;
+            int found_pe = 0;
             for (int p = 0; p < ctx->npes; p++) {
-                if (hvr_set_contains(p, ctx->to_couple_with) &&
-                        !hvr_set_contains(p, ctx->coupled_pes)) {
-                    target_pe = p;
+                int new_target_pe = (target_pe + p) % ctx->npes;
+                if (hvr_set_contains(new_target_pe, ctx->to_couple_with) &&
+                        !hvr_set_contains(new_target_pe, ctx->coupled_pes)) {
+                    target_pe = new_target_pe;
+                    found_pe = 1;
                     break;
                 }
             }
 
-            fprintf(stderr, "PE %d coupling with %d\n", ctx->pe, target_pe);
+            // fprintf(stderr, "PE %d coupling with %d %d\n", ctx->pe, found_pe, target_pe);
 
-            if (target_pe >= 0) {
-                fprintf(stderr, "PE %d trying to couple with %d\n", ctx->pe,
-                        target_pe);
+            if (found_pe) {
+                // fprintf(stderr, "PE %d trying to couple with %d\n", ctx->pe,
+                //         target_pe);
 
                 // Tell this PE we'd like to couple with it
                 new_coupling_msg_t my_coupling_msg;
@@ -1744,12 +1746,16 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                 do {
                     hvr_mailbox_send(&my_coupling_msg, sizeof(my_coupling_msg),
                             expected_root_pe, -1, &ctx->coupling_mailbox, NULL);
+                    fprintf(stderr, "PE %d sending coupling request to %d\n",
+                            ctx->pe, expected_root_pe);
                     /*
                      * Wait for it to acknowledge, either telling us it is the
                      * root or who it thinks the root is.
                      */
                     is_dead = wait_for_coupling_ack(msg_buf_node,
                             expected_root_pe, ctx);
+                    fprintf(stderr, "PE %d got back is_dead=%d\n", ctx->pe,
+                            is_dead);
                     if (is_dead) {
                         /*
                          * Should only discover dead PEs that we are trying to
@@ -1758,13 +1764,15 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                         assert(expected_root_pe == target_pe);
                     } else { // !is_dead
                         ack = (new_coupling_msg_ack_t *)msg_buf_node->ptr;
+                        fprintf(stderr, "PE %d got ack from %d, root=%d\n",
+                                ctx->pe, ack->pe, ack->root_pe);
                         assert(ack->pe == expected_root_pe);
                         expected_root_pe = ack->root_pe;
                     }
                 } while (ack->root_pe != ack->pe && !ack->abort && !is_dead);
 
-                fprintf(stderr, "PE %d finally coupling with %d (abort? %d)\n",
-                        ctx->pe, ack->root_pe, ack->abort);
+                // fprintf(stderr, "PE %d finally coupling with %d (abort? %d)\n",
+                //         ctx->pe, ack->root_pe, ack->abort);
 
                 if (is_dead) {
                     /*
@@ -1799,7 +1807,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                     ctx->coupled_pes);
         } while (!hvr_set_equal(ctx->already_coupled_with, ctx->to_couple_with));
 
-        fprintf(stderr, "PE %d completed couplings, current root = %d\n", ctx->pe, ctx->coupled_pes_root);
+        // fprintf(stderr, "PE %d completed couplings, current root = %d\n", ctx->pe, ctx->coupled_pes_root);
 
         // fprintf(stderr, "AA PE %d finished coupling on iter %d with root=%d, %u coupled PEs, %u to couple with, %u already coupled with, equal %d\n", ctx->pe,
         //         ctx->iter, ctx->coupled_pes_root, hvr_set_count(ctx->coupled_pes), hvr_set_count(ctx->to_couple_with), hvr_set_count(ctx->already_coupled_with), hvr_set_equal(ctx->already_coupled_with, ctx->to_couple_with));
@@ -1844,12 +1852,12 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             }
         }
 
-        fprintf(stderr, "PE %d now waiting for finalized couplings on iter %u\n", ctx->pe, ctx->iter);
+        // fprintf(stderr, "PE %d now waiting for finalized couplings on iter %u\n", ctx->pe, ctx->iter);
 
         wait_for_full_coupling_info(msg_buf_node,
                 ctx->coupled_pes_root == ctx->pe, ctx);
 
-        fprintf(stderr, "PE %d done waiting for finalized couplings on iter %u, root=%d\n", ctx->pe, ctx->iter, ctx->coupled_pes_root);
+        // fprintf(stderr, "PE %d done waiting for finalized couplings on iter %u, root=%d\n", ctx->pe, ctx->iter, ctx->coupled_pes_root);
     } else {
         // fprintf(stderr, "PE %d waiting on root terminating? %d\n", ctx->pe, terminating);
         wait_for_full_coupling_info(msg_buf_node, 0, ctx);
@@ -1886,7 +1894,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             ctx->npes * sizeof(ctx->updates_on_this_iter[0]));
     while (!hvr_set_equal(ctx->received_from, ctx->coupled_pes)) {
         size_t msg_len;
-        int success = hvr_mailbox_recv(&msg_buf_node->ptr,
+        int success = hvr_mailbox_recv(msg_buf_node->ptr,
                 msg_buf_node->buf_size, &msg_len, &ctx->coupling_val_mailbox);
         if (success) {
             assert(msg_len == sizeof(hvr_coupling_msg_t));
@@ -1898,6 +1906,9 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             hvr_set_insert(msg->pe, ctx->received_from);
         }
     }
+
+    // fprintf(stderr, "PE %d done waiting for coupled values, root=%d, # coupled=%d\n",
+    //         ctx->pe, ctx->coupled_pes_root, hvr_set_count(ctx->coupled_pes));
 
     const unsigned long long done = hvr_current_time_us();
 
@@ -2265,7 +2276,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      * updates to update edges for all vertices (both local and mirrored).
      */
     unsigned long long time_sending = 0;
-    unsigned n_updates_sent = send_updates(ctx, &time_sending,
+    unsigned n_updates_sent = send_vertex_updates(ctx, &time_sending,
             &perf_info);
 
     // Ensure all updates are sent before processing them during initialization
@@ -2364,7 +2375,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long end_neighbor_updates = hvr_current_time_us();
 
-        n_updates_sent = send_updates(ctx, &time_sending, &perf_info);
+        n_updates_sent = send_vertex_updates(ctx, &time_sending, &perf_info);
 
         const unsigned long long end_send_updates = hvr_current_time_us();
 
@@ -2433,7 +2444,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         }
     }
 
-    fprintf(stderr, "PE %d leaving\n", ctx->pe);
     should_abort = update_coupled_values(ctx, &coupled_metric,
             0, &coupling_coupling,
             &coupling_waiting, &coupling_after,
@@ -2442,10 +2452,9 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     hvr_dead_pe_msg_t dead_msg;
     dead_msg.pe = ctx->pe;
     for (int p = 0; p < ctx->npes; p++) {
-        hvr_mailbox_send(&dead_msg, sizeof(dead_msg), p, -1, &ctx->dead_mailbox,
-                NULL);
+        hvr_mailbox_send(&dead_msg, sizeof(dead_msg), p, -1,
+                &ctx->coupling_ack_and_dead_mailbox, NULL);
     }
-    fprintf(stderr, "PE %d done leaving\n", ctx->pe);
 
     this_pe_has_exited = 1;
 
@@ -2512,13 +2521,12 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     hvr_mailbox_destroy(&ctx->vertex_delete_mailbox);
     hvr_mailbox_destroy(&ctx->forward_mailbox);
     hvr_mailbox_destroy(&ctx->coupling_mailbox);
-    hvr_mailbox_destroy(&ctx->coupling_ack_mailbox);
+    hvr_mailbox_destroy(&ctx->coupling_ack_and_dead_mailbox);
     hvr_mailbox_destroy(&ctx->cluster_mailbox);
     hvr_mailbox_destroy(&ctx->coupling_val_mailbox);
     hvr_mailbox_destroy(&ctx->start_iter_mailbox);
     hvr_mailbox_destroy(&ctx->start_iter_ack_mailbox);
     hvr_mailbox_destroy(&ctx->root_info_mailbox);
-    hvr_mailbox_destroy(&ctx->dead_mailbox);
 
     hvr_sparse_arr_destroy(&ctx->pe_subscription_info);
 
@@ -2530,6 +2538,8 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     free(ctx->vert_partition_buf);
 
     hvr_msg_buf_pool_destroy(&ctx->msg_buf_pool);
+
+    free(ctx->interacting);
 
     free(ctx);
 }

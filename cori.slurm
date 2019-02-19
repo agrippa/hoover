@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:15:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -18,6 +18,11 @@ echo $SLURM_NODELIST
 echo
 echo "Running with OpenSHMEM installation at $OPENSHMEM_INSTALL"
 
+echo
+cat /sys/class/gni/kgni0/resources
+echo
+
+export UCX_TLS=ugni_rdma
 export PMI_MAX_KVS_ENTRIES=$((1000 * $SLURM_NNODES))
 export LD_LIBRARY_PATH=$OPENSHMEM_INSTALL/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$OPENSHMEM_INSTALL/lib64:$LD_LIBRARY_PATH
@@ -37,8 +42,6 @@ export CORES_PER_SOCKET=16
 export SOCKETS_PER_NODE=2
 export CORES_PER_TASK=$(( $CORES_PER_SOCKET / $TASKS_PER_SOCKET ))
 
-# export BASE_ACTORS_PER_CELL=400 # big
-# export BASE_ACTORS_PER_CELL=200
 export BASE_ACTORS_PER_CELL=20
 
 if [[ $SLURM_NNODES -eq 1 ]]; then
@@ -90,11 +93,11 @@ fi
 export N_PORTALS=0
 export N_INFECTED=1
 export MAX_NUM_TIMESTEPS=100
-export INFECTION_RADIUS=300
+export INFECTION_RADIUS=200
 
 export HVR_SYMM_POOL_SIZE=2084000
 export HVR_SYMM_POOL_NNODES=1024
-export HVR_VEC_CACHE_PREALLOCS=2800000
+export HVR_VEC_CACHE_PREALLOCS=3000000
 export HVR_VERT_CACHE_SEGS=40000
 export HVR_EDGE_SET_SEGS=40000
 export HVR_EDGE_SET_VALS=$((1024 * 1024 * 1024))
@@ -138,10 +141,19 @@ export EXE_ARGS="$CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""
-srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
+# oshrun --npersocket 16 $HOME/hoover/bin/init_test 30
+# oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/hvr_set_msg_test
+# oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/mailbox_test
+# oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
+srun --ntasks-per-node=32 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
+
+# srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480
 # srun $SLURM_ARGS $HOME/hoover/bin/hvr_dist_bitvec_test
 
 # module load valgrind4hpc
+# valgrind4hpc -n $(( $SLURM_NNODES * $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
+#     --launcher-args="$SLURM_ARGS" $HOME/hoover/bin/infectious_test $EXE_ARGS
+
 # valgrind4hpc -n $(( $SLURM_NNODES * $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
 #     --launcher-args="$SLURM_ARGS" $HOME/hoover/bin/infectious_test $EXE_ARGS

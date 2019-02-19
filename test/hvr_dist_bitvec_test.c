@@ -27,10 +27,8 @@ int main(int argc, char **argv) {
 
     for (unsigned i = 0; i < N; i += 2) {
         for (int j = 0; j < shmem_n_pes(); j++) {
-            if (hvr_dist_bitvec_owning_pe(i, &vec) == shmem_my_pe()) {
-                hvr_dist_bitvec_copy_locally(i, &vec, &copy);
-                assert(hvr_dist_bitvec_local_subcopy_contains(j, &copy));
-            }
+            hvr_dist_bitvec_copy_locally(i, &vec, &copy);
+            assert(hvr_dist_bitvec_local_subcopy_contains(j, &copy));
         }
     }
 
@@ -46,16 +44,14 @@ int main(int argc, char **argv) {
 
     for (unsigned i = 0; i < N; i += 2) {
         for (int j = 0; j < shmem_n_pes(); j++) {
-            if (hvr_dist_bitvec_owning_pe(i, &vec) == shmem_my_pe()) {
-                hvr_dist_bitvec_copy_locally(i, &vec, &copy);
+            hvr_dist_bitvec_copy_locally(i, &vec, &copy);
 
-                if (j % 2 == 0) {
-                    // Should have been cleared
-                    assert(!hvr_dist_bitvec_local_subcopy_contains(j, &copy));
-                } else {
-                    // Still set
-                    assert(hvr_dist_bitvec_local_subcopy_contains(j, &copy));
-                }
+            if (j % 2 == 0) {
+                // Should have been cleared
+                assert(!hvr_dist_bitvec_local_subcopy_contains(j, &copy));
+            } else {
+                // Still set
+                assert(hvr_dist_bitvec_local_subcopy_contains(j, &copy));
             }
         }
     }
@@ -72,12 +68,10 @@ int main(int argc, char **argv) {
 
     for (unsigned i = 0; i < N; i += 2) {
         for (int j = 0; j < shmem_n_pes(); j++) {
-            if (hvr_dist_bitvec_owning_pe(i, &vec) == shmem_my_pe()) {
-                hvr_dist_bitvec_copy_locally(i, &vec, &copy);
+            hvr_dist_bitvec_copy_locally(i, &vec, &copy);
 
-                // Should all have been cleared
-                assert(!hvr_dist_bitvec_local_subcopy_contains(j, &copy));
-            }
+            // Should all have been cleared
+            assert(!hvr_dist_bitvec_local_subcopy_contains(j, &copy));
         }
     }
 
@@ -93,12 +87,9 @@ int main(int argc, char **argv) {
         hvr_dist_bitvec_set(i, shmem_my_pe(), &vec2);
     }
 
-    shmem_barrier_all();
-
-    for (unsigned i = 0; i < 16000000; i += 5) {
+    for (unsigned i = 0; i < 16000000; i += 20) {
         for (int j = 0; j < shmem_n_pes(); j++) {
             hvr_dist_bitvec_copy_locally(i, &vec2, &copy2);
-            assert(hvr_dist_bitvec_local_subcopy_contains(j, &copy2));
         }
     }
 

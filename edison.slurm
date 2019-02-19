@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:20:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -39,7 +39,7 @@ export CORES_PER_TASK=$(( $CORES_PER_SOCKET / $TASKS_PER_SOCKET ))
 
 # export BASE_ACTORS_PER_CELL=400 # big
 # export BASE_ACTORS_PER_CELL=200
-export BASE_ACTORS_PER_CELL=20
+export BASE_ACTORS_PER_CELL=30
 
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 1 node
@@ -95,13 +95,13 @@ export INFECTION_RADIUS=300
 # export HVR_TRACE_SHMALLOC=1
 export HVR_SYMM_POOL_SIZE=2084000
 export HVR_SYMM_POOL_NNODES=1024
-export HVR_VEC_CACHE_PREALLOCS=2000000
-export HVR_VERT_CACHE_SEGS=20000
-export HVR_EDGE_SET_SEGS=20000
+export HVR_VEC_CACHE_PREALLOCS=3000000
+export HVR_VERT_CACHE_SEGS=30000
+export HVR_EDGE_SET_SEGS=30000
 export HVR_EDGE_SET_VALS=$((256 * 1024 * 1024))
 export HVR_EDGE_SET_NODES=262144
 export HVR_DIST_BITVEC_POOL_SIZE=$((16 * 1024 * 1024))
-export HVR_SPARSE_ARR_SEGS=4096
+export HVR_SPARSE_ARR_SEGS=12288
 export HVR_SPARSE_ARR_POOL=$((32 * 1024 * 1024));
 export HVR_MAX_BUFFERED_MSGS=5000
 
@@ -109,8 +109,8 @@ export HVR_MAX_BUFFERED_MSGS=5000
 # export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-export HVR_HANG_ABORT=400
-export HVR_HANG_ABORT_PE=0
+# export HVR_HANG_ABORT=400
+# export HVR_HANG_ABORT_PE=71
 
 cd $SCRATCH
 mkdir -p job.$SLURM_JOB_ID
@@ -136,14 +136,16 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
     --mem-bind=local"
 export EXE_ARGS="$CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    300"
+    420"
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""
 srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
 # srun $SLURM_ARGS $HOME/hoover/bin/init_test 800
+# srun $SLURM_ARGS $HOME/hoover/bin/hvr_dist_bitvec_test
+# srun $SLURM_ARGS $HOME/hoover/bin/mailbox_test
 
-# module load valgrind4hpc
-# valgrind4hpc -n $(( $SLURM_NNODES * $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
-#     --launcher-args="$SLURM_ARGS" $HOME/hoover/bin/infectious_test $EXE_ARGS
+module load valgrind4hpc
+valgrind4hpc -n $(( $SLURM_NNODES * $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
+    --launcher-args="$SLURM_ARGS" $HOME/hoover/bin/infectious_test $EXE_ARGS

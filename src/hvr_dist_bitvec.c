@@ -41,14 +41,16 @@ void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
         hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec) {
     const unsigned coord0_pe = coord0 / vec->dim0_per_pe;
     const unsigned coord0_offset = coord0 % vec->dim0_per_pe;
+    assert(coord0_offset < vec->dim0_per_pe);
 
     const unsigned coord1_word = coord1 / BITS_PER_ELE;
     const unsigned coord1_bit = coord1 % BITS_PER_WORD;
-    unsigned coord1_mask = (1U << coord1_bit);
+    hvr_dist_bitvec_ele_t coord1_mask = (((hvr_dist_bitvec_ele_t)1) <<
+            ((hvr_dist_bitvec_ele_t)coord1_bit));
 
     shmem_uint64_atomic_or(
-            vec->symm_vec + (coord0_offset * vec->dim1_length_in_words) +
-            coord1_word, coord1_mask, coord0_pe);
+            vec->symm_vec + ((coord0_offset * vec->dim1_length_in_words) +
+            coord1_word), coord1_mask, coord0_pe);
 }
 
 void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
@@ -58,7 +60,8 @@ void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
 
     const unsigned coord1_word = coord1 / BITS_PER_ELE;
     const unsigned coord1_bit = coord1 % BITS_PER_WORD;
-    unsigned coord1_mask = (1U << coord1_bit);
+    hvr_dist_bitvec_ele_t coord1_mask = (((hvr_dist_bitvec_ele_t)1) <<
+            ((hvr_dist_bitvec_ele_t)coord1_bit));
     coord1_mask = ~coord1_mask;
 
     shmem_uint64_atomic_and(
@@ -72,10 +75,10 @@ void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec_t *vec,
     out->dim1 = vec->dim1;
     out->dim1_length_in_words = vec->dim1_length_in_words;
     out->subvec = (hvr_dist_bitvec_ele_t *)mspace_malloc(vec->tracker,
-            vec->dim1_length_in_words * sizeof(*(out->subvec)));
+            vec->dim1_length_in_words * sizeof(out->subvec[0]));
     assert(out->subvec);
     memset(out->subvec, 0x00,
-            vec->dim1_length_in_words * sizeof(*(out->subvec)));
+            vec->dim1_length_in_words * sizeof(out->subvec[0]));
 }
 
 void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,

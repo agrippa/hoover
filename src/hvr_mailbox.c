@@ -147,13 +147,14 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
     put_in_mailbox_with_rotation(&msg_len, sizeof(msg_len), msg_len_offset,
             mailbox, target_pe);
     put_in_mailbox_with_rotation(msg, msg_len, msg_offset, mailbox, target_pe);
-    shmem_fence();
+    // shmem_fence();
+    shmem_quiet();
     put_in_mailbox_with_rotation(&sentinel, sizeof(sentinel),
             start_send_offset, mailbox, target_pe);
     return 1;
 }
 
-int hvr_mailbox_recv(void **msg, size_t msg_capacity, size_t *msg_len,
+int hvr_mailbox_recv(void *msg, size_t msg_capacity, size_t *msg_len,
         hvr_mailbox_t *mailbox) {
     uint32_t read_index, write_index;
     uint64_t curr_indices;
@@ -205,7 +206,7 @@ int hvr_mailbox_recv(void **msg, size_t msg_capacity, size_t *msg_len,
 
     assert(msg_capacity >= recv_msg_len);
 
-    get_from_mailbox_with_rotation(msg_offset, *msg, recv_msg_len, mailbox);
+    get_from_mailbox_with_rotation(msg_offset, msg, recv_msg_len, mailbox);
 
     /*
      * Once we've finished extracting the message, clear the sentinel value and

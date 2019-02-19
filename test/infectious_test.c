@@ -266,6 +266,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
                     int is_infected = hvr_vertex_get(INFECTED, neighbor, ctx);
                     if (is_infected) {
                         const int infected_by = hvr_vertex_get_owning_pe(neighbor);
+                        assert(infected_by < ctx->npes);
                         hvr_set_insert(infected_by, couple_with);
                         hvr_vertex_set(INFECTED, 1, vertex, ctx);
                         break;
@@ -274,6 +275,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
             }
         }
     }
+
 
     // Update PX/PY, DST_X/DST_Y based on prev.
     if (prev) {
@@ -520,8 +522,8 @@ int main(int argc, char **argv) {
     int time_limit = atoi(argv[9]);
 
     time_partition_dim = max_num_timesteps;
-    y_partition_dim = 200;
-    x_partition_dim = 200;
+    y_partition_dim = 50;
+    x_partition_dim = 50;
     hvr_partition_t npartitions = time_partition_dim * y_partition_dim *
         x_partition_dim;
 
@@ -735,6 +737,7 @@ int main(int argc, char **argv) {
     }
 
     hvr_finalize(hvr_ctx);
+
 
     shmem_free(initial_infected);
     shmem_finalize();

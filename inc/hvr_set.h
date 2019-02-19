@@ -44,7 +44,10 @@ extern int hvr_set_contains(uint64_t val, hvr_set_t *set);
 /*
  * Count how many elements are in this set.
  */
-extern unsigned hvr_set_count(hvr_set_t *set);
+extern uint64_t hvr_set_count(hvr_set_t *set);
+
+extern uint64_t hvr_set_max_contained(hvr_set_t *set);
+extern uint64_t hvr_set_min_contained(hvr_set_t *set);
 
 /*
  * Remove all elements from this set.

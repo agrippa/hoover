@@ -174,8 +174,8 @@ typedef struct _hvr_internal_ctx_t {
     // Sets of the partitions that have been live in a recent time window.
     hvr_set_t *subscriber_partition_time_window;
     hvr_set_t *producer_partition_time_window;
-    hvr_set_t *tmp_subscriber_partition_time_window;
-    hvr_set_t *tmp_producer_partition_time_window;
+    hvr_set_t *new_subscriber_partition_time_window;
+    hvr_set_t *new_producer_partition_time_window;
 
     // User callbacks
     hvr_update_metadata_func update_metadata;
@@ -273,6 +273,9 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_vertex_cache_t vec_cache;
 
+    hvr_dist_bitvec_local_subcopy_t local_partition_producers;
+    hvr_dist_bitvec_local_subcopy_t local_terminated_pes;
+
     hvr_mailbox_t vertex_update_mailbox;
     hvr_mailbox_t vertex_delete_mailbox;
     hvr_mailbox_t forward_mailbox;
@@ -281,18 +284,11 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t start_iter_mailbox;
     hvr_mailbox_t start_iter_ack_mailbox;
     hvr_mailbox_t coupling_mailbox;
-    hvr_mailbox_t coupling_ack_mailbox;
+    hvr_mailbox_t coupling_ack_and_dead_mailbox;
     hvr_mailbox_t cluster_mailbox;
     hvr_mailbox_t coupling_val_mailbox;
     hvr_mailbox_t to_couple_with_mailbox;
     hvr_mailbox_t root_info_mailbox;
-    hvr_mailbox_t dead_mailbox;
-
-    hvr_dist_bitvec_t partition_producers;
-    hvr_dist_bitvec_t terminated_pes;
-
-    hvr_dist_bitvec_local_subcopy_t local_partition_producers;
-    hvr_dist_bitvec_local_subcopy_t local_terminated_pes;
 
     hvr_dist_bitvec_local_subcopy_t *producer_info;
     hvr_dist_bitvec_local_subcopy_t *dead_info;
@@ -318,6 +314,11 @@ typedef struct _hvr_internal_ctx_t {
 #define MAX_MODIFICATIONS 1024
     hvr_edge_info_t modify_buffer[MAX_MODIFICATIONS];
     hvr_edge_type_t modify_buffer_info[MAX_MODIFICATIONS];
+
+    hvr_dist_bitvec_t partition_producers;
+    hvr_dist_bitvec_t terminated_pes;
+
+    hvr_partition_t *interacting;
 } hvr_internal_ctx_t;
 
 /*
