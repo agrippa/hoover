@@ -11,10 +11,10 @@
 #define BITS_PER_WORD (BITS_PER_BYTE * sizeof(unsigned))
 
 typedef enum _hvr_edge_type_t {
-    BIDIRECTIONAL = 0,
+    NO_EDGE = 0,
     DIRECTED_IN = 1,
     DIRECTED_OUT = 2,
-    NO_EDGE = 3
+    BIDIRECTIONAL = 3
 } hvr_edge_type_t;
 
 /*

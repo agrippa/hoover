@@ -1,25 +1,18 @@
-#include "hvr_map.h"
+#include "hvr_2d_edge_set.h"
 
 #define N_VERTICES 10000000
 #define N_REPEATS 20
 
 int main(int argc, char **argv) {
-    hvr_map_t m;
-    hvr_map_init(&m,
-            40000,/* prealloc segs */
-            1073741824, /* prealloc vals */
-            65536, /* prealloc nodes */,
-            8,
-            EDGE_INFO);
+    hvr_2d_edge_set_t s;
+    hvr_2d_edge_set_init(&s, N_VERTICES, 10000);
 
     const unsigned long long start = hvr_current_time_us();
     for (int r = 0; r < N_REPEATS; i++) {
         for (unsigned i = 0; i < N_VERTICES; i++) {
             unsigned neighbor = i + r;
 
-            hvr_map_val_t val;
-            val.edge_info = construct_edge_info(neighbor, BIDIRECTIONAL);
-            hvr_map_add(i, val, &m);
+            hvr_2d_set(i, neighbor, BIDIRECTIONAL, &s);
         }
     }
     const unsigned long long elapsed = hvr_current_time_us() - start;

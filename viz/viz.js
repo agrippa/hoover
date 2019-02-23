@@ -120,17 +120,17 @@ function readSingleFile(e) {
                     var id = parseInt(line[2]);
                     var nfeatures = parseInt(line[3]);
 
-                    var features = {};
+                    var features = [];
                     for (var j = 0; j < nfeatures; j++) {
                         features[parseInt(line[4 + 2 * j])] =
                             parseFloat(line[4 + 2 * j + 1]);
                     }
 
-                    var timestep = parseInt(features[7]);
-                    var state = parseInt(features[2]);
-                    var x = features[0];
-                    var y = features[1];
-                    var id = parseInt(features[8]);
+                    var timestep = parseInt(features[0]);
+                    var state = parseInt(features[4]);
+                    var x = features[2];
+                    var y = features[3];
+                    var id = parseInt(features[1]);
 
                     addPE(pe);
                     addState(state);
