@@ -15,7 +15,8 @@ all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge
 bin/libhoover.a: src/hoover.c \
 	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c \
 	src/hvr_set.c src/hvr_edge_set.c src/hvr_vertex.c \
-	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_sparse_arr.c src/hvr_map.c src/hvr_set_msg.c src/hvr_msg_buf_pool.c
+	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_sparse_arr.c src/hvr_map.c src/hvr_set_msg.c src/hvr_msg_buf_pool.c src/hvr_2d_edge_set.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_2d_edge_set.o src/hvr_2d_edge_set.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_msg_buf_pool.o src/hvr_msg_buf_pool.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_set_msg.o src/hvr_set_msg.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hoover.o src/hoover.c
@@ -34,7 +35,15 @@ bin/libhoover.a: src/hoover.c \
 		bin/hvr_vertex_pool.o bin/hvr_vertex_iter.o bin/hvr_mailbox.o bin/hvr_set.o \
 		bin/hvr_edge_set.o bin/hvr_vertex.o bin/hvr_vertex_cache.o \
 		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o bin/dlmalloc.o \
-		bin/hvr_set_msg.o bin/hvr_msg_buf_pool.o
+		bin/hvr_set_msg.o bin/hvr_msg_buf_pool.o bin/hvr_2d_edge_set.o
+
+bin/hvr_2d_set_microbenchmark: test/hvr_2d_set_microbenchmark.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_2d_set_microbenchmark.c -o bin/hvr_2d_set_microbenchmark.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_2d_set_microbenchmark.o -o $@ -l:libhoover.a -lm -lpthread
+
+bin/hvr_map_microbenchmark: test/hvr_map_microbenchmark.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_map_microbenchmark.c -o bin/hvr_map_microbenchmark.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_map_microbenchmark.o -o $@ -l:libhoover.a -lm -lpthread
 
 bin/dummy_shmem_test: test/dummy_shmem_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/dummy_shmem_test.c -o bin/dummy_shmem_test.o

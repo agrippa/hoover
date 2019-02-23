@@ -1,6 +1,10 @@
-#include "hvr_2d_edge_set.h"
+#include <stdio.h>
+#include <stdlib.h>
 
-#define N_VERTICES 10000000
+#include "hvr_2d_edge_set.h"
+#include "hoover.h"
+
+#define N_VERTICES 1000000
 #define N_REPEATS 20
 
 int main(int argc, char **argv) {
@@ -8,8 +12,8 @@ int main(int argc, char **argv) {
     hvr_2d_edge_set_init(&s, N_VERTICES, 10000);
 
     const unsigned long long start = hvr_current_time_us();
-    for (int r = 0; r < N_REPEATS; i++) {
-        for (unsigned i = 0; i < N_VERTICES; i++) {
+    for (int r = 0; r < N_REPEATS; r++) {
+        for (unsigned i = 0; i < N_VERTICES - N_REPEATS; i++) {
             unsigned neighbor = i + r;
 
             hvr_2d_set(i, neighbor, BIDIRECTIONAL, &s);
