@@ -12,7 +12,7 @@
 #define BITS_PER_EDGE 2
 #define BITS_PER_BYTE 8
 #define EDGES_PER_BYTE (BITS_PER_BYTE / BITS_PER_EDGE)
-typedef size_t hvr_tile_ele_t;
+typedef uint64_t hvr_tile_ele_t;
 
 #define TILE_SIZE_IN_BITS (TILE_DIM * TILE_DIM * BITS_PER_EDGE)
 #define TILE_SIZE_IN_BYTES ((TILE_SIZE_IN_BITS + BITS_PER_BYTE - 1) / BITS_PER_BYTE)
@@ -26,15 +26,20 @@ typedef struct _hvr_2d_edge_set_tile_t {
 typedef struct _hvr_2d_edge_set_t {
     hvr_2d_edge_set_tile_t **tiles;
     hvr_2d_edge_set_tile_t *preallocated;
-    size_t ntiles_per_dim;
-    size_t dim;
+    uint64_t ntiles_per_dim;
+    uint64_t dim;
 } hvr_2d_edge_set_t;
 
-void hvr_2d_edge_set_init(hvr_2d_edge_set_t *s, size_t dim, size_t max_n_tiles);
+void hvr_2d_edge_set_init(hvr_2d_edge_set_t *s, uint64_t dim,
+        uint64_t max_n_tiles);
 
-hvr_edge_type_t hvr_2d_get(size_t i, size_t j, hvr_2d_edge_set_t *s);
+hvr_edge_type_t hvr_2d_get(uint64_t i, uint64_t j, hvr_2d_edge_set_t *s);
 
-void hvr_2d_set(size_t i, size_t j, hvr_edge_type_t e,
+void hvr_2d_set(uint64_t i, uint64_t j, hvr_edge_type_t e,
+        hvr_2d_edge_set_t *s);
+
+void hvr_2d_linearize(uint64_t i, uint64_t *out_vals,
+        hvr_edge_type_t *out_edges, size_t *out_len, size_t capacity,
         hvr_2d_edge_set_t *s);
 
 #endif // _HVR_2D_EDGE_SET_H

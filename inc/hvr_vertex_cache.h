@@ -13,6 +13,8 @@ extern "C" {
 #define HVR_CACHE_BUCKETS 8192
 #define CACHE_BUCKET(vert_id) ((vert_id) % HVR_CACHE_BUCKETS)
 
+#define CACHE_NODE_OFFSET(my_node, my_cache) ((my_node) - (my_cache)->pool_mem)
+
 /*
  * A cache data structure used locally on each PE to store remote vertices that
  * have already been fetched. This data structure stores the remote vertex
