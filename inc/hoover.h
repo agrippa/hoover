@@ -311,7 +311,7 @@ typedef struct _hvr_internal_ctx_t {
 #define N_VERTICES_PER_BUF 10240
     hvr_partition_t *vert_partition_buf;
 
-#define MAX_MODIFICATIONS 1024
+#define MAX_MODIFICATIONS 2048
     hvr_edge_info_t modify_buffer[MAX_MODIFICATIONS];
     hvr_edge_type_t modify_buffer_info[MAX_MODIFICATIONS];
 

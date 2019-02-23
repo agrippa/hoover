@@ -19,8 +19,6 @@
 #define DST_X 7
 #define DST_Y 8
 
-#define MAX_V 0.5
-
 #define PORTAL_CAPTURE_RADIUS 5.0
 #define PE_ROW(this_pe) ((this_pe) / pe_cols)
 #define PE_COL(this_pe) ((this_pe) % pe_cols)
@@ -30,7 +28,7 @@
 #define CELL_COL(x_coord) ((x_coord) / cell_dim)
 #define CELL_INDEX(cell_row, cell_col) ((cell_row) * pe_cols + (cell_col))
 
-#define MAX_DST_DELTA 500.0
+#define MAX_DST_DELTA 2000.0
 
 int max_modeled_timestep = 0;
 unsigned *max_timestep_created = NULL;
@@ -522,8 +520,8 @@ int main(int argc, char **argv) {
     int time_limit = atoi(argv[9]);
 
     time_partition_dim = max_num_timesteps;
-    y_partition_dim = 200;
-    x_partition_dim = 200;
+    y_partition_dim = 400;
+    x_partition_dim = 400;
     hvr_partition_t npartitions = time_partition_dim * y_partition_dim *
         x_partition_dim;
 

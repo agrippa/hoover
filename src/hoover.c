@@ -20,7 +20,7 @@
 #include "hvr_mailbox.h"
 
 // #define DETAILED_PRINTS
-    hvr_partition_member_change_t change;
+// #define COUPLING_PRINTS
 
 #define MAX_INTERACTING_PARTITIONS 4000
 #define N_SEND_ATTEMPTS 10
@@ -56,7 +56,14 @@ typedef struct _profiling_info_t {
     unsigned long long coupling_waiting;
     unsigned long long coupling_after;
     unsigned long long coupling_should_terminate;
+    unsigned coupling_naborts;
+    unsigned long long coupling_waiting_for_prev;
+    unsigned long long coupling_processing_new_requests;
+    unsigned long long coupling_sharing_info;
+    unsigned long long coupling_waiting_for_info;
+    unsigned long long coupling_negotiating;
     unsigned n_coupled_pes;
+    int coupled_pes_root;
     hvr_time_t iter;
     int pe;
     hvr_partition_t n_producer_partitions;
@@ -390,6 +397,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                  * notify all producers of this partition of our subscription
                  * (they will then send us a full update).
                  */
+                hvr_partition_member_change_t change;
                 change.pe = ctx->pe;  // The subscriber/unsubscriber
                 change.partition = p; // The partition (un)subscribed to
                 change.entered = 1;   // new subscription
@@ -1075,7 +1083,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
         int n_neighbors = hvr_map_linearize(updated_vert_id, &ctx->edges.map,
                 &neighbors);
 
-        assert(n_neighbors == -1 || n_neighbors < MAX_MODIFICATIONS);
+        assert(n_neighbors == -1 || n_neighbors <= MAX_MODIFICATIONS);
 
         unsigned edges_to_update_len = 0;
         for (int n = 0; n < n_neighbors; n++) {
@@ -1550,16 +1558,20 @@ static int check_incoming_coupling_requests(hvr_msg_buf_node_t *msg_buf_node,
         hvr_mailbox_send(&ack, sizeof(ack), request_src_pe, -1,
                 &ctx->coupling_ack_and_dead_mailbox, NULL);
 
+#ifdef COUPLING_PRINTS
         fprintf(stderr, "PE %d got coupling request from %d\n", ctx->pe,
                 request_src_pe);
+#endif
 
         // Must be another root, negotiate who will be the new root
         int new_root = negotiate_new_root(request_src_pe, msg_buf_node, ctx);
         if (new_root != ctx->pe) {
             ctx->coupled_pes_root = new_root;
         }
+#ifdef COUPLING_PRINTS
         fprintf(stderr, "PE %d completing coupling request with %d, new root = "
                 "%d\n", ctx->pe, request_src_pe, ctx->coupled_pes_root);
+#endif
     }
     return success;
 }
@@ -1630,7 +1642,16 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         unsigned long long *time_waiting,
         unsigned long long *time_after,
         unsigned long long *time_should_terminate,
+        unsigned *out_naborts,
+        unsigned long long *time_waiting_for_prev,
+        unsigned long long *time_processing_new_requests,
+        unsigned long long *time_sharing_info,
+        unsigned long long *time_waiting_for_info,
+        unsigned long long *time_negotiating,
         int terminating) {
+    unsigned naborts = 0;
+    *time_waiting_for_prev = *time_processing_new_requests =
+        *time_sharing_info = *time_waiting_for_info = *time_negotiating = 0;
     unsigned long long start_coupling = hvr_current_time_us();
 
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
@@ -1657,11 +1678,14 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             &ctx->to_couple_with_mailbox, &ctx->to_couple_with_msg);
 
     if (ctx->pe == ctx->coupled_pes_root) {
+        unsigned long long start_waiting_for_prev = hvr_current_time_us();
         // fprintf(stderr, "PE %d starting iter %u as root, terminating=%d\n", ctx->pe, ctx->iter, terminating);
+
         /*
          * Wait for all currently coupled PEs to tell me who they want to become
          * coupled with.
          */
+        unsigned long long start_prev_waiting = hvr_current_time_us();
         hvr_set_wipe(ctx->terminating_pes);
         hvr_set_wipe(ctx->to_couple_with);
         hvr_set_wipe(ctx->received_from);
@@ -1672,6 +1696,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                     msg_buf_node->buf_size, &msg_len,
                     &ctx->to_couple_with_mailbox);
             if (success) {
+                unsigned long long elapsed = hvr_current_time_us() - start_prev_waiting;
                 assert(msg_len == ctx->to_couple_with_msg.msg_buf_len);
                 hvr_internal_set_msg_t *msg =
                     (hvr_internal_set_msg_t *)msg_buf_node->ptr;
@@ -1680,6 +1705,9 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                 hvr_set_msg_copy(ctx->other_to_couple_with, msg);
                 hvr_set_or(ctx->to_couple_with, ctx->other_to_couple_with);
                 hvr_set_insert(msg->pe, ctx->received_from);
+                // fprintf(stderr, "PE %d on iter %d spent %f ms waiting for %d\n",
+                //         ctx->pe, ctx->iter, (double)elapsed / 1000.0, msg->pe);
+
 
                 if (msg->metadata /* terminating */ ) {
                     hvr_set_insert(msg->pe, ctx->terminating_pes);
@@ -1715,6 +1743,8 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         //         hvr_set_equal(ctx->already_coupled_with, ctx->to_couple_with),
         //         ctx->already_coupled_with->n_contained,
         //         ctx->to_couple_with->n_contained, ctx->coupled_pes->n_contained);
+        unsigned long long start_processing = hvr_current_time_us();
+
         int target_pe = 0;
         do {
             // Find a PE that we want to couple with but haven't yet.
@@ -1746,16 +1776,20 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                 do {
                     hvr_mailbox_send(&my_coupling_msg, sizeof(my_coupling_msg),
                             expected_root_pe, -1, &ctx->coupling_mailbox, NULL);
+#ifdef COUPLING_PRINTS
                     fprintf(stderr, "PE %d sending coupling request to %d\n",
                             ctx->pe, expected_root_pe);
+#endif
                     /*
                      * Wait for it to acknowledge, either telling us it is the
                      * root or who it thinks the root is.
                      */
                     is_dead = wait_for_coupling_ack(msg_buf_node,
                             expected_root_pe, ctx);
+#ifdef COUPLING_PRINTS
                     fprintf(stderr, "PE %d got back is_dead=%d\n", ctx->pe,
                             is_dead);
+#endif
                     if (is_dead) {
                         /*
                          * Should only discover dead PEs that we are trying to
@@ -1764,9 +1798,11 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                         assert(expected_root_pe == target_pe);
                     } else { // !is_dead
                         ack = (new_coupling_msg_ack_t *)msg_buf_node->ptr;
+#ifdef COUPLING_PRINTS
                         fprintf(stderr, "PE %d got ack from %d, root=%d, "
                                 "abort=%d\n", ctx->pe, ack->pe, ack->root_pe,
                                 ack->abort);
+#endif
                         assert(ack->pe == expected_root_pe);
                         expected_root_pe = ack->root_pe;
                     }
@@ -1784,8 +1820,10 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                     hvr_set_clear(target_pe, ctx->to_couple_with);
                 } else if (!ack->abort) {
                     // If we were not told to stop this coupling attempt
+                    unsigned long long start_negotiate = hvr_current_time_us();
                     int new_combined_root_pe = negotiate_new_root(ack->root_pe,
                             msg_buf_node, ctx);
+                    *time_negotiating += hvr_current_time_us() - start_negotiate;
                     if (new_combined_root_pe != ctx->pe) {
                         /*
                          * If we are no longer root, break out and start waiting
@@ -1794,6 +1832,23 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                         ctx->coupled_pes_root = new_combined_root_pe;
                         break;
                     }
+                } else {
+                    /*
+                     * Were told to abort by the other PE because they are
+                     * trying to couple with someone else. The PE that told us
+                     * to abort may not actually be the PE we were trying to
+                     * couple with, as we may have been forwarded along to their
+                     * root. However, we can remove our need to re-traverse that
+                     * path here by removing the original target PE from the set
+                     * and inserting the new root we found. This is okay,
+                     * because we know that by coupling with the root we must
+                     * also become coupled with the original target.
+                     */
+                    assert(ack->abort);
+                    naborts++;
+
+                    hvr_set_clear(target_pe, ctx->to_couple_with);
+                    hvr_set_insert(ack->root_pe, ctx->to_couple_with);
                 }
             }
 
@@ -1808,10 +1863,13 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                     ctx->coupled_pes);
         } while (!hvr_set_equal(ctx->already_coupled_with, ctx->to_couple_with));
 
-        // fprintf(stderr, "PE %d completed couplings, current root = %d\n", ctx->pe, ctx->coupled_pes_root);
+#ifdef COUPLING_PRINTS
+        fprintf(stderr, "PE %d completed couplings, current root = %d\n", ctx->pe, ctx->coupled_pes_root);
+#endif
 
         // fprintf(stderr, "AA PE %d finished coupling on iter %d with root=%d, %u coupled PEs, %u to couple with, %u already coupled with, equal %d\n", ctx->pe,
         //         ctx->iter, ctx->coupled_pes_root, hvr_set_count(ctx->coupled_pes), hvr_set_count(ctx->to_couple_with), hvr_set_count(ctx->already_coupled_with), hvr_set_equal(ctx->already_coupled_with, ctx->to_couple_with));
+        unsigned long long start_sharing = hvr_current_time_us();
 
         if (ctx->coupled_pes_root == ctx->pe) {
             // If we're still root
@@ -1853,15 +1911,27 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             }
         }
 
-        // fprintf(stderr, "PE %d now waiting for finalized couplings on iter %u\n", ctx->pe, ctx->iter);
+#ifdef COUPLING_PRINTS
+        fprintf(stderr, "PE %d now waiting for finalized couplings on iter %u, root=%d\n", ctx->pe, ctx->iter, ctx->coupled_pes_root);
+#endif
 
+        unsigned long long start_waiting = hvr_current_time_us();
         wait_for_full_coupling_info(msg_buf_node,
                 ctx->coupled_pes_root == ctx->pe, ctx);
+        unsigned long long done_waiting = hvr_current_time_us();
 
-        // fprintf(stderr, "PE %d done waiting for finalized couplings on iter %u, root=%d\n", ctx->pe, ctx->iter, ctx->coupled_pes_root);
+        *time_waiting_for_prev = start_processing - start_waiting_for_prev;
+        *time_processing_new_requests = start_sharing - start_processing;
+        *time_sharing_info = start_waiting - start_sharing;
+        *time_waiting_for_info = done_waiting - start_waiting;
+#ifdef COUPLING_PRINTS
+        fprintf(stderr, "PE %d done waiting for finalized couplings on iter %u, root=%d, terminating=%d\n", ctx->pe, ctx->iter, ctx->coupled_pes_root, terminating);
+#endif
     } else {
         // fprintf(stderr, "PE %d waiting on root terminating? %d\n", ctx->pe, terminating);
+        unsigned long long start_waiting = hvr_current_time_us();
         wait_for_full_coupling_info(msg_buf_node, 0, ctx);
+        *time_waiting_for_info = hvr_current_time_us() - start_waiting;
         // fprintf(stderr, "PE %d done waiting on root terminating? %d\n", ctx->pe, terminating);
     }
 
@@ -1960,6 +2030,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     *time_after = (before_should_terminate - done);
 
     *time_should_terminate = (end_func - before_should_terminate);
+    *out_naborts = naborts;
 
     return should_abort;
 }
@@ -2001,6 +2072,12 @@ static void save_profiling_info(
         unsigned long long coupling_waiting,
         unsigned long long coupling_after,
         unsigned long long coupling_should_terminate,
+        unsigned coupling_naborts,
+        unsigned long long coupling_waiting_for_prev,
+        unsigned long long coupling_processing_new_requests,
+        unsigned long long coupling_sharing_info,
+        unsigned long long coupling_waiting_for_info,
+        unsigned long long coupling_negotiating,
         unsigned n_coupled_pes,
         hvr_internal_ctx_t *ctx) {
     if (n_profiled_iters == MAX_PROFILED_ITERS) {
@@ -2039,8 +2116,22 @@ static void save_profiling_info(
     saved_profiling_info[n_profiled_iters].coupling_after = coupling_after;
     saved_profiling_info[n_profiled_iters].coupling_should_terminate =
         coupling_should_terminate;
+    saved_profiling_info[n_profiled_iters].coupling_naborts =
+        coupling_naborts;
+    saved_profiling_info[n_profiled_iters].coupling_waiting_for_prev =
+        coupling_waiting_for_prev;
+    saved_profiling_info[n_profiled_iters].coupling_processing_new_requests =
+        coupling_processing_new_requests;
+    saved_profiling_info[n_profiled_iters].coupling_sharing_info =
+        coupling_sharing_info;
+    saved_profiling_info[n_profiled_iters].coupling_waiting_for_info =
+        coupling_waiting_for_info;
+    saved_profiling_info[n_profiled_iters].coupling_negotiating =
+        coupling_negotiating;
     saved_profiling_info[n_profiled_iters].n_coupled_pes =
         hvr_set_count(ctx->coupled_pes);
+    saved_profiling_info[n_profiled_iters].coupled_pes_root =
+        ctx->coupled_pes_root;
 
     saved_profiling_info[n_profiled_iters].iter = ctx->iter;
     saved_profiling_info[n_profiled_iters].pe = ctx->pe;
@@ -2099,15 +2190,30 @@ static void print_profiling_info(profiling_info_t *info) {
             (double)info->perf_info.time_updating_edges / 1000.0,
             (double)info->perf_info.time_creating_edges / 1000.0,
             info->perf_info.count_new_should_have_edges);
-    fprintf(profiling_fp, "  coupling %f - %f ms "
-            "coupling, %f ms waiting, "
-            "%f ms adding, %f ms on should terminate, %u coupled\n",
+    fprintf(profiling_fp, "  coupling %f - %f ms coupling, "
+            "%f ms waiting, "
+            "%f ms adding, "
+            "%f ms on should terminate, "
+            "%u aborts, "
+            "%u coupled, "
+            "root=%d, "
+            "%f for prev, "
+            "%f processing (%f negotiating), "
+            "%f sharing, "
+            "%f waiting\n",
             (double)(info->end_update_coupled - info->end_vertex_updates) / 1000.0,
             (double)info->coupling_coupling / 1000.0,
             (double)info->coupling_waiting / 1000.0,
             (double)info->coupling_after / 1000.0,
             (double)info->coupling_should_terminate / 1000.0,
-            info->n_coupled_pes);
+            info->coupling_naborts,
+            info->n_coupled_pes,
+            info->coupled_pes_root,
+            (double)info->coupling_waiting_for_prev / 1000.0,
+            (double)info->coupling_processing_new_requests / 1000.0,
+            (double)info->coupling_negotiating /1000.0,
+            (double)info->coupling_sharing_info / 1000.0,
+            (double)info->coupling_waiting_for_info / 1000.0);
     fprintf(profiling_fp, "  %d / %d producer "
             "partitions and %d / %d subscriber partitions for %lu "
             "local vertices, %llu mirrored vertices\n",
@@ -2289,11 +2395,17 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     hvr_vertex_t coupled_metric;
     unsigned long long coupling_coupling,
                   coupling_waiting, coupling_after,
-                  coupling_should_terminate;
+                  coupling_should_terminate, coupling_waiting_for_prev,
+                  coupling_processing_new_requests, coupling_sharing_info,
+                  coupling_waiting_for_info, coupling_negotiating;
+    unsigned coupling_naborts;
     int should_abort = update_coupled_values(ctx, &coupled_metric, 0,
             &coupling_coupling,
             &coupling_waiting, &coupling_after,
-            &coupling_should_terminate, 0);
+            &coupling_should_terminate, &coupling_naborts,
+            &coupling_waiting_for_prev, &coupling_processing_new_requests,
+            &coupling_sharing_info, &coupling_waiting_for_info,
+            &coupling_negotiating, 0);
     const unsigned long long end_update_coupled = hvr_current_time_us();
 
     if (print_profiling) {
@@ -2320,6 +2432,12 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 coupling_coupling,
                 coupling_waiting, coupling_after,
                 coupling_should_terminate,
+                coupling_naborts,
+                coupling_waiting_for_prev,
+                coupling_processing_new_requests,
+                coupling_sharing_info,
+                coupling_waiting_for_info,
+                coupling_negotiating,
                 0,
                 ctx);
     }
@@ -2387,7 +2505,10 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         should_abort = update_coupled_values(ctx, &coupled_metric,
                 count_updated, &coupling_coupling,
                 &coupling_waiting, &coupling_after,
-                &coupling_should_terminate, 0);
+                &coupling_should_terminate, &coupling_naborts,
+                &coupling_waiting_for_prev, &coupling_processing_new_requests,
+                &coupling_sharing_info, &coupling_waiting_for_info,
+                &coupling_negotiating, 0);
 
         const unsigned long long end_update_coupled = hvr_current_time_us();
 
@@ -2415,6 +2536,12 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     coupling_coupling,
                     coupling_waiting, coupling_after,
                     coupling_should_terminate,
+                    coupling_naborts,
+                    coupling_waiting_for_prev,
+                    coupling_processing_new_requests,
+                    coupling_sharing_info,
+                    coupling_waiting_for_info,
+                    coupling_negotiating,
                     hvr_set_count(ctx->coupled_pes),
                     ctx);
         }
@@ -2448,8 +2575,12 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     should_abort = update_coupled_values(ctx, &coupled_metric,
             0, &coupling_coupling,
             &coupling_waiting, &coupling_after,
-            &coupling_should_terminate, 1);
+            &coupling_should_terminate, &coupling_naborts,
+            &coupling_waiting_for_prev, &coupling_processing_new_requests,
+            &coupling_sharing_info, &coupling_waiting_for_info,
+            &coupling_negotiating, 1);
 
+#if 0
     hvr_dead_pe_msg_t dead_msg;
     dead_msg.pe = ctx->pe;
     for (int p = 0; p < ctx->npes; p++) {
@@ -2479,6 +2610,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
             ctx->only_last_iter_dump) {
         save_current_state_to_dump_file(ctx);
     }
+#endif
     hvr_set_destroy(to_couple_with);
 
     hvr_exec_info info;

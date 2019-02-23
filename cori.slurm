@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:15:00
+#SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -19,7 +19,7 @@ echo
 echo "Running with OpenSHMEM installation at $OPENSHMEM_INSTALL"
 
 echo
-cat /sys/class/gni/kgni0/resources
+ulimit -a
 echo
 
 export UCX_TLS=ugni_rdma
@@ -42,7 +42,7 @@ export CORES_PER_SOCKET=16
 export SOCKETS_PER_NODE=2
 export CORES_PER_TASK=$(( $CORES_PER_SOCKET / $TASKS_PER_SOCKET ))
 
-export BASE_ACTORS_PER_CELL=20
+export BASE_ACTORS_PER_CELL=30
 
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 1 node
@@ -92,8 +92,8 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=100
-export INFECTION_RADIUS=300
+export MAX_NUM_TIMESTEPS=50
+export INFECTION_RADIUS=200
 
 export HVR_SYMM_POOL_SIZE=2084000
 export HVR_SYMM_POOL_NNODES=1024
@@ -137,7 +137,7 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
     --mem-bind=local"
 export EXE_ARGS="$CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
     $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    480"
+    360"
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""
@@ -146,6 +146,7 @@ echo ""
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/mailbox_test
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 srun --ntasks-per-node=32 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
+# oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 
 # srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480
