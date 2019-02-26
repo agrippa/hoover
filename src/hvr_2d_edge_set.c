@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "hvr_2d_edge_set.h"
 
@@ -106,7 +107,7 @@ void hvr_2d_linearize(uint64_t i, uint64_t *out_vals,
     size_t count = 0;
 
     uint64_t i_tile = i / TILE_DIM;
-    for (uint64_t t = 0; t < ntiles_per_dim; t++) {
+    for (uint64_t t = 0; t < s->ntiles_per_dim; t++) {
         uint64_t tile_index = i_tile * s->ntiles_per_dim + t;
 
         if (s->tiles[tile_index]) {

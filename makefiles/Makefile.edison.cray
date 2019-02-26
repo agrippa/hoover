@@ -37,6 +37,10 @@ bin/libhoover.a: src/hoover.c \
 		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o bin/dlmalloc.o \
 		bin/hvr_set_msg.o bin/hvr_msg_buf_pool.o bin/hvr_2d_edge_set.o
 
+bin/hvr_2d_edge_set_test: test/hvr_2d_edge_set_test.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_2d_edge_set_test.c -o bin/hvr_2d_edge_set_test.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_2d_edge_set_test.o -o $@ -l:libhoover.a -lm -lpthread
+
 bin/hvr_2d_set_microbenchmark: test/hvr_2d_set_microbenchmark.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_2d_set_microbenchmark.c -o bin/hvr_2d_set_microbenchmark.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_2d_set_microbenchmark.o -o $@ -l:libhoover.a -lm -lpthread

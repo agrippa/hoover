@@ -8,7 +8,7 @@
  * edge to store the type of edge.
  */
 
-#define TILE_DIM 1024
+#define TILE_DIM 512
 #define BITS_PER_EDGE 2
 #define BITS_PER_BYTE 8
 #define EDGES_PER_BYTE (BITS_PER_BYTE / BITS_PER_EDGE)

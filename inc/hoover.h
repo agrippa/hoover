@@ -20,6 +20,7 @@ extern "C" {
 #include "hvr_sparse_arr.h"
 #include "hvr_set_msg.h"
 #include "hvr_msg_buf_pool.h"
+#include "hvr_2d_edge_set.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -317,6 +318,7 @@ typedef struct _hvr_internal_ctx_t {
 
     uint64_t modify_vert_buffer[MAX_MODIFICATIONS];
     hvr_edge_type_t modify_dir_buffer[MAX_MODIFICATIONS];
+    hvr_vertex_t *vert_ptr_buffer[MAX_MODIFICATIONS];
 
     hvr_dist_bitvec_t partition_producers;
     hvr_dist_bitvec_t terminated_pes;
@@ -366,7 +368,7 @@ extern int hvr_my_pe(hvr_ctx_t ctx);
 // Simple utility for time measurement in microseconds
 extern unsigned long long hvr_current_time_us();
 
-extern int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_id_t **out_verts,
+extern int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
         hvr_edge_type_t **out_dirs, hvr_ctx_t in_ctx);
 
 extern hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t ctx);

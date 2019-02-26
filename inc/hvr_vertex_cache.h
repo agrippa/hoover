@@ -47,6 +47,8 @@ typedef struct _hvr_vertex_cache_node_t {
     hvr_time_t dist_from_local_vert_iter;
 } hvr_vertex_cache_node_t;
 
+
+
 /*
  * Data structure used to store all fetched and cached vertices.
  */
@@ -86,6 +88,12 @@ typedef struct _hvr_vertex_cache_t {
         unsigned long long nmisses;
     } cache_perf_info;
 } hvr_vertex_cache_t;
+
+static inline hvr_vertex_cache_node_t *CACHE_NODE_BY_OFFSET(
+        hvr_vertex_id_t offset, hvr_vertex_cache_t *cache) {
+    assert(offset < cache->pool_size);
+    return cache->pool_mem + offset;
+}
 
 static inline void set_dist_from_local_vert(hvr_vertex_cache_node_t *node,
         uint8_t dist, hvr_time_t curr_iter) {

@@ -43,6 +43,26 @@ int main(int argc, char **argv) {
         assert(hvr_2d_get(i, j, &es) == all_edge_types[edge_type_index]);
     }
 
+    hvr_2d_edge_set_t es2;
+    hvr_2d_edge_set_init(&es2, SDIM, REPEATS + 2);
+
+    hvr_2d_set(SDIM - 2, 1, BIDIRECTIONAL, &es2);
+    hvr_2d_set(SDIM - 2, 2, DIRECTED_IN, &es2);
+    hvr_2d_set(SDIM - 2, 3, DIRECTED_OUT, &es2);
+    hvr_2d_set(SDIM - 2, 4, NO_EDGE, &es2);
+    hvr_2d_set(SDIM - 2, 5, BIDIRECTIONAL, &es2);
+
+    uint64_t vals[10];
+    hvr_edge_type_t edges[10];
+    size_t nvals;
+    hvr_2d_linearize(SDIM - 2, vals, edges, &nvals, 10, &es2);
+
+    assert(nvals == 4);
+    assert(vals[0] == 1 && edges[0] == BIDIRECTIONAL);
+    assert(vals[1] == 2 && edges[1] == DIRECTED_IN);
+    assert(vals[2] == 3 && edges[2] == DIRECTED_OUT);
+    assert(vals[3] == 5 && edges[3] == BIDIRECTIONAL);
+
     printf("Success!\n");
 
     return 0;

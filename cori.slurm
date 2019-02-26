@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:02:00
+#SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -101,6 +101,7 @@ export HVR_EDGE_SET_NODES=65536
 export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=8192
 export HVR_SPARSE_ARR_POOL=$((192 * 1024 * 1024));
+export HVR_EDGE_SET_TILES=18000
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1
@@ -123,7 +124,7 @@ cd job.$SLURM_JOB_ID
 #
 # For some reason, SHMEM_OPTIMIZED_MEMCPY=0 seems to trigger bus errors on
 # Edison/Cori for some workloads.
-export SHMEM_OPTIMIZED_MEMCPY=0
+export SHMEM_OPTIMIZED_MEMCPY=1
 
 export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
     --ntasks-per-socket=$TASKS_PER_SOCKET \
@@ -141,10 +142,10 @@ echo ""
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/hvr_set_msg_test
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/mailbox_test
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
-# srun --ntasks-per-node=32 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
+srun --ntasks-per-node=32 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 
-srun -n 1 $HOME/hoover/bin/hvr_map_microbenchmark
+# srun -n 1 $HOME/hoover/bin/hvr_map_microbenchmark
 
 # srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480

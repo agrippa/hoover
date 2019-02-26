@@ -209,8 +209,9 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      * If vertex is not already infected, update it to be infected if any of its
      * neighbors are.
      */
-    hvr_map_val_list_t neighbors;
-    int n_neighbors = hvr_get_neighbors(vertex, &neighbors, ctx);
+    hvr_vertex_t **verts;
+    hvr_edge_type_t *dirs;
+    int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
 
     const unsigned actor_id = (unsigned)hvr_vertex_get(ACTOR_ID, vertex, ctx);
     const unsigned timestep = (unsigned)hvr_vertex_get(TIME_STEP, vertex, ctx);
@@ -223,18 +224,15 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     hvr_vertex_t *prev = NULL;
     hvr_vertex_t *next = NULL;
     for (int i = 0; i < n_neighbors; i++) {
-        hvr_edge_info_t edge_info = hvr_map_val_list_get(i,
-                &neighbors).edge_info;
-        hvr_vertex_id_t id = EDGE_INFO_VERTEX(edge_info);
-        hvr_vertex_t *neighbor = hvr_get_vertex(id, ctx);
+        hvr_vertex_t *neighbor = verts[i];
         if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) == actor_id) {
-            if (EDGE_INFO_EDGE(edge_info) == DIRECTED_IN) {
+            if (dirs[i] == DIRECTED_IN) {
                 assert(prev == NULL);
                 assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
                         timestep - 1);
                 prev = neighbor;
             }
-            if (EDGE_INFO_EDGE(edge_info) == DIRECTED_OUT) {
+            if (dirs[i] == DIRECTED_OUT) {
                 assert(next == NULL);
                 assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
                         timestep + 1);
@@ -253,11 +251,8 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      */
     if ((int)hvr_vertex_get(INFECTED, vertex, ctx) == 0) {
         for (int i = 0; i < n_neighbors; i++) {
-            hvr_edge_info_t edge_info = hvr_map_val_list_get(i,
-                    &neighbors).edge_info;
-            if (EDGE_INFO_EDGE(edge_info) == DIRECTED_IN) {
-                hvr_vertex_t *neighbor = hvr_get_vertex(
-                        EDGE_INFO_VERTEX(edge_info), ctx);
+            if (dirs[i] == DIRECTED_IN) {
+                hvr_vertex_t *neighbor = verts[i];
                 if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) != actor_id) {
                     assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
                             timestep - 1);
