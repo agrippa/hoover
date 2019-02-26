@@ -417,8 +417,6 @@ void might_interact(const hvr_partition_t partition,
     *n_interacting_partitions = count_interacting_partitions;
 }
 
-static unsigned long long last_time = 0;
-
 /*
  * Callback used by the HOOVER runtime to check if this PE can abort out of the
  * simulation.
@@ -427,6 +425,7 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
     size_t nset = 0;
+    size_t count = 0;
     hvr_vertex_t *vert = hvr_vertex_iter_next(iter);
     while (vert) {
         if ((int)hvr_vertex_get(TIME_STEP, vert, ctx) == max_num_timesteps - 1 &&
@@ -434,16 +433,11 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
             nset++;
         }
         vert = hvr_vertex_iter_next(iter);
+        count++;
     }
-
-    unsigned long long this_time = hvr_current_time_us();
-    if (nset > 0) {
-        printf("PE %d - iter %lu - set %lu / %u\n", pe, (uint64_t)ctx->iter,
-                nset, actors_per_cell);
-    }
-    last_time = this_time;
 
     hvr_vertex_set(0, (double)nset, out_coupled_metric, ctx);
+    hvr_vertex_set(1, (double)count, out_coupled_metric, ctx);
 }
 
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
@@ -453,6 +447,15 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_set_t *coupled_pes, // An array of size npes, with each PE's val
         int n_coupled_pes, int *updates_on_this_iter,
         hvr_set_t *terminated_coupled_pes) {
+
+    unsigned nset = (unsigned)hvr_vertex_get(0, local_coupled_metric, ctx);
+    if (nset > 0) {
+        printf("PE %d - iter %lu - local set %u / %u - # coupled = %d - "
+                "global set %u / %u\n", pe, (uint64_t)ctx->iter,
+                nset, actors_per_cell, n_coupled_pes,
+                (unsigned)hvr_vertex_get(0, global_coupled_metric, ctx),
+                (unsigned)hvr_vertex_get(1, global_coupled_metric, ctx));
+    }
 
     int aborting = 0;
     if (n_coupled_pes == ctx->npes) {
@@ -515,8 +518,8 @@ int main(int argc, char **argv) {
     int time_limit = atoi(argv[9]);
 
     time_partition_dim = max_num_timesteps;
-    y_partition_dim = 400;
-    x_partition_dim = 400;
+    y_partition_dim = 200;
+    x_partition_dim = 200;
     hvr_partition_t npartitions = time_partition_dim * y_partition_dim *
         x_partition_dim;
 
