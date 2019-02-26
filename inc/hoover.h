@@ -167,7 +167,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_partition_t n_partitions;
 
     // Set of edges for our local vertices
-    hvr_2d_edge_set_t edges;
+    hvr_irr_matrix_t edges;
 
     // Current iter
     hvr_time_t iter;

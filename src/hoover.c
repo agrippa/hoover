@@ -911,10 +911,10 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
             hvr_vertex_cache_lookup(base_id, &ctx->vec_cache));
 
     if (existing_edge != NO_EDGE) {
-        hvr_2d_set(CACHE_NODE_OFFSET(base, &ctx->vec_cache),
+        hvr_irr_matrix_set(CACHE_NODE_OFFSET(base, &ctx->vec_cache),
                 CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
                 NO_EDGE, &ctx->edges);
-        hvr_2d_set(CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
+        hvr_irr_matrix_set(CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
                 CACHE_NODE_OFFSET(base, &ctx->vec_cache), NO_EDGE,
                 &ctx->edges);
 
@@ -929,10 +929,10 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
          * edge, but allows us to make more assertions that are helpful for
          * debugging.
          */
-        hvr_2d_set(CACHE_NODE_OFFSET(base, &ctx->vec_cache),
+        hvr_irr_matrix_set(CACHE_NODE_OFFSET(base, &ctx->vec_cache),
                 CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
                 new_edge, &ctx->edges);
-        hvr_2d_set(CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
+        hvr_irr_matrix_set(CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
                 CACHE_NODE_OFFSET(base, &ctx->vec_cache),
                 flip_edge_direction(new_edge),
                 &ctx->edges);
@@ -1031,7 +1031,7 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
     // If we were caching this node, delete the mirrored version
     if (cached) {
         size_t n_neighbors;
-        hvr_2d_linearize(CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
+        hvr_irr_matrix_linearize(CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
                 ctx->modify_vert_buffer,
                 ctx->modify_dir_buffer,
                 &n_neighbors, MAX_MODIFICATIONS,
@@ -1082,7 +1082,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
          * this update to the local mirror.
          */
         size_t n_neighbors;
-        hvr_2d_linearize(CACHE_NODE_OFFSET(updated, &ctx->vec_cache),
+        hvr_irr_matrix_linearize(CACHE_NODE_OFFSET(updated, &ctx->vec_cache),
                 ctx->modify_vert_buffer,
                 ctx->modify_dir_buffer, &n_neighbors, MAX_MODIFICATIONS,
                 &ctx->edges);
@@ -1189,7 +1189,7 @@ static hvr_vertex_cache_node_t *add_neighbors_to_q(
         hvr_vertex_cache_node_t *newq,
         hvr_internal_ctx_t *ctx) {
     size_t n_neighbors;
-    hvr_2d_linearize(CACHE_NODE_OFFSET(node, &ctx->vec_cache),
+    hvr_irr_matrix_linearize(CACHE_NODE_OFFSET(node, &ctx->vec_cache),
             ctx->modify_vert_buffer,
             ctx->modify_dir_buffer, &n_neighbors, MAX_MODIFICATIONS,
             &ctx->edges);
@@ -1280,7 +1280,7 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
             &ctx->vec_cache);
 
     size_t n_neighbors;
-    hvr_2d_linearize(CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
+    hvr_irr_matrix_linearize(CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
             ctx->modify_vert_buffer,
             ctx->modify_dir_buffer,
             &n_neighbors, MAX_MODIFICATIONS, &ctx->edges);
@@ -2344,11 +2344,11 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     shmem_barrier_all();
 
     // Initialize edges
-    unsigned nprealloc = 40000;
-    if (getenv("HVR_EDGE_SET_TILES")) {
-        nprealloc = atoi(getenv("HVR_EDGE_SET_TILES"));
+    size_t edges_pool_size = 1024ULL * 1024ULL * 1024ULL;
+    if (getenv("HVR_EDGES_POOL_SIZE")) {
+        edges_pool_size = atoi(getenv("HVR_EDGES_POOL_SIZE"));
     }
-    hvr_2d_edge_set_init(&ctx->edges, ctx->vec_cache.pool_size, nprealloc);
+    hvr_irr_matrix_init(ctx->vec_cache.pool_size, edges_pool_size, &ctx->edges);
 
     const unsigned long long start_body = hvr_current_time_us();
 
