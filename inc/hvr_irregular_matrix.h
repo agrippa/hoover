@@ -2,8 +2,9 @@
 #define _HVR_IRREGULAR_MATRIX_H
 
 #include "hvr_common.h"
+#include "dlmalloc.h"
 
-typedef _struct hvr_irr_matrix_t {
+typedef struct _hvr_irr_matrix_t {
     hvr_edge_info_t **edges;
     unsigned *edges_capacity;
     unsigned *edges_len;

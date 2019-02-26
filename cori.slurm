@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 4
+#SBATCH -N 1
 #SBATCH -C haswell
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
@@ -142,10 +142,13 @@ echo ""
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/hvr_set_msg_test
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/mailbox_test
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
-srun --ntasks-per-node=32 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 
-# srun -n 1 $HOME/hoover/bin/hvr_map_microbenchmark
+# srun --ntasks-per-node=32 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
+
+srun -n 1 $HOME/hoover/bin/hvr_map_microbenchmark
+srun -n 1 $HOME/hoover/bin/hvr_2d_set_microbenchmark
+srun -n 1 $HOME/hoover/bin/hvr_irregular_matrix_microbenchmark
 
 # srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480

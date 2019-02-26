@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#include "hvr_irr_matrix.h"
+#include "hvr_irregular_matrix.h"
 
 #define SDIM 10000000
 #define REPEATS 10000
@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
                 all_edge_types[edge_type_index]);
     }
 
-    hvr_irr_matrix_edge_set_t es2;
+    hvr_irr_matrix_t es2;
     hvr_irr_matrix_init(SDIM, 1024ULL * 1024ULL * 1024ULL, &es2);
 
     hvr_irr_matrix_set(SDIM - 2, 1, BIDIRECTIONAL, &es2);

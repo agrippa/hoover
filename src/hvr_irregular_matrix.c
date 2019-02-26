@@ -1,8 +1,12 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "hvr_irregular_matrix.h"
 
 void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
         hvr_irr_matrix_t *m) {
-    m->edges = (hvr_edge_info_t *)malloc(nvertices * sizeof(m->edges[0]));
+    m->edges = (hvr_edge_info_t **)malloc(nvertices * sizeof(m->edges[0]));
     assert(m->edges);
     m->edges_capacity = (unsigned *)malloc(
             nvertices * sizeof(m->edges_capacity[0]));
