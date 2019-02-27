@@ -535,6 +535,7 @@ int main(int argc, char **argv) {
     shmem_init();
     pe = shmem_my_pe();
     npes = shmem_n_pes();
+    if (pe == 0) fprintf(stderr, "Running with %d PEs\n", npes);
     assert(npes == pe_rows * pe_cols);
 
     max_timestep_created = (unsigned *)malloc(
@@ -568,9 +569,13 @@ int main(int argc, char **argv) {
                 "partitions * %u x partitions)\n", npartitions,
                 time_partition_dim, y_partition_dim, x_partition_dim);
         fprintf(stderr, "Creating %d portals\n", n_global_portals);
-        fprintf(stderr, "%d actors per cell, %d actors in total, %d vertices "
-                "in total\n", actors_per_cell, actors_per_cell * npes,
-                actors_per_cell * npes * max_num_timesteps);
+        fprintf(stderr, "%d actors per PE x %d PEs x %u timesteps = %u "
+                "vertices across all PEs (%u vertices per PE)\n",
+                actors_per_cell,
+                npes,
+                max_num_timesteps,
+                actors_per_cell * npes * max_num_timesteps,
+                actors_per_cell * max_num_timesteps);
         fprintf(stderr, "%d timesteps, %f x %f grid\n", max_num_timesteps,
                 global_y_dim, global_x_dim);
         for (int p = 0; p < n_global_portals; p++) {

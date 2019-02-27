@@ -88,7 +88,7 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=80
+export MAX_NUM_TIMESTEPS=60
 export INFECTION_RADIUS=200
 
 export HVR_SYMM_POOL_SIZE=2084000
@@ -124,7 +124,6 @@ cd job.$SLURM_JOB_ID
 export SHMEM_OPTIMIZED_MEMCPY=1
 
 export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
-    --ntasks-per-socket=$TASKS_PER_SOCKET \
     --cpus-per-task=$CORES_PER_TASK \
     --cpu_bind=verbose,cores \
     --cpu-freq=High \
@@ -139,9 +138,8 @@ echo ""
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/hvr_set_msg_test
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/mailbox_test
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
-# oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 
-srun --ntasks-per-node=32 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
+srun $SLURM_ARGS /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 
 # Edge microbenchmarks
 # srun -n 1 $HOME/hoover/bin/hvr_map_microbenchmark
