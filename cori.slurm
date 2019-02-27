@@ -29,7 +29,7 @@ export SHMEM_MEMINFO_DISPLAY=1
 # export LD_PRELOAD=/opt/intel/compilers_and_libraries_2018.2.199/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
-export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024))
+export SHMEM_SYMMETRIC_SIZE=$((1024 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
@@ -88,20 +88,16 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=50
+export MAX_NUM_TIMESTEPS=80
 export INFECTION_RADIUS=200
 
 export HVR_SYMM_POOL_SIZE=2084000
 export HVR_SYMM_POOL_NNODES=1024
 export HVR_VEC_CACHE_PREALLOCS=2000000
 export HVR_VERT_CACHE_SEGS=40000
-export HVR_EDGE_SET_SEGS=40000
-export HVR_EDGE_SET_VALS=$((1024 * 1024 * 1024))
-export HVR_EDGE_SET_NODES=65536
 export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=8192
 export HVR_SPARSE_ARR_POOL=$((192 * 1024 * 1024));
-export HVR_EDGE_SET_TILES=20000
 export HVR_EDGES_POOL_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
 # export HVR_TRACE_DUMP=1

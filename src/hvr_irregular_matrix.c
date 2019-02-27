@@ -14,6 +14,7 @@ void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
     m->edges_len = (unsigned *)malloc(nvertices * sizeof(m->edges_len[0]));
     assert(m->edges_len);
 
+    memset(m->edges, 0x00, sizeof(m->edges[0]) * nvertices);
     memset(m->edges_capacity, 0x00, sizeof(m->edges_capacity[0]) * nvertices);
     memset(m->edges_len, 0x00, sizeof(m->edges_capacity[0]) * nvertices);
 
@@ -47,7 +48,7 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
         if (e == NO_EDGE) {
             // Delete entry
             curr_edges[found] = curr_edges[curr_len - 1];
-            m->edges_len[i] -= 1;
+            m->edges_len[i] = curr_len - 1;
         } else {
             // Overwrite entry
             curr_edges[found] = construct_edge_info(j, e);
@@ -58,8 +59,15 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
 
         if (curr_len == curr_capacity) {
             // No more room, expand
-            unsigned new_capacity = (curr_capacity == 0 ? 2 :
-                    2 * curr_capacity);
+            unsigned new_capacity;
+            if (curr_capacity == 0) {
+                new_capacity = 2;
+            } else if (curr_capacity <= 128) {
+                new_capacity = curr_capacity * 2;
+            } else {
+                new_capacity = curr_capacity + 16;
+            }
+
             m->edges[i] = mspace_realloc(m->allocator, curr_edges,
                     new_capacity * sizeof(*curr_edges));
             assert(m->edges[i]);
@@ -99,3 +107,33 @@ void hvr_irr_matrix_linearize(hvr_vertex_id_t i, hvr_vertex_id_t *out_vals,
     *out_len = curr_len;
 }
 
+void hvr_irr_matrix_usage(size_t *out_bytes_used, size_t *out_bytes_capacity,
+        size_t *out_bytes_allocated, size_t *out_max_edges,
+        size_t *out_max_edges_index, hvr_irr_matrix_t *m) {
+    *out_bytes_allocated = m->nvertices * sizeof(m->edges[0]) +
+        m->nvertices * sizeof(m->edges_capacity[0]) +
+        m->nvertices * sizeof(m->edges_len[0]) +
+        m->pool_size;
+
+    size_t max_edges = 0;
+    size_t max_edges_index = 0;
+    size_t bytes_used = 0;
+    size_t bytes_capacity = 0;
+    bytes_capacity = bytes_used = m->nvertices * sizeof(m->edges[0]) +
+        m->nvertices * sizeof(m->edges_capacity[0]) +
+        m->nvertices * sizeof(m->edges_len[0]);
+
+    for (size_t i = 0; i < m->nvertices; i++) {
+        bytes_capacity += m->edges_capacity[i] * sizeof(m->edges[0]);
+        bytes_used += m->edges_len[i] * sizeof(m->edges[0]);
+        if (m->edges_len[i] > max_edges) {
+            max_edges = m->edges_len[i];
+            max_edges_index = max_edges;
+        }
+    }
+
+    *out_bytes_used = bytes_used;
+    *out_bytes_capacity = bytes_capacity;
+    *out_max_edges = max_edges;
+    *out_max_edges_index = max_edges_index;
+}

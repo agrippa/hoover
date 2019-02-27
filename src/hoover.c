@@ -909,36 +909,30 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
             hvr_vertex_cache_lookup(neighbor_id, &ctx->vec_cache));
     base = (base ? base :
             hvr_vertex_cache_lookup(base_id, &ctx->vec_cache));
+    hvr_vertex_id_t neighbor_offset = CACHE_NODE_OFFSET(neighbor,
+            &ctx->vec_cache);
+    hvr_vertex_id_t base_offset = CACHE_NODE_OFFSET(base, &ctx->vec_cache);
 
-    if (existing_edge != NO_EDGE) {
-        hvr_irr_matrix_set(CACHE_NODE_OFFSET(base, &ctx->vec_cache),
-                CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
-                NO_EDGE, &ctx->edges);
-        hvr_irr_matrix_set(CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
-                CACHE_NODE_OFFSET(base, &ctx->vec_cache), NO_EDGE,
-                &ctx->edges);
-
-        // Decrement if condition holds tru
-        base->n_local_neighbors -= neighbor_is_local;
-        neighbor->n_local_neighbors -= base_is_local;
-    }
-
-    if (new_edge != NO_EDGE) {
-        /*
-         * Removing and then adding is less efficient than simply updating the
-         * edge, but allows us to make more assertions that are helpful for
-         * debugging.
-         */
-        hvr_irr_matrix_set(CACHE_NODE_OFFSET(base, &ctx->vec_cache),
-                CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
-                new_edge, &ctx->edges);
-        hvr_irr_matrix_set(CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
-                CACHE_NODE_OFFSET(base, &ctx->vec_cache),
-                flip_edge_direction(new_edge),
-                &ctx->edges);
+    if (existing_edge == NO_EDGE) {
+        // new edge != NO_EDGE (creating a completely new edge)
+        hvr_irr_matrix_set(base_offset, neighbor_offset, new_edge, &ctx->edges);
+        hvr_irr_matrix_set(neighbor_offset, base_offset,
+                flip_edge_direction(new_edge), &ctx->edges);
 
         base->n_local_neighbors += neighbor_is_local;
         neighbor->n_local_neighbors += base_is_local;
+    } else if (new_edge == NO_EDGE) {
+        // existing edge != NO_EDGE (deleting an existing edge)
+        hvr_irr_matrix_set(base_offset, neighbor_offset, NO_EDGE, &ctx->edges);
+        hvr_irr_matrix_set(neighbor_offset, base_offset, NO_EDGE, &ctx->edges);
+
+        // Decrement if condition holds true
+        base->n_local_neighbors -= neighbor_is_local;
+        neighbor->n_local_neighbors -= base_is_local;
+    } else {
+        // Neither new or existing is NO_EDGE (updating existing edge)
+        hvr_irr_matrix_set(base_offset, neighbor_offset, new_edge, &ctx->edges);
+        hvr_irr_matrix_set(neighbor_offset, base_offset, new_edge, &ctx->edges);
     }
 
     /*
@@ -2570,6 +2564,13 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         }
 
         ctx->iter += 1;
+
+        // size_t bytes_used, bytes_allocated, bytes_capacity, max_edges, max_edges_index;
+        // hvr_irr_matrix_usage(&bytes_used, &bytes_capacity, &bytes_allocated,
+        //         &max_edges, &max_edges_index, &ctx->edges);
+        // fprintf(stderr, "PE %d completed iter %d, %llu / %llu / %llu, %f, %llu max edges\n", ctx->pe,
+        //         ctx->iter, bytes_used, bytes_capacity, bytes_allocated,
+        //         100.0 * (double)bytes_capacity / (double)bytes_allocated, max_edges);
     }
 
     shmem_quiet();

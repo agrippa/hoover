@@ -28,4 +28,8 @@ void hvr_irr_matrix_linearize(hvr_vertex_id_t i, hvr_vertex_id_t *out_vals,
         hvr_edge_type_t *out_edges, size_t *out_len, size_t capacity,
         hvr_irr_matrix_t *m);
 
+void hvr_irr_matrix_usage(size_t *bytes_used, size_t *bytes_capacity,
+        size_t *bytes_allocated, size_t *out_max_edges,
+        size_t *out_max_edges_index, hvr_irr_matrix_t *m);
+
 #endif

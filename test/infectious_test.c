@@ -445,25 +445,27 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *all_coupled_metrics, // Each PE's val
         hvr_vertex_t *global_coupled_metric, // Sum reduction of coupled_pes
         hvr_set_t *coupled_pes, // An array of size npes, with each PE's val
-        int n_coupled_pes, int *updates_on_this_iter,
+        int n_coupled_pes,
+        int *updates_on_this_iter, // An array of size npes, the number of vertex updates done on each coupled PE
         hvr_set_t *terminated_coupled_pes) {
+    int sum_updates = 0;
+    for (int i = 0; i < ctx->npes; i++) {
+        sum_updates += updates_on_this_iter[i];
+    }
 
     unsigned nset = (unsigned)hvr_vertex_get(0, local_coupled_metric, ctx);
     if (nset > 0) {
         printf("PE %d - iter %lu - local set %u / %u - # coupled = %d - "
-                "global set %u / %u\n", pe, (uint64_t)ctx->iter,
+                "global set %u / %u - %u vertex updates\n", pe,
+                (uint64_t)ctx->iter,
                 nset, actors_per_cell, n_coupled_pes,
                 (unsigned)hvr_vertex_get(0, global_coupled_metric, ctx),
-                (unsigned)hvr_vertex_get(1, global_coupled_metric, ctx));
+                (unsigned)hvr_vertex_get(1, global_coupled_metric, ctx),
+                sum_updates);
     }
 
     int aborting = 0;
     if (n_coupled_pes == ctx->npes) {
-
-        int sum_updates = 0;
-        for (int i = 0; i < ctx->npes; i++) {
-            sum_updates += updates_on_this_iter[i];
-        }
 
         if (sum_updates == 0) {
             int ninfected = (int)hvr_vertex_get(0, local_coupled_metric, ctx);
@@ -518,8 +520,8 @@ int main(int argc, char **argv) {
     int time_limit = atoi(argv[9]);
 
     time_partition_dim = max_num_timesteps;
-    y_partition_dim = 200;
-    x_partition_dim = 200;
+    y_partition_dim = 400;
+    x_partition_dim = 400;
     hvr_partition_t npartitions = time_partition_dim * y_partition_dim *
         x_partition_dim;
 
