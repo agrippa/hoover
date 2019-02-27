@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 4
 #SBATCH -C haswell
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
@@ -29,7 +29,7 @@ export SHMEM_MEMINFO_DISPLAY=1
 # export LD_PRELOAD=/opt/intel/compilers_and_libraries_2018.2.199/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
-export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
+export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024))
 
 # 2 sockets x 16 cores per socket for Cori Haswell
 # 2 sockets x 12 cores per socket for Edison
@@ -102,7 +102,7 @@ export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=8192
 export HVR_SPARSE_ARR_POOL=$((192 * 1024 * 1024));
 export HVR_EDGE_SET_TILES=20000
-export HVR_EDGES_POOL_SIZE=$((1024 * 1024 * 1024))
+export HVR_EDGES_POOL_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1
@@ -145,11 +145,12 @@ echo ""
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 
-# srun --ntasks-per-node=32 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
+srun --ntasks-per-node=32 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 
-srun -n 1 $HOME/hoover/bin/hvr_map_microbenchmark
-srun -n 1 $HOME/hoover/bin/hvr_2d_set_microbenchmark
-srun -n 1 $HOME/hoover/bin/hvr_irregular_matrix_microbenchmark
+# Edge microbenchmarks
+# srun -n 1 $HOME/hoover/bin/hvr_map_microbenchmark
+# srun -n 1 $HOME/hoover/bin/hvr_2d_set_microbenchmark
+# srun -n 1 $HOME/hoover/bin/hvr_irregular_matrix_microbenchmark
 
 # srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480

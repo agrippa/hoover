@@ -58,7 +58,7 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
 
         if (curr_len == curr_capacity) {
             // No more room, expand
-            unsigned new_capacity = (curr_capacity == 0 ? 16 :
+            unsigned new_capacity = (curr_capacity == 0 ? 2 :
                     2 * curr_capacity);
             m->edges[i] = mspace_realloc(m->allocator, curr_edges,
                     new_capacity * sizeof(*curr_edges));

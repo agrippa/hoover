@@ -20,7 +20,7 @@ extern "C" {
 #include "hvr_sparse_arr.h"
 #include "hvr_set_msg.h"
 #include "hvr_msg_buf_pool.h"
-#include "hvr_2d_edge_set.h"
+#include "hvr_irregular_matrix.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
