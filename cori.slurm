@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 4
+#SBATCH -N 16
 #SBATCH -C haswell
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
@@ -60,27 +60,27 @@ elif [[ $SLURM_NNODES -eq 16 ]]; then
     export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 64))
     # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 32))
     export PE_ROWS=16
-    export PE_COLS=24
+    export PE_COLS=32
 elif [[ $SLURM_NNODES -eq 64 ]]; then
     # For 64 nodes, big run
     export CELL_DIM=500.0
     export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 16))
     # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 8))
     export PE_ROWS=32
-    export PE_COLS=48
+    export PE_COLS=64
 elif [[ $SLURM_NNODES -eq 256 ]]; then
     # For 256 nodes, big run
     export CELL_DIM=250.0
     export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 4))
     # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 2))
     export PE_ROWS=64
-    export PE_COLS=96
+    export PE_COLS=128
 elif [[ $SLURM_NNODES -eq 1024 ]]; then
     # For 256 nodes, big run
     export CELL_DIM=125.0
     export ACTORS_PER_CELL=$BASE_ACTORS_PER_CELL
     export PE_ROWS=128
-    export PE_COLS=192
+    export PE_COLS=256
 else
     echo "Unsupported number of nodes! $SLURM_NNODES"
     exit 1
