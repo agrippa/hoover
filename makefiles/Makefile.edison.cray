@@ -40,6 +40,9 @@ bin/libhoover.a: src/hoover.c \
 		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o bin/dlmalloc.o \
 		bin/hvr_set_msg.o bin/hvr_msg_buf_pool.o bin/hvr_2d_edge_set.o bin/hvr_irregular_matrix.o
 
+bin/generate_vertices: test/generate_vertices.c
+	$(CC) -O0 -g $^ -o $@ -std=c99
+
 bin/hvr_irregular_matrix_microbenchmark: test/hvr_irregular_matrix_microbenchmark.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_irregular_matrix_microbenchmark.c -o bin/hvr_irregular_matrix_microbenchmark.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_irregular_matrix_microbenchmark.o -o $@ -l:libhoover.a -lm -lpthread

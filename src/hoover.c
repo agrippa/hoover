@@ -371,12 +371,6 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
 
     const unsigned long long after_producer_updates = hvr_current_time_us();
 
-    // fprintf(stderr, "PE %d has %lu active subscriptions on iter %u, min part=%lu, max part=%lu\n", ctx->pe,
-    //         hvr_set_count(ctx->new_subscriber_partition_time_window),
-    //         ctx->iter,
-    //         hvr_set_min_contained(ctx->new_subscriber_partition_time_window),
-    //         hvr_set_max_contained(ctx->new_subscriber_partition_time_window));
-
     // For each partition
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
         const int old_sub = hvr_set_contains(p,
@@ -465,10 +459,10 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                  * given partition. Go grab their vertices if there's a new one.
                  */
 
-                hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
-                        &ctx->local_terminated_pes);
-
                 if (dead_pe_processing) {
+                    hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
+                            &ctx->local_terminated_pes);
+
                     const unsigned long long start = hvr_current_time_us();
                     for (int pe = 0; pe < ctx->npes; pe++) {
                         if (!hvr_dist_bitvec_local_subcopy_contains(pe,
@@ -481,10 +475,10 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                     }
                     time_spent_processing_dead_pes += (hvr_current_time_us() -
                             start);
-                }
 
-                hvr_dist_bitvec_local_subcopy_copy(ctx->dead_info + p,
-                        &ctx->local_terminated_pes);
+                    hvr_dist_bitvec_local_subcopy_copy(ctx->dead_info + p,
+                            &ctx->local_terminated_pes);
+                }
             }
         } else {
             // If we are not subscribed to partition p

@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 16
+#SBATCH -N 1
 #SBATCH -C haswell
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
@@ -38,47 +38,34 @@ export CORES_PER_SOCKET=16
 export SOCKETS_PER_NODE=2
 export CORES_PER_TASK=$(( $CORES_PER_SOCKET / $TASKS_PER_SOCKET ))
 
-export BASE_ACTORS_PER_CELL=30
-
 if [[ $SLURM_NNODES -eq 1 ]]; then
     # For 1 node
     export CELL_DIM=4000.0
-    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 1024))
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 512))
     export PE_ROWS=4
     export PE_COLS=8
 elif [[ $SLURM_NNODES -eq 4 ]]; then
     # For 4 nodes
     export CELL_DIM=2000.0
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 256))
-    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 128))
     export PE_ROWS=8
     export PE_COLS=16
 elif [[ $SLURM_NNODES -eq 16 ]]; then
     # 16 nodes, big run
     export CELL_DIM=1000.0
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 64))
-    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 32))
     export PE_ROWS=16
     export PE_COLS=32
 elif [[ $SLURM_NNODES -eq 64 ]]; then
     # For 64 nodes, big run
     export CELL_DIM=500.0
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 16))
-    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 8))
     export PE_ROWS=32
     export PE_COLS=64
 elif [[ $SLURM_NNODES -eq 256 ]]; then
     # For 256 nodes, big run
     export CELL_DIM=250.0
-    export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 4))
-    # export ACTORS_PER_CELL=$(($BASE_ACTORS_PER_CELL * 2))
     export PE_ROWS=64
     export PE_COLS=128
 elif [[ $SLURM_NNODES -eq 1024 ]]; then
     # For 256 nodes, big run
     export CELL_DIM=125.0
-    export ACTORS_PER_CELL=$BASE_ACTORS_PER_CELL
     export PE_ROWS=128
     export PE_COLS=256
 else
@@ -88,12 +75,12 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=60
+export MAX_NUM_TIMESTEPS=200
 export INFECTION_RADIUS=200
 
 export HVR_SYMM_POOL_SIZE=2084000
 export HVR_SYMM_POOL_NNODES=1024
-export HVR_VEC_CACHE_PREALLOCS=2000000
+export HVR_VEC_CACHE_PREALLOCS=3000000
 export HVR_VERT_CACHE_SEGS=40000
 export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=8192
@@ -104,7 +91,7 @@ export HVR_EDGES_POOL_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 # export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-# export HVR_HANG_ABORT=100
+# export HVR_HANG_ABORT=300
 # export HVR_HANG_ABORT_PE=17
 
 cd $SCRATCH
@@ -128,9 +115,8 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
     --cpu_bind=verbose,cores \
     --cpu-freq=High \
     --mem-bind=local"
-export EXE_ARGS="$CELL_DIM $N_PORTALS $ACTORS_PER_CELL \
-    $PE_ROWS $PE_COLS $N_INFECTED $MAX_NUM_TIMESTEPS $INFECTION_RADIUS \
-    360"
+export EXE_ARGS="$CELL_DIM $PE_ROWS $PE_COLS $MAX_NUM_TIMESTEPS \
+    $INFECTION_RADIUS 480 $SCRATCH/49152-vert.16000-y.32000-x.1-infected.bin"
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""
