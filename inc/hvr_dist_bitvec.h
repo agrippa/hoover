@@ -25,6 +25,9 @@ typedef struct _hvr_dist_bitvec_t {
     hvr_dist_bitvec_size_t dim1;
     // Symmetrically allocated local portion of the vector
     hvr_dist_bitvec_ele_t *symm_vec;
+
+    uint64_t *seq_nos;
+
     /*
      * Length of the inner dimension in units of sizeof(hvr_dist_bitvec_ele_t),
      * rounded up.
@@ -45,6 +48,8 @@ typedef struct _hvr_dist_bitvec_local_subcopy_t {
     // The non-symmetric backing data
     hvr_dist_bitvec_ele_t *subvec;
     hvr_dist_bitvec_size_t dim1_length_in_words;
+
+    uint64_t seq_no;
 } hvr_dist_bitvec_local_subcopy_t;
 
 void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
@@ -80,6 +85,9 @@ void hvr_dist_bitvec_local_subcopy_destroy(hvr_dist_bitvec_t *vec,
 
 size_t hvr_dist_bitvec_local_subcopy_bytes(
         hvr_dist_bitvec_local_subcopy_t *vec);
+
+uint64_t hvr_dist_bitvec_get_seq_no(hvr_dist_bitvec_size_t coord0,
+        hvr_dist_bitvec_t *vec);
 
 #ifdef __cplusplus
 }

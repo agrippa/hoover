@@ -354,6 +354,12 @@ static void handle_new_subscription(
 static void handle_existing_subscription(hvr_partition_t p,
         unsigned long long *time_spent_processing_dead_pes,
         hvr_internal_ctx_t *ctx) {
+    uint64_t curr_seq_no = hvr_dist_bitvec_get_seq_no(p,
+            &ctx->partition_producers);
+    if (curr_seq_no <= ctx->producer_info[p].seq_no) {
+        return;
+    }
+
     hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers,
             &ctx->local_partition_producers);
 
@@ -515,8 +521,6 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                  * subscribed. TODO note that we're not doing anything when a
                  * producer leaves a partition, which doesn't matter
                  * semantically but could waste memory.
-                 *
-                 * TODO this is something we might want to rate limit.
                  */
                 handle_existing_subscription(p, &time_spent_processing_dead_pes,
                         ctx);

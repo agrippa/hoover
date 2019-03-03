@@ -24,6 +24,11 @@ void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
     memset(vec->symm_vec, 0x00, vec->dim0_per_pe * vec->dim1_length_in_words *
             sizeof(hvr_dist_bitvec_ele_t));
 
+    vec->seq_nos = (uint64_t *)shmem_malloc_wrapper(
+            vec->dim0_per_pe * sizeof(vec->seq_nos[0]));
+    assert(vec->seq_nos);
+    memset(vec->seq_nos, 0x00, vec->dim0_per_pe * sizeof(vec->seq_nos[0]));
+
     int pool_size = 1024 * 1024;
     if (getenv("HVR_DIST_BITVEC_POOL_SIZE")) {
         pool_size = atoi(getenv("HVR_DIST_BITVEC_POOL_SIZE"));
@@ -51,6 +56,8 @@ void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
     shmem_uint64_atomic_or(
             vec->symm_vec + ((coord0_offset * vec->dim1_length_in_words) +
             coord1_word), coord1_mask, coord0_pe);
+
+    shmem_uint64_atomic_inc(vec->seq_nos + coord0_offset, coord0_pe);
 }
 
 void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
@@ -67,6 +74,8 @@ void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
     shmem_uint64_atomic_and(
             vec->symm_vec + (coord0_offset * vec->dim1_length_in_words) +
             coord1_word, coord1_mask, coord0_pe);
+
+    shmem_uint64_atomic_inc(vec->seq_nos + coord0_offset, coord0_pe);
 }
 
 void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec_t *vec,
@@ -79,6 +88,7 @@ void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec_t *vec,
     assert(out->subvec);
     memset(out->subvec, 0x00,
             vec->dim1_length_in_words * sizeof(out->subvec[0]));
+    out->seq_no = 0;
 }
 
 void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,
@@ -91,12 +101,25 @@ void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,
 
     out->coord0 = coord0;
 
+    out->seq_no = shmem_uint64_atomic_fetch(vec->seq_nos + coord0_offset,
+            coord0_pe);
+
     for (unsigned i = 0; i < vec->dim1_length_in_words; i++) {
         out->subvec[i] =
             shmem_uint64_atomic_fetch(
                 vec->symm_vec + (coord0_offset * vec->dim1_length_in_words + i),
                 coord0_pe);
     }
+}
+
+uint64_t hvr_dist_bitvec_get_seq_no(hvr_dist_bitvec_size_t coord0,
+        hvr_dist_bitvec_t *vec) {
+    const unsigned coord0_pe = coord0 / vec->dim0_per_pe;
+    const unsigned coord0_offset = coord0 % vec->dim0_per_pe;
+    assert(coord0_offset < vec->dim0_per_pe);
+
+    return shmem_uint64_atomic_fetch(vec->seq_nos + coord0_offset,
+            coord0_pe);
 }
 
 int hvr_dist_bitvec_local_subcopy_contains(hvr_dist_bitvec_size_t coord1,
@@ -133,6 +156,7 @@ void hvr_dist_bitvec_local_subcopy_copy(hvr_dist_bitvec_local_subcopy_t *dst,
     dst->coord0 = src->coord0;
     memcpy(dst->subvec, src->subvec,
             src->dim1_length_in_words * sizeof(hvr_dist_bitvec_ele_t));
+    dst->seq_no = src->seq_no;
 }
 
 void hvr_dist_bitvec_local_subcopy_destroy(hvr_dist_bitvec_t *vec,
@@ -145,4 +169,3 @@ size_t hvr_dist_bitvec_local_subcopy_bytes(
         hvr_dist_bitvec_local_subcopy_t *vec) {
     return sizeof(*vec) + vec->dim1_length_in_words * sizeof(*(vec->subvec));
 }
-
