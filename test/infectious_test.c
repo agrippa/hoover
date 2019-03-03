@@ -395,19 +395,18 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *out_coupled_metric) {
     // Abort if all of my member vertices are infected
     size_t nset = 0;
-    size_t count = 0;
     hvr_vertex_t *vert = hvr_vertex_iter_next(iter);
     while (vert) {
-        if ((int)hvr_vertex_get(TIME_STEP, vert, ctx) == max_num_timesteps - 1 &&
-                hvr_vertex_get(INFECTED, vert, ctx) > 0.0) {
-            nset++;
+        if ((int)hvr_vertex_get(TIME_STEP, vert, ctx) == max_num_timesteps - 1) {
+            if (hvr_vertex_get(INFECTED, vert, ctx) > 0.0) {
+                nset++;
+            }
         }
         vert = hvr_vertex_iter_next(iter);
-        count++;
     }
 
     hvr_vertex_set(0, (double)nset, out_coupled_metric, ctx);
-    hvr_vertex_set(1, (double)count, out_coupled_metric, ctx);
+    hvr_vertex_set(1, (double)n_local_actors, out_coupled_metric, ctx);
 }
 
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
@@ -429,7 +428,8 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
                 "global set %u / %u - %u vertex updates\n",
                 pe,
                 (uint64_t)ctx->iter,
-                nset, n_local_actors, n_coupled_pes,
+                nset, n_local_actors,
+                n_coupled_pes,
                 (unsigned)hvr_vertex_get(0, global_coupled_metric, ctx),
                 (unsigned)hvr_vertex_get(1, global_coupled_metric, ctx),
                 sum_updates);
@@ -529,8 +529,8 @@ int main(int argc, char **argv) {
     fclose(input);
     unsigned long long elapsed_count_local = hvr_current_time_us() -
         start_count_local;
-    fprintf(stderr, "PE %d took %f ms to count local, %lu local actors\n", pe,
-            (double)elapsed_count_local / 1000.0, n_local_actors);
+    // fprintf(stderr, "PE %d took %f ms to count local, %lu local actors\n", pe,
+    //         (double)elapsed_count_local / 1000.0, n_local_actors);
 
     unsigned long long start_pop_local = hvr_current_time_us();
     hvr_vertex_t *actors = hvr_vertex_create_n(n_local_actors, hvr_ctx);
@@ -581,8 +581,8 @@ int main(int argc, char **argv) {
 
     unsigned long long elapsed_pop_local = hvr_current_time_us() -
         start_pop_local;
-    fprintf(stderr, "PE %d took %f ms to populate local\n", pe,
-            (double)elapsed_pop_local / 1000.0);
+    // fprintf(stderr, "PE %d took %f ms to populate local\n", pe,
+    //         (double)elapsed_pop_local / 1000.0);
 
     if (pe == 0) {
         fprintf(stderr, "Running for at most %d seconds\n", time_limit);

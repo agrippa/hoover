@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 4
 #SBATCH -C haswell
 #SBATCH -t 00:10:00
 #SBATCH -J hoover
@@ -75,8 +75,8 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=200
-export INFECTION_RADIUS=200
+export MAX_NUM_TIMESTEPS=270
+export INFECTION_RADIUS=100
 
 export HVR_SYMM_POOL_SIZE=2084000
 export HVR_SYMM_POOL_NNODES=1024
@@ -116,7 +116,7 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
     --cpu-freq=High \
     --mem-bind=local"
 export EXE_ARGS="$CELL_DIM $PE_ROWS $PE_COLS $MAX_NUM_TIMESTEPS \
-    $INFECTION_RADIUS 480 $SCRATCH/49152-vert.16000-y.32000-x.1-infected.bin"
+    $INFECTION_RADIUS 480 $SCRATCH/491520-vert.16000-y.32000-x.1-infected.bin"
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""

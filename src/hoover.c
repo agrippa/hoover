@@ -308,6 +308,126 @@ static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
     }
 }
 
+static void handle_new_subscription(
+        hvr_partition_t p,
+        unsigned long long *time_spent_processing_dead_pes,
+        hvr_internal_ctx_t *ctx) {
+    hvr_dist_bitvec_local_subcopy_init(&ctx->terminated_pes,
+            ctx->dead_info + p);
+    hvr_dist_bitvec_local_subcopy_init(&ctx->partition_producers,
+            ctx->producer_info + p);
+
+    // Download the list of producers for partition p.
+    hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers,
+            ctx->producer_info + p);
+
+    /*
+     * notify all producers of this partition of our subscription
+     * (they will then send us a full update).
+     */
+    hvr_partition_member_change_t change;
+    change.pe = ctx->pe;  // The subscriber/unsubscriber
+    change.partition = p; // The partition (un)subscribed to
+    change.entered = 1;   // new subscription
+    for (int pe = 0; pe < ctx->npes; pe++) {
+        if (hvr_dist_bitvec_local_subcopy_contains(pe,
+                    ctx->producer_info + p)) {
+            hvr_mailbox_send(&change, sizeof(change), pe,
+                    -1, &ctx->forward_mailbox, NULL);
+        }
+    }
+
+    if (dead_pe_processing) {
+        const unsigned long long start = hvr_current_time_us();
+        hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
+                ctx->dead_info + p);
+        for (int pe = 0; pe < ctx->npes; pe++) {
+            if (hvr_dist_bitvec_local_subcopy_contains(pe,
+                        ctx->dead_info + p)) {
+                pull_vertices_from_dead_pe(pe, p, ctx);
+            }
+        }
+        *time_spent_processing_dead_pes += (hvr_current_time_us() - start);
+    }
+}
+
+static void handle_existing_subscription(hvr_partition_t p,
+        unsigned long long *time_spent_processing_dead_pes,
+        hvr_internal_ctx_t *ctx) {
+    hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers,
+            &ctx->local_partition_producers);
+
+    hvr_partition_member_change_t change;
+    change.pe = ctx->pe;  // The subscriber/unsubscriber
+    change.partition = p; // The partition (un)subscribed to
+    change.entered = 1;   // new subscription
+
+    /*
+     * Notify any new producers of this partition that I'm
+     * interested in their updates.
+     */
+    for (int pe = 0; pe < ctx->npes; pe++) {
+        if (!hvr_dist_bitvec_local_subcopy_contains(pe,
+                    ctx->producer_info + p) &&
+                hvr_dist_bitvec_local_subcopy_contains(pe,
+                    &ctx->local_partition_producers)) {
+            // New producer
+            hvr_mailbox_send(&change, sizeof(change), pe,
+                    -1, &ctx->forward_mailbox, NULL);
+        }
+    }
+
+    // Save for later
+    hvr_dist_bitvec_local_subcopy_copy(ctx->producer_info + p,
+            &ctx->local_partition_producers);
+
+    /*
+     * Look for newly terminated PEs that had local vertices in a
+     * given partition. Go grab their vertices if there's a new one.
+     */
+
+    if (dead_pe_processing) {
+        hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
+                &ctx->local_terminated_pes);
+
+        const unsigned long long start = hvr_current_time_us();
+        for (int pe = 0; pe < ctx->npes; pe++) {
+            if (!hvr_dist_bitvec_local_subcopy_contains(pe,
+                        ctx->dead_info + p) &&
+                    hvr_dist_bitvec_local_subcopy_contains(pe,
+                        &ctx->local_terminated_pes)) {
+                // New dead PE
+                pull_vertices_from_dead_pe(pe, p, ctx);
+            }
+        }
+        *time_spent_processing_dead_pes += (hvr_current_time_us() -
+                start);
+
+        hvr_dist_bitvec_local_subcopy_copy(ctx->dead_info + p,
+                &ctx->local_terminated_pes);
+    }
+}
+
+static void handle_new_unsubscription(hvr_partition_t p,
+        hvr_internal_ctx_t *ctx) {
+    hvr_partition_member_change_t change;
+    change.pe = ctx->pe;  // The subscriber/unsubscriber
+    change.partition = p; // The partition (un)subscribed to
+    change.entered = 0;   // unsubscription
+    for (int pe = 0; pe < ctx->npes; pe++) {
+        if (hvr_dist_bitvec_local_subcopy_contains(pe,
+                    ctx->producer_info + p)) {
+            hvr_mailbox_send(&change, sizeof(change), pe,
+                    -1, &ctx->forward_mailbox, NULL);
+        }
+    }
+
+    hvr_dist_bitvec_local_subcopy_destroy(&ctx->partition_producers,
+            ctx->producer_info + p);
+    hvr_dist_bitvec_local_subcopy_destroy(&ctx->terminated_pes,
+            ctx->dead_info + p);
+}
+
 /*
  * partition_time_window stores a set of the partitions that the local PE has
  * vertices inside of. This updates the partitions in that window set based on
@@ -377,44 +497,15 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                 ctx->subscriber_partition_time_window);
         if (hvr_set_contains(p, ctx->new_subscriber_partition_time_window)) {
             if (!old_sub) {
-                // New subscription on this iteration
-                hvr_dist_bitvec_local_subcopy_init(&ctx->terminated_pes,
-                        ctx->dead_info + p);
-
-                // Download the list of producers for partition p.
-                hvr_dist_bitvec_local_subcopy_init(&ctx->partition_producers,
-                        ctx->producer_info + p);
-                hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers,
-                        ctx->producer_info + p);
-
                 /*
-                 * notify all producers of this partition of our subscription
-                 * (they will then send us a full update).
+                 * New subscription on this iteration. Copy down the set of
+                 * producers for this partition and send each a notification
+                 * that I'm now subscribed to that partition. Also copy down
+                 * the set of dead PEs that were producers of this partition,
+                 * and pull vertices from those PEs.
                  */
-                hvr_partition_member_change_t change;
-                change.pe = ctx->pe;  // The subscriber/unsubscriber
-                change.partition = p; // The partition (un)subscribed to
-                change.entered = 1;   // new subscription
-                for (int pe = 0; pe < ctx->npes; pe++) {
-                    if (hvr_dist_bitvec_local_subcopy_contains(pe,
-                                ctx->producer_info + p)) {
-                        hvr_mailbox_send(&change, sizeof(change), pe,
-                                -1, &ctx->forward_mailbox, NULL);
-                    }
-                }
-
-                if (dead_pe_processing) {
-                    const unsigned long long start = hvr_current_time_us();
-                    hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
-                            ctx->dead_info + p);
-                    for (int pe = 0; pe < ctx->npes; pe++) {
-                        if (hvr_dist_bitvec_local_subcopy_contains(pe,
-                                    ctx->dead_info + p)) {
-                            pull_vertices_from_dead_pe(pe, p, ctx);
-                        }
-                    }
-                    time_spent_processing_dead_pes += (hvr_current_time_us() - start);
-                }
+                handle_new_subscription(p, &time_spent_processing_dead_pes,
+                        ctx);
             } else {
                 /*
                  * If this is an existing subscription, copy down the current
@@ -424,61 +515,11 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                  * subscribed. TODO note that we're not doing anything when a
                  * producer leaves a partition, which doesn't matter
                  * semantically but could waste memory.
+                 *
+                 * TODO this is something we might want to rate limit.
                  */
-
-                hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers,
-                        &ctx->local_partition_producers);
-
-                hvr_partition_member_change_t change;
-                change.pe = ctx->pe;  // The subscriber/unsubscriber
-                change.partition = p; // The partition (un)subscribed to
-                change.entered = 1;   // new subscription
-
-                /*
-                 * Notify any new producers of this partition that I'm
-                 * interested in their updates.
-                 */
-                for (int pe = 0; pe < ctx->npes; pe++) {
-                    if (!hvr_dist_bitvec_local_subcopy_contains(pe,
-                                ctx->producer_info + p) &&
-                            hvr_dist_bitvec_local_subcopy_contains(pe,
-                                &ctx->local_partition_producers)) {
-                        assert(1);
-                        // New producer
-                        hvr_mailbox_send(&change, sizeof(change), pe,
-                                -1, &ctx->forward_mailbox, NULL);
-                    }
-                }
-
-                // Save for later
-                hvr_dist_bitvec_local_subcopy_copy(ctx->producer_info + p,
-                        &ctx->local_partition_producers);
-
-                /*
-                 * Look for newly terminated PEs that had local vertices in a
-                 * given partition. Go grab their vertices if there's a new one.
-                 */
-
-                if (dead_pe_processing) {
-                    hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
-                            &ctx->local_terminated_pes);
-
-                    const unsigned long long start = hvr_current_time_us();
-                    for (int pe = 0; pe < ctx->npes; pe++) {
-                        if (!hvr_dist_bitvec_local_subcopy_contains(pe,
-                                    ctx->dead_info + p) &&
-                                hvr_dist_bitvec_local_subcopy_contains(pe,
-                                    &ctx->local_terminated_pes)) {
-                            // New dead PE
-                            pull_vertices_from_dead_pe(pe, p, ctx);
-                        }
-                    }
-                    time_spent_processing_dead_pes += (hvr_current_time_us() -
-                            start);
-
-                    hvr_dist_bitvec_local_subcopy_copy(ctx->dead_info + p,
-                            &ctx->local_terminated_pes);
-                }
+                handle_existing_subscription(p, &time_spent_processing_dead_pes,
+                        ctx);
             }
         } else {
             // If we are not subscribed to partition p
@@ -488,22 +529,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
                  * are no longer subscribed. They will remove us from the list
                  * of people they send msgs to.
                  */
-                hvr_partition_member_change_t change;
-                change.pe = ctx->pe;  // The subscriber/unsubscriber
-                change.partition = p; // The partition (un)subscribed to
-                change.entered = 0;   // unsubscription
-                for (int pe = 0; pe < ctx->npes; pe++) {
-                    if (hvr_dist_bitvec_local_subcopy_contains(pe,
-                                ctx->producer_info + p)) {
-                        hvr_mailbox_send(&change, sizeof(change), pe,
-                                -1, &ctx->forward_mailbox, NULL);
-                    }
-                }
-
-                hvr_dist_bitvec_local_subcopy_destroy(&ctx->partition_producers,
-                        ctx->producer_info + p);
-                hvr_dist_bitvec_local_subcopy_destroy(&ctx->terminated_pes,
-                        ctx->dead_info + p);
+                handle_new_unsubscription(p, ctx);
             }
         }
     }
