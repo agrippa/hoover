@@ -12,11 +12,27 @@ extern void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
         hvr_internal_ctx_t *ctx);
 
 hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
-    return hvr_alloc_vertices(1, (hvr_internal_ctx_t *)in_ctx);
+    hvr_vertex_t *allocated = hvr_alloc_vertices(1,
+            (hvr_internal_ctx_t *)in_ctx);
+
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    allocated->next_in_partition = ctx->recently_created;
+    ctx->recently_created = allocated;
+
+    return allocated;
 }
 
-hvr_vertex_t *hvr_vertex_create_n(size_t n, hvr_ctx_t ctx) {
-    return hvr_alloc_vertices(n, (hvr_internal_ctx_t *)ctx);
+hvr_vertex_t *hvr_vertex_create_n(size_t n, hvr_ctx_t in_ctx) {
+    hvr_vertex_t *allocated = hvr_alloc_vertices(n,
+            (hvr_internal_ctx_t *)in_ctx);
+
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    for (size_t i = 0; i < n; i++) {
+        allocated[i].next_in_partition = ctx->recently_created;
+        ctx->recently_created = &allocated[i];
+    }
+
+    return allocated;
 }
 
 void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
