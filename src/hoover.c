@@ -194,27 +194,6 @@ static hvr_partition_t wrap_actor_to_partition(hvr_vertex_t *vec,
     return partition;
 }
 
-static void update_vertex_partitions_for_vertex(hvr_vertex_t *curr,
-        hvr_internal_ctx_t *ctx, hvr_vertex_t **partition_lists,
-        uint8_t dist_from_local_vert) {
-    assert(curr->id != HVR_INVALID_VERTEX_ID);
-    hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
-
-    // Prepend to appropriate partition list
-    curr->prev_in_partition = NULL;
-    curr->next_in_partition = partition_lists[partition];
-    if (partition_lists[partition]) {
-        partition_lists[partition]->prev_in_partition = curr;
-    }
-    partition_lists[partition] = curr;
-
-    if (dist_from_local_vert <
-            ctx->partition_min_dist_from_local_vert[partition]) {
-        ctx->partition_min_dist_from_local_vert[partition] =
-            dist_from_local_vert;
-    }
-}
-
 static inline void prepend_to_partition_list(hvr_vertex_t *curr,
         hvr_vertex_t **partition_lists, hvr_internal_ctx_t *ctx) {
     hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
@@ -273,40 +252,6 @@ static inline void update_partition_list_membership(hvr_vertex_t *curr,
                 curr;
         }
         partition_lists[new_partition] = curr;
-    }
-}
-
-/*
- * We also use this traversal to create lists of vertices in each partition
- * (partition_lists).
- */
-static void update_actor_partitions(hvr_internal_ctx_t *ctx) {
-    /*
-     * Clear out existing partition lists TODO this might be wasteful to
-     * recompute every iteration.
-     */
-
-    insert_recently_created_in_partitions(ctx);
-
-    memset(ctx->partition_min_dist_from_local_vert, 0xff,
-            sizeof(unsigned) * ctx->n_partitions);
-
-    for (unsigned i = 0; i < HVR_MAP_BUCKETS; i++) {
-        hvr_map_seg_t *seg = ctx->vec_cache.cache_map.buckets[i];
-        while (seg) {
-            for (unsigned j = 0; j < seg->nkeys; j++) {
-                hvr_vertex_cache_node_t *node =
-                    seg->data[j].inline_vals[0].cached_vert;
-                uint8_t dist = get_dist_from_local_vert(node, ctx->iter,
-                        ctx->pe, &ctx->vec_cache);
-                const hvr_partition_t partition = node->part;
-
-                if (dist < ctx->partition_min_dist_from_local_vert[partition]) {
-                    ctx->partition_min_dist_from_local_vert[partition] = dist;
-                }
-            }
-            seg = seg->next;
-        }
     }
 }
 
@@ -405,6 +350,7 @@ static void handle_new_subscription(
 static void handle_existing_subscription(hvr_partition_t p,
         unsigned long long *time_spent_processing_dead_pes,
         hvr_internal_ctx_t *ctx) {
+    // TODO this is costing us a lot of time
     uint64_t curr_seq_no = hvr_dist_bitvec_get_seq_no(p,
             &ctx->partition_producers);
     if (curr_seq_no <= ctx->producer_info[p].seq_no) {
@@ -485,11 +431,6 @@ static void handle_new_unsubscription(hvr_partition_t p,
             ctx->dead_info + p);
 }
 
-/*
- * partition_time_window stores a set of the partitions that the local PE has
- * vertices inside of. This updates the partitions in that window set based on
- * the results of update_actor_partitions.
- */
 static void update_partition_time_window(hvr_internal_ctx_t *ctx,
         unsigned long long *out_time_updating_partitions,
         unsigned long long *out_time_updating_producers,
@@ -782,8 +723,9 @@ void hvr_init(const hvr_partition_t n_partitions,
     memset(new_ctx->mirror_partition_lists, 0x00,
             sizeof(new_ctx->mirror_partition_lists[0]) * new_ctx->n_partitions);
 
-    new_ctx->partition_min_dist_from_local_vert = (unsigned *)malloc(
-            sizeof(unsigned) * new_ctx->n_partitions);
+    new_ctx->partition_min_dist_from_local_vert = (uint8_t *)malloc(
+            sizeof(new_ctx->partition_min_dist_from_local_vert[0]) *
+            new_ctx->n_partitions);
     assert(new_ctx->partition_min_dist_from_local_vert);
 
     hvr_vertex_cache_init(&new_ctx->vec_cache, new_ctx->n_partitions);
@@ -1321,16 +1263,22 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
     const unsigned max_graph_traverse_depth = ctx->max_graph_traverse_depth;
     hvr_vertex_cache_node_t *q = ctx->vec_cache.local_neighbors_head;
 
+    memset(ctx->partition_min_dist_from_local_vert, 0xff,
+            sizeof(ctx->partition_min_dist_from_local_vert[0]) *
+            ctx->n_partitions);
+
     if (max_graph_traverse_depth == 1) {
-        // Common case
+        // Common case, allows us to avoid extra add_neighbors_to_q
         while (q) {
             set_dist_from_local_vert(q, 1, ctx->iter);
+            ctx->partition_min_dist_from_local_vert[q->part] = 1;
             q = q->local_neighbors_next;
         }
     } else {
         hvr_vertex_cache_node_t *newq = NULL;
         while (q) {
             set_dist_from_local_vert(q, 1, ctx->iter);
+            ctx->partition_min_dist_from_local_vert[q->part] = 1;
             newq = add_neighbors_to_q(q, newq, ctx);
             q = q->local_neighbors_next;
         }
@@ -1341,6 +1289,9 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
             while (q) {
                 hvr_vertex_cache_node_t *next_q = q->tmp;
                 set_dist_from_local_vert(q, l, ctx->iter);
+                if (ctx->partition_min_dist_from_local_vert[q->part] == UINT8_MAX) {
+                    ctx->partition_min_dist_from_local_vert[q->part] = l;
+                }
                 newq = add_neighbors_to_q(q, newq, ctx);
                 q = next_q;
             }
@@ -2469,22 +2420,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     /*
      * Find which partitions are locally active (either because a local vertex
      * is in them, or a locally mirrored vertex in them).
-     *
-     * TODO seed local_partition_lists
      */
-    hvr_vertex_iter_t iter;
-    hvr_vertex_iter_init(&iter, ctx);
-    for (hvr_vertex_t *curr = hvr_vertex_iter_next(&iter); curr;
-            curr = hvr_vertex_iter_next(&iter)) {
-        hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
-
-        // Prepend to new partition list
-        curr->prev_in_partition = NULL;
-        curr->next_in_partition = ctx->local_partition_lists[partition];
-        ctx->local_partition_lists[partition] = curr;
-    }
-
-    update_actor_partitions(ctx);
+    insert_recently_created_in_partitions(ctx);
 
     const unsigned long long end_update_partitions = hvr_current_time_us();
 
@@ -2618,7 +2555,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long end_update_dist = hvr_current_time_us();
 
-        update_actor_partitions(ctx);
+        insert_recently_created_in_partitions(ctx);
 
         const unsigned long long end_update_partitions = hvr_current_time_us();
 

@@ -267,7 +267,7 @@ typedef struct _hvr_internal_ctx_t {
      */
     hvr_vertex_t **mirror_partition_lists;
 
-    unsigned *partition_min_dist_from_local_vert;
+    uint8_t *partition_min_dist_from_local_vert;
 
     // Counter for which graph IDs have already been allocated
     hvr_graph_id_t allocated_graphs;

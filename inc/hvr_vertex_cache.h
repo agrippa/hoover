@@ -47,8 +47,6 @@ typedef struct _hvr_vertex_cache_node_t {
     hvr_time_t dist_from_local_vert_iter;
 } hvr_vertex_cache_node_t;
 
-
-
 /*
  * Data structure used to store all fetched and cached vertices.
  */
