@@ -771,10 +771,10 @@ void hvr_init(const hvr_partition_t n_partitions,
     assert(new_ctx->local_pes_per_partition_buffer);
 
     new_ctx->local_partition_lists = (hvr_vertex_t **)malloc(
-            sizeof(hvr_vertex_t *) * new_ctx->n_partitions);
+            new_ctx->n_partitions * sizeof(new_ctx->local_partition_lists[0]));
     assert(new_ctx->local_partition_lists);
     memset(new_ctx->local_partition_lists, 0x00,
-            sizeof(hvr_vertex_t *) * new_ctx->n_partitions);
+            new_ctx->n_partitions * sizeof(new_ctx->local_partition_lists[0]));
 
     new_ctx->mirror_partition_lists = (hvr_vertex_t **)malloc(
             sizeof(hvr_vertex_t *) * new_ctx->n_partitions);
@@ -1427,6 +1427,8 @@ static int update_vertices(hvr_set_t *to_couple_with,
     if (ctx->update_metadata == NULL) {
         return 0;
     }
+
+    hvr_vertex_t **local_partition_lists = ctx->local_partition_lists;
 
     int count = 0;
     hvr_vertex_iter_t iter;
@@ -2467,7 +2469,21 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     /*
      * Find which partitions are locally active (either because a local vertex
      * is in them, or a locally mirrored vertex in them).
+     *
+     * TODO seed local_partition_lists
      */
+    hvr_vertex_iter_t iter;
+    hvr_vertex_iter_init(&iter, ctx);
+    for (hvr_vertex_t *curr = hvr_vertex_iter_next(&iter); curr;
+            curr = hvr_vertex_iter_next(&iter)) {
+        hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
+
+        // Prepend to new partition list
+        curr->prev_in_partition = NULL;
+        curr->next_in_partition = ctx->local_partition_lists[partition];
+        ctx->local_partition_lists[partition] = curr;
+    }
+
     update_actor_partitions(ctx);
 
     const unsigned long long end_update_partitions = hvr_current_time_us();
