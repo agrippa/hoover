@@ -15,6 +15,7 @@ typedef struct _hvr_vertex_t {
     double values[HVR_MAX_VECTOR_SIZE];
 
     struct _hvr_vertex_t *next_in_partition;
+    struct _hvr_vertex_t *prev_in_partition;
 
     hvr_time_t creation_iter;
     unsigned char needs_send;

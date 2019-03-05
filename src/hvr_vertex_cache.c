@@ -107,6 +107,31 @@ void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
     cache->n_cached_vertices--;
 }
 
+void hvr_vertex_cache_update_partition(hvr_vertex_cache_node_t *existing,
+        hvr_partition_t new_partition, hvr_vertex_cache_t *cache) {
+    hvr_partition_t old_partition = existing->part;
+
+    if (old_partition != new_partition) {
+        // Remove from current partition list
+        linked_list_remove_helper(existing,
+                existing->part_prev,
+                existing->part_next,
+                existing->part_prev ? &(existing->part_prev->part_next) : NULL,
+                existing->part_next ? &(existing->part_next->part_prev) : NULL,
+                &(cache->partitions[old_partition]));
+
+        // Insert into the appropriate partition list
+        if (cache->partitions[new_partition]) {
+            cache->partitions[new_partition]->part_prev = existing;
+        }
+        existing->part_next = cache->partitions[new_partition];
+        existing->part_prev = NULL;
+        cache->partitions[new_partition] = existing;
+
+        existing->part = new_partition;
+    }
+}
+
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         hvr_partition_t part, hvr_vertex_cache_t *cache) {
     // Assume that vec is not already in the cache, but don't enforce this

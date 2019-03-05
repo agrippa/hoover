@@ -197,6 +197,9 @@ extern hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 extern void hvr_vertex_cache_delete(hvr_vertex_t *vert,
         hvr_vertex_cache_t *cache);
 
+extern void hvr_vertex_cache_update_partition(hvr_vertex_cache_node_t *existing,
+        hvr_partition_t new_partition, hvr_vertex_cache_t *cache);
+
 #ifdef __cplusplus
 }
 #endif

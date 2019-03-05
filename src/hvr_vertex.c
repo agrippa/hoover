@@ -12,11 +12,25 @@ extern void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
         hvr_internal_ctx_t *ctx);
 
 hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
-    return hvr_alloc_vertices(1, (hvr_internal_ctx_t *)in_ctx);
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    hvr_vertex_t *allocated = hvr_alloc_vertices(1, ctx);
+
+    allocated->next_in_partition = ctx->recently_created;
+    ctx->recently_created = allocated;
+
+    return allocated;
 }
 
-hvr_vertex_t *hvr_vertex_create_n(size_t n, hvr_ctx_t ctx) {
-    return hvr_alloc_vertices(n, (hvr_internal_ctx_t *)ctx);
+hvr_vertex_t *hvr_vertex_create_n(size_t n, hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    hvr_vertex_t *allocated = hvr_alloc_vertices(n, ctx);
+
+    for (size_t i = 0; i < n; i++) {
+        allocated[i].next_in_partition = ctx->recently_created;
+        ctx->recently_created = &allocated[i];
+    }
+
+    return allocated;
 }
 
 void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
@@ -25,6 +39,30 @@ void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     // Notify others of the deletion
     unsigned long long unused;
     send_updates_to_all_subscribed_pes(vert, 1, NULL, &unused, ctx);
+
+    // Remove from local partition lists
+    hvr_partition_t partition = ctx->actor_to_partition(vert, ctx);
+    assert(partition < ctx->n_partitions);
+    hvr_vertex_t **local_partition_lists = ctx->local_partition_lists;
+    if (vert->next_in_partition && vert->prev_in_partition) {
+        // Remove from current partition list
+        vert->prev_in_partition->next_in_partition =
+            vert->next_in_partition;
+        vert->next_in_partition->prev_in_partition =
+            vert->prev_in_partition;
+    } else if (vert->next_in_partition) {
+        // prev is NULL, at head of a non-empty list
+        assert(local_partition_lists[partition] == vert);
+        local_partition_lists[partition] = vert->next_in_partition;
+        local_partition_lists[partition]->prev_in_partition = NULL;
+    } else if (vert->prev_in_partition) {
+        // next is NULL, at tail of a non-empty list
+        vert->prev_in_partition->next_in_partition = NULL;
+    } else { // both NULL
+        assert(local_partition_lists[partition] == vert);
+        // Only entry in list
+        local_partition_lists[partition] = NULL;
+    }
 
     hvr_free_vertices(vert, 1, ctx);
 }

@@ -324,6 +324,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_t terminated_pes;
 
     hvr_partition_t *interacting;
+
+    hvr_vertex_t *recently_created;
 } hvr_internal_ctx_t;
 
 /*
