@@ -75,7 +75,7 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=270
+export MAX_NUM_TIMESTEPS=300
 export INFECTION_RADIUS=100
 
 export HVR_SYMM_POOL_SIZE=2084000
@@ -125,7 +125,9 @@ echo ""
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/mailbox_test
 # oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
 
-srun $SLURM_ARGS /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
+# srun -n 2 $HOME/hoover/bin/complex_interact
+srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
+# srun $SLURM_ARGS $HOME/hoover/bin/init_test 1000
 
 # Edge microbenchmarks
 # srun -n 1 $HOME/hoover/bin/hvr_map_microbenchmark

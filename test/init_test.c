@@ -76,14 +76,12 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      * neighbors are.
      */
     if (hvr_vertex_get(2, vertex, ctx) == 0.0) {
-        hvr_map_val_list_t neighbors;
-        int n_neighbors = hvr_get_neighbors(vertex, &neighbors, ctx);
+        hvr_vertex_t **verts;
+        hvr_edge_type_t *dirs;
+        int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
 
         for (int i = 0; i < n_neighbors; i++) {
-            hvr_edge_info_t edge_info = hvr_map_val_list_get(i,
-                    &neighbors).edge_info;
-            hvr_vertex_id_t id = EDGE_INFO_VERTEX(edge_info);
-            hvr_vertex_t *neighbor = hvr_get_vertex(id, ctx);
+            hvr_vertex_t *neighbor = verts[i];
             if (hvr_vertex_get(2, neighbor, ctx)) {
                 const int infected_by = hvr_vertex_get_owning_pe(neighbor);
                 hvr_set_insert(infected_by, couple_with);
@@ -189,8 +187,9 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     if ((int)hvr_vertex_get(0, global_coupled_metric, ctx) ==
             grid_dim * grid_dim) {
         assert(n_coupled_pes == shmem_n_pes());
-        fprintf(stderr, "PE %d leaving the simulation, %u / %u cells infected. "
-                "%u coupled out of %u PEs\n", shmem_my_pe(),
+        fprintf(stderr, "PE %d leaving the simulation after %u iterations, "
+                "%u / %u cells infected. "
+                "%u coupled out of %u PEs\n", shmem_my_pe(), ctx->iter,
                 (int)hvr_vertex_get(0, global_coupled_metric, ctx),
                 grid_dim * grid_dim, n_coupled_pes, shmem_n_pes());
         return 1;
@@ -285,7 +284,7 @@ int main(int argc, char **argv) {
             NULL, // start_time_step
             should_have_edge,
             should_terminate,
-            480, // max_elapsed_seconds
+            300, // max_elapsed_seconds
             1, // max_graph_traverse_depth
             hvr_ctx);
 
@@ -301,9 +300,10 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     if (pe == 0) {
-        fprintf(stderr, "%d PEs, total CPU time = %f ms, max elapsed = %f ms, ~%u cells "
-                "per PE\n", npes, (double)total_time / 1000.0,
-                (double)max_elapsed / 1000.0, cells_per_pe);
+        fprintf(stderr, "%d PEs, total CPU time = %f ms, max elapsed = %f ms, "
+                "~%u cells per PE\n", npes,
+                (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
+                cells_per_pe);
     }
 
     hvr_finalize(hvr_ctx);
