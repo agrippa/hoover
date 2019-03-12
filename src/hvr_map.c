@@ -359,6 +359,17 @@ void hvr_map_remove(hvr_vertex_id_t key, hvr_map_val_t val,
 
             *copy_to = *copy_from;
             seg->data[seg_index].length = nvals - 1;
+
+            if (seg->data[seg_index].length == 0) {
+                // If we drop to zero values, remove key from map.
+                unsigned copy_to = seg_index;
+                unsigned copy_from = seg->nkeys - 1;
+
+                seg->keys[copy_to] = seg->keys[copy_from];
+                memcpy(&(seg->data[copy_to]), &(seg->data[copy_from]),
+                        sizeof(seg->data[0]));
+                seg->nkeys -= 1;
+            }
         }
     }
 }

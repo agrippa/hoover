@@ -5,12 +5,6 @@
 #include "hoover.h"
 #include "hvr_vertex_pool.h"
 
-extern void send_updates_to_all_subscribed_pes(hvr_vertex_t *vert,
-        int is_delete,
-        process_perf_info_t *perf_info,
-        unsigned long long *time_sending,
-        hvr_internal_ctx_t *ctx);
-
 hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     hvr_vertex_t *allocated = hvr_alloc_vertices(1, ctx);
@@ -38,7 +32,8 @@ void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
 
     // Notify others of the deletion
     unsigned long long unused;
-    send_updates_to_all_subscribed_pes(vert, 1, NULL, &unused, ctx);
+    hvr_partition_t part = wrap_actor_to_partition(vert, ctx);
+    send_updates_to_all_subscribed_pes(vert, part, 0, 1, NULL, &unused, ctx);
 
     // Remove from local partition lists
     hvr_partition_t partition = ctx->actor_to_partition(vert, ctx);
@@ -81,6 +76,7 @@ void hvr_vertex_init(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     // Should be sent and processed
     vert->needs_processing = 1;
     vert->needs_send = 1;
+    vert->curr_part = HVR_INVALID_PARTITION;
 }
 
 void hvr_vertex_dump(hvr_vertex_t *vert, char *buf, const size_t buf_size,

@@ -30,9 +30,9 @@
 int max_modeled_timestep = 0;
 size_t n_local_actors = 0;
 uint64_t total_n_actors = 0;
-static unsigned time_partition_dim = 0;
-static unsigned y_partition_dim = 0;
-static unsigned x_partition_dim = 0;
+static unsigned n_time_partition = 0;
+static unsigned n_y_partition = 0;
+static unsigned n_x_partition = 0;
 
 typedef struct _portal_t {
     int pes[2];
@@ -67,16 +67,6 @@ static double distance(double x1, double y1, double x2, double y2) {
     return sqrt((deltay * deltay) + (deltax * deltax));
 }
 
-static double random_double_in_range(double min_val_inclusive,
-        double max_val_exclusive) {
-    return min_val_inclusive + (((double)rand() / (double)RAND_MAX) *
-            (max_val_exclusive - min_val_inclusive));
-}
-
-static int random_int_in_range(int max_val) {
-    return (rand() % max_val);
-}
-
 hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
         hvr_ctx_t ctx) {
     /*
@@ -89,21 +79,44 @@ hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
     int base_time = (int)hvr_vertex_get(TIME_STEP, base, ctx);
     int neighbor_time = (int)hvr_vertex_get(TIME_STEP, neighbor, ctx);
 
-    if (base_id == neighbor_id && base_time + 1 == neighbor_time) {
-        return DIRECTED_OUT;
+    if (base_id == neighbor_id) {
+        if (base_time == neighbor_time + 1) {
+            // fprintf(stderr, "Computing edges %d @ %d and %d @ %d | "
+            //         "DIRECTED_IN\n", base_id, base_time, neighbor_id,
+            //         neighbor_time);
+            return DIRECTED_IN;
+        } else if (neighbor_time == base_time + 1) {
+            // fprintf(stderr, "Computing edges %d @ %d and %d @ %d | "
+            //         "DIRECTED_OUT\n", base_id, base_time, neighbor_id,
+            //         neighbor_time);
+            return DIRECTED_OUT;
+        }
     }
 
-    if (base_time > 0 && base_time - 1 == neighbor_time) {
+    int delta_time = abs(base_time - neighbor_time);
+    if (delta_time == 1) {
         double deltax = hvr_vertex_get(PX, neighbor, ctx) -
             hvr_vertex_get(PX, base, ctx);
         double deltay = hvr_vertex_get(PY, neighbor, ctx) -
             hvr_vertex_get(PY, base, ctx);
         if (deltax * deltax + deltay * deltay <=
                 infection_radius * infection_radius) {
-            return DIRECTED_IN;
+            if (base_time < neighbor_time) {
+                // fprintf(stderr, "Computing edges %d @ %d and %d @ %d | "
+                //         "DIRECTED_OUT\n",
+                //         base_id, base_time, neighbor_id, neighbor_time);
+                return DIRECTED_OUT;
+            } else {
+                // fprintf(stderr, "Computing edges %d @ %d and %d @ %d | "
+                //         "DIRECTED_IN\n",
+                //         base_id, base_time, neighbor_id, neighbor_time);
+                return DIRECTED_IN;
+            }
         }
     }
 
+    // fprintf(stderr, "Computing edges %d @ %d and %d @ %d | NO_EDGE\n",
+    //         base_id, base_time, neighbor_id, neighbor_time);
     return NO_EDGE;
 }
 
@@ -120,20 +133,20 @@ hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
     assert(y < global_y_dim);
 
     const double partition_time_step = (double)max_num_timesteps /
-        (double)time_partition_dim;
-    const double partition_y_dim = global_y_dim / (double)y_partition_dim;
-    const double partition_x_dim = global_x_dim / (double)x_partition_dim;
+        (double)n_time_partition;
+    const double partition_y_dim = global_y_dim / (double)n_y_partition;
+    const double partition_x_dim = global_x_dim / (double)n_x_partition;
 
     const int time_step_partition = (int)(timestep / partition_time_step);
     const int y_partition = (int)(y / partition_y_dim);
     const int x_partition = (int)(x / partition_x_dim);
 
-    assert(time_step_partition < time_partition_dim);
-    assert(x_partition < x_partition_dim);
-    assert(y_partition < y_partition_dim);
+    assert(time_step_partition < n_time_partition);
+    assert(x_partition < n_x_partition);
+    assert(y_partition < n_y_partition);
 
-    return time_step_partition * y_partition_dim * x_partition_dim +
-        y_partition * x_partition_dim + x_partition;
+    return time_step_partition * n_y_partition * n_x_partition +
+        y_partition * n_x_partition + x_partition;
 }
 
 static void compute_next_pos(double p_x, double p_y,
@@ -306,17 +319,17 @@ void might_interact(const hvr_partition_t partition,
     const double global_y_dim = (double)pe_rows * cell_dim;
 
     // Dimension of each partition in the row, column, time directions
-    double y_dim = global_y_dim / (double)y_partition_dim;
-    double x_dim = global_x_dim / (double)x_partition_dim;
-    double time_dim = (double)max_num_timesteps / (double)time_partition_dim;
+    double y_dim = global_y_dim / (double)n_y_partition;
+    double x_dim = global_x_dim / (double)n_x_partition;
+    double time_dim = (double)max_num_timesteps / (double)n_time_partition;
 
     /*
      * For the given partition, the (time, row, column) coordinate of this
      * partition in a 2D space.
      */
-    unsigned partition_time = partition / (y_partition_dim * x_partition_dim);
-    unsigned partition_y = (partition / x_partition_dim) % y_partition_dim;
-    unsigned partition_x = partition % x_partition_dim;
+    unsigned partition_time = partition / (n_y_partition * n_x_partition);
+    unsigned partition_y = (partition / n_x_partition) % n_y_partition;
+    unsigned partition_x = partition % n_x_partition;
 
     double min_time = (double)partition_time * time_dim;
     double max_time = min_time + time_dim;
@@ -350,26 +363,32 @@ void might_interact(const hvr_partition_t partition,
     if (min_time < 0.0) min_partition_time = 0;
     else min_partition_time = (int)(min_time / time_dim);
 
-    if (max_y >= (double)global_y_dim) max_partition_y = y_partition_dim - 1;
+    if (max_y >= (double)global_y_dim) max_partition_y = n_y_partition - 1;
     else max_partition_y = (int)(max_y / y_dim);
 
-    if (max_x >= (double)global_x_dim) max_partition_x = x_partition_dim - 1;
+    if (max_x >= (double)global_x_dim) max_partition_x = n_x_partition - 1;
     else max_partition_x = (int)(max_x / x_dim);
  
     if (max_time >= (double)max_num_timesteps) max_partition_time =
-        time_partition_dim - 1;
+        n_time_partition - 1;
     else max_partition_time = (int)(max_time / time_dim);
 
     assert(min_partition_y <= max_partition_y);
     assert(min_partition_x <= max_partition_x);
     assert(min_partition_time <= max_partition_time);
 
+    // fprintf(stderr, "computing interacting for part = (%u, %u, %u)\n",
+    //         partition_time, partition_y, partition_x);
+
     unsigned count_interacting_partitions = 0;
     for (unsigned t = min_partition_time; t <= max_partition_time; t++) {
         for (unsigned r = min_partition_y; r <= max_partition_y; r++) {
             for (unsigned c = min_partition_x; c <= max_partition_x; c++) {
-                const unsigned part = t * y_partition_dim * x_partition_dim +
-                    r * x_partition_dim + c;
+                // fprintf(stderr, "part = (%u, %u, %u) interacts with (%u, %u, "
+                //         "%u)\n", partition_time, partition_y, partition_x,
+                //         t, r, c);
+                const unsigned part = t * n_y_partition * n_x_partition +
+                    r * n_x_partition + c;
                 if (count_interacting_partitions >= interacting_partitions_capacity) {
                     fprintf(stderr, "time = (%d, %d) y = (%d, %d) x = (%d, %d) "
                             "current count = %u, capacity = %u\n",
@@ -422,16 +441,23 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         sum_updates += updates_on_this_iter[i];
     }
 
-    unsigned nset = (unsigned)hvr_vertex_get(0, local_coupled_metric, ctx);
-    if (nset > 0) {
-        printf("PE %d - iter %lu - local set %u / %lu - # coupled = %d - "
-                "global set %u / %u - %u vertex updates\n",
+    unsigned local_nset = (unsigned)hvr_vertex_get(0, local_coupled_metric,
+            ctx);
+    unsigned global_nset = (unsigned)hvr_vertex_get(0,
+            global_coupled_metric, ctx);
+    unsigned global_nverts = (unsigned)hvr_vertex_get(1,
+            global_coupled_metric, ctx);
+    if (local_nset > 0) {
+        printf("PE %d - iter %lu - local set %u / %lu (%.2f%%)- # coupled = %d "
+                "- global set %u / %u (%.2f%%) - %u vertex updates\n",
                 pe,
                 (uint64_t)ctx->iter,
-                nset, n_local_actors,
+                local_nset, n_local_actors,
+                100.0 * (double)local_nset / (double)n_local_actors,
                 n_coupled_pes,
-                (unsigned)hvr_vertex_get(0, global_coupled_metric, ctx),
-                (unsigned)hvr_vertex_get(1, global_coupled_metric, ctx),
+                global_nset,
+                global_nverts,
+                100.0 * (double)global_nset / (double)global_nverts,
                 sum_updates);
     }
 
@@ -442,9 +468,14 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
             int ninfected = (int)hvr_vertex_get(0, local_coupled_metric, ctx);
             double percent_infected = (double)ninfected /
                 (double)n_local_actors;
-            printf("PE %d leaving the simulation, %% infected = %f "
-                    "(%d / %lu)\n", shmem_my_pe(), 100.0 * percent_infected,
-                    ninfected, n_local_actors);
+            double global_percent_infected = 100.0 * (double)global_nset /
+                (double)global_nverts;
+            printf("PE %d leaving the simulation, %% local infected = %f "
+                    "(%d / %lu), %% global infected = %f (%u / %u)\n",
+                    shmem_my_pe(),
+                    100.0 * percent_infected,
+                    ninfected, n_local_actors,
+                    global_percent_infected, global_nset, global_nverts);
             aborting = 1;
         }
     }
@@ -481,11 +512,11 @@ int main(int argc, char **argv) {
     int time_limit = atoi(argv[6]);
     char *input_filename = argv[7];
 
-    time_partition_dim = max_num_timesteps;
-    y_partition_dim = 200;
-    x_partition_dim = 200;
-    hvr_partition_t npartitions = time_partition_dim * y_partition_dim *
-        x_partition_dim;
+    n_time_partition = max_num_timesteps;
+    n_y_partition = 200;
+    n_x_partition = 200;
+    hvr_partition_t npartitions = n_time_partition * n_y_partition *
+        n_x_partition;
 
     const double global_x_dim = (double)pe_cols * cell_dim;
     const double global_y_dim = (double)pe_rows * cell_dim;
@@ -501,8 +532,6 @@ int main(int argc, char **argv) {
     assert(npes == pe_rows * pe_cols);
 
     hvr_ctx_create(&hvr_ctx);
-
-    srand(123 + pe);
 
     const double my_cell_start_x = PE_COL_CELL_START(pe);
     const double my_cell_end_x = my_cell_start_x + cell_dim;
@@ -588,7 +617,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Running for at most %d seconds\n", time_limit);
         fprintf(stderr, "Using %u partitions (%u time partitions * %u y "
                 "partitions * %u x partitions)\n", npartitions,
-                time_partition_dim, y_partition_dim, x_partition_dim);
+                n_time_partition, n_y_partition, n_x_partition);
         fprintf(stderr, "Loading input from %s\n", input_filename);
         fprintf(stderr, "~%lu actors per PE x %d PEs x %u timesteps = %lu "
                 "vertices across all PEs (~%f vertices per PE)\n",
@@ -635,16 +664,31 @@ int main(int argc, char **argv) {
         }
     }
 
+    uint64_t *msgs_sent = (uint64_t *)shmem_malloc(
+            npes * sizeof(*msgs_sent));
+    assert(msgs_sent);
+    uint64_t *msgs_recv = (uint64_t *)shmem_malloc(
+            npes * sizeof(*msgs_recv));
+    assert(msgs_recv);
     int *modeled_timesteps = (int *)shmem_malloc(
             npes * sizeof(*modeled_timesteps));
     assert(modeled_timesteps);
+
     shmem_int_put(modeled_timesteps + pe, &max_modeled_timestep, 1, 0);
+    shmem_uint64_put(msgs_sent + pe, &(hvr_ctx->total_vertex_msgs_sent), 1, 0);
+    shmem_uint64_put(msgs_recv + pe, &(hvr_ctx->total_vertex_msgs_recvd), 1, 0);
+
     shmem_barrier_all();
+
+    uint64_t total_msgs_sent = msgs_sent[0];
+    uint64_t total_msgs_recv = msgs_recv[0];
     int all_max_modeled_timestep = modeled_timesteps[0];
     for (int p = 1; p < npes; p++) {
         if (modeled_timesteps[p] < all_max_modeled_timestep) {
             all_max_modeled_timestep = modeled_timesteps[p];
         }
+        total_msgs_sent += msgs_sent[p];
+        total_msgs_recv += msgs_recv[p];
     }
 
     if (pe == 0) {
@@ -653,6 +697,8 @@ int main(int argc, char **argv) {
                 "iters\n", npes, max_num_timesteps, infection_radius,
                 (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
                 n_local_actors, hvr_ctx->iter);
+        printf("In total %llu msgs sent, %llu msgs received\n", total_msgs_sent,
+                total_msgs_recv);
         printf("Max modeled timestep across all PEs = %d, # vertices on PE 0 = "
                 "%lu\n", all_max_modeled_timestep, hvr_n_allocated(hvr_ctx));
         for (int p = 0; p < npes; p++) {

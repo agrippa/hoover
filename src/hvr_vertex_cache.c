@@ -72,12 +72,12 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
     }
 }
 
-void hvr_vertex_cache_delete(hvr_vertex_t *vert, hvr_vertex_cache_t *cache) {
-    hvr_vertex_cache_node_t *node = hvr_vertex_cache_lookup(vert->id, cache);
+void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *node,
+        hvr_vertex_cache_t *cache) {
     assert(node);
 
     hvr_map_val_t to_remove = {.cached_vert = node};
-    hvr_map_remove(vert->id, to_remove, &cache->cache_map);
+    hvr_map_remove(node->vert.id, to_remove, &cache->cache_map);
 
     // Remove from partitions list
     linked_list_remove_helper(node, node->part_prev, node->part_next,

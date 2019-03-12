@@ -8,7 +8,7 @@
 
 #include <hoover.h>
 
-unsigned N = 100;
+unsigned N = 10000;
 int pe, npes;
 
 hvr_partition_t actor_to_partition(hvr_vertex_t *vertex, hvr_ctx_t ctx) {
@@ -84,7 +84,7 @@ void might_interact(const hvr_partition_t partition,
     } else {
         // Partition on PE 1
         assert(partition >= N && partition < 2 * N);
-        *n_interacting_partitions = partition - 100 + 1;
+        *n_interacting_partitions = partition - N + 1;
         assert(*n_interacting_partitions <= interacting_partitions_capacity);
         for (int i = 0; i < *n_interacting_partitions; i++) {
             interacting_partitions[i] = i;
@@ -150,7 +150,12 @@ int main(int argc, char **argv) {
 
     if (pe == 1) {
         assert((unsigned)hvr_vertex_get(0, vertices, hvr_ctx) == N);
-        assert((unsigned)hvr_vertex_get(0, vertices, hvr_ctx) == N);
+        if ((unsigned)hvr_vertex_get(1, vertices, hvr_ctx) != N) {
+            fprintf(stderr, "ERROR: Expected %u, got %u\n", N,
+                    (unsigned)hvr_vertex_get(1, vertices, hvr_ctx));
+        } else {
+            printf("SUCCESS\n");
+        }
     }
 
     hvr_finalize(hvr_ctx);

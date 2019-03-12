@@ -95,7 +95,9 @@ typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_vertex_t *actor,
 
 /*
  * API for checking if two vertices should have an edge between them, based on
- * application-specific logic.
+ * application-specific logic. This function must be symmetric. That is, given
+ * any two vertices A and B, the return value of should_have_edge(A, B) must be
+ * the inverse of should_have_edge(B, A).
  */
 typedef hvr_edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
         hvr_vertex_t *candidate, hvr_ctx_t ctx);
@@ -106,6 +108,7 @@ typedef hvr_edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
 #define VERT_PER_UPDATE 16
 typedef struct _hvr_vertex_update_t {
     hvr_vertex_t verts[VERT_PER_UPDATE];
+    uint8_t is_invalidation[VERT_PER_UPDATE];
     unsigned len;
 } hvr_vertex_update_t;
 
@@ -329,6 +332,9 @@ typedef struct _hvr_internal_ctx_t {
     hvr_partition_t *interacting;
 
     hvr_vertex_t *recently_created;
+
+    uint64_t total_vertex_msgs_sent;
+    uint64_t total_vertex_msgs_recvd;
 } hvr_internal_ctx_t;
 
 /*
@@ -377,6 +383,23 @@ extern int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
         hvr_edge_type_t **out_dirs, hvr_ctx_t in_ctx);
 
 extern hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t ctx);
+
+// Not for application use
+extern void send_updates_to_all_subscribed_pes(
+        hvr_vertex_t *vert,
+        hvr_partition_t part,
+        int is_invalidation,
+        int is_delete,
+        process_perf_info_t *perf_info,
+        unsigned long long *time_sending,
+        hvr_internal_ctx_t *ctx);
+
+static inline hvr_partition_t wrap_actor_to_partition(hvr_vertex_t *vec,
+        hvr_internal_ctx_t *ctx) {
+    hvr_partition_t partition = ctx->actor_to_partition(vec, ctx);
+    assert(partition < ctx->n_partitions);
+    return partition;
+}
 
 #ifdef __cplusplus
 }

@@ -57,6 +57,8 @@ void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
             vec->symm_vec + ((coord0_offset * vec->dim1_length_in_words) +
             coord1_word), coord1_mask, coord0_pe);
 
+    shmem_fence();
+
     shmem_uint64_atomic_inc(vec->seq_nos + coord0_offset, coord0_pe);
 }
 
@@ -74,6 +76,8 @@ void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
     shmem_uint64_atomic_and(
             vec->symm_vec + (coord0_offset * vec->dim1_length_in_words) +
             coord1_word, coord1_mask, coord0_pe);
+
+    shmem_fence();
 
     shmem_uint64_atomic_inc(vec->seq_nos + coord0_offset, coord0_pe);
 }

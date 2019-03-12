@@ -192,7 +192,7 @@ extern hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
 extern hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         hvr_partition_t part, hvr_vertex_cache_t *cache);
 
-extern void hvr_vertex_cache_delete(hvr_vertex_t *vert,
+extern void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *vert,
         hvr_vertex_cache_t *cache);
 
 extern void hvr_vertex_cache_update_partition(hvr_vertex_cache_node_t *existing,

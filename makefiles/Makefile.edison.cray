@@ -10,7 +10,7 @@ all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge
 	bin/infectious_test bin/write_lock_stress \
 	bin/test_vertex_id bin/edge_info_test bin/add_vertices_test bin/mailbox_test \
 	bin/remove_vertices_test bin/intrusion_detection bin/hvr_dist_bitvec_test \
-	bin/pas bin/coupled_test bin/dummy_shmem_test bin/complex_interact
+	bin/pas bin/coupled_test bin/dummy_shmem_test bin/complex_interact bin/stale_state
 
 bin/libhoover.a: src/hoover.c \
 	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c \
@@ -42,6 +42,14 @@ bin/libhoover.a: src/hoover.c \
 
 bin/generate_vertices: test/generate_vertices.c
 	$(CC) -O0 -g $^ -o $@ -std=c99
+
+bin/stale_state: test/stale_state.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/stale_state.c -o bin/stale_state.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/stale_state.o -o $@ -l:libhoover.a -lm -lpthread
+
+bin/complex_interact2: test/complex_interact2.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/complex_interact2.c -o bin/complex_interact2.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/complex_interact2.o -o $@ -l:libhoover.a -lm -lpthread
 
 bin/complex_interact: test/complex_interact.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/complex_interact.c -o bin/complex_interact.o
