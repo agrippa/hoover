@@ -449,7 +449,7 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
             global_coupled_metric, ctx);
     if (local_nset > 0) {
         printf("PE %d - iter %lu - local set %u / %lu (%.2f%%)- # coupled = %d "
-                "- global set %u / %u (%.2f%%) - %u vertex updates\n",
+                "- global set %u / %u (%.2f%%) - %u vertex updates globally\n",
                 pe,
                 (uint64_t)ctx->iter,
                 local_nset, n_local_actors,

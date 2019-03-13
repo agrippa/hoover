@@ -47,7 +47,6 @@ typedef struct _profiling_info_t {
     unsigned n_updates_sent;
     process_perf_info_t perf_info;
     unsigned long long time_updating_partitions;
-    unsigned long long time_updating_producers;
     unsigned long long time_updating_subscribers;
     unsigned long long dead_pe_time;
     unsigned long long time_sending;
@@ -474,7 +473,6 @@ static void handle_new_unsubscription(hvr_partition_t p,
 
 static void update_partition_time_window(hvr_internal_ctx_t *ctx,
         unsigned long long *out_time_updating_partitions,
-        unsigned long long *out_time_updating_producers,
         unsigned long long *out_time_updating_subscribers,
         unsigned long long *out_time_spent_processing_dead_pes) {
     unsigned long long time_spent_processing_dead_pes = 0;
@@ -517,21 +515,18 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
 
     const unsigned long long after_part_updates = hvr_current_time_us();
 
-    /*
-     * For all partitions, check if our producer relationship to any of them has
-     * changed on this iteration. If it has, notify the global registry of that.
-     */
+    // For each partition
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
+        /*
+         * For all partitions, check if our producer relationship to any of them
+         * has changed on this iteration. If it has, notify the global registry
+         * of that.
+         */
         update_partition_info(p,
                 ctx->new_producer_partition_time_window,
                 ctx->producer_partition_time_window,
                 &ctx->partition_producers, ctx);
-    }
 
-    const unsigned long long after_producer_updates = hvr_current_time_us();
-
-    // For each partition
-    for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
         const int old_sub = hvr_set_contains(p,
                 ctx->subscriber_partition_time_window);
         if (hvr_set_contains(p, ctx->new_subscriber_partition_time_window)) {
@@ -587,8 +582,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
 
     *out_time_spent_processing_dead_pes = time_spent_processing_dead_pes;
     *out_time_updating_partitions = after_part_updates - start;
-    *out_time_updating_producers = after_producer_updates - after_part_updates;
-    *out_time_updating_subscribers = end - after_producer_updates;
+    *out_time_updating_subscribers = end - after_part_updates;
 }
 
 void hvr_init(const hvr_partition_t n_partitions,
@@ -2301,7 +2295,6 @@ static void save_profiling_info(
         unsigned n_updates_sent,
         process_perf_info_t *perf_info,
         unsigned long long time_updating_partitions,
-        unsigned long long time_updating_producers,
         unsigned long long time_updating_subscribers,
         unsigned long long dead_pe_time,
         unsigned long long time_sending,
@@ -2344,7 +2337,6 @@ static void save_profiling_info(
     memcpy(&saved_profiling_info[n_profiled_iters].perf_info,
             perf_info, sizeof(*perf_info));
     saved_profiling_info[n_profiled_iters].time_updating_partitions = time_updating_partitions;
-    saved_profiling_info[n_profiled_iters].time_updating_producers = time_updating_producers;
     saved_profiling_info[n_profiled_iters].time_updating_subscribers = time_updating_subscribers;
     saved_profiling_info[n_profiled_iters].dead_pe_time = dead_pe_time;
     saved_profiling_info[n_profiled_iters].time_sending = time_sending;
@@ -2403,10 +2395,9 @@ static void print_profiling_info(profiling_info_t *info) {
     fprintf(profiling_fp, "  update actor partitions %f\n",
             (double)(info->end_update_partitions - info->end_update_dist) / 1000.0);
     fprintf(profiling_fp, "  update partition window %f - update time = "
-            "(parts=%f producers=%f subscribers=%f) dead PE time %f\n",
+            "(parts=%f subscribers=%f) dead PE time %f\n",
             (double)(info->end_partition_window - info->end_update_partitions) / 1000.0,
             (double)info->time_updating_partitions / 1000.0,
-            (double)info->time_updating_producers / 1000.0,
             (double)info->time_updating_subscribers / 1000.0,
             (double)info->dead_pe_time / 1000.0);
     fprintf(profiling_fp, "  update neighbors %f\n",
@@ -2599,10 +2590,9 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      * update_partition_time_window in the global registry.
      */
     unsigned long long dead_pe_time, time_updating_partitions,
-                  time_updating_producers, time_updating_subscribers;
+                  time_updating_subscribers;
     update_partition_time_window(ctx, &time_updating_partitions,
-            &time_updating_producers, &time_updating_subscribers,
-            &dead_pe_time);
+            &time_updating_subscribers, &dead_pe_time);
     const unsigned long long end_partition_window = hvr_current_time_us();
 
     /*
@@ -2669,7 +2659,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 n_updates_sent,
                 &perf_info,
                 time_updating_partitions,
-                time_updating_producers,
                 time_updating_subscribers,
                 dead_pe_time,
                 time_sending,
@@ -2729,8 +2718,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long end_update_partitions = hvr_current_time_us();
 
         update_partition_time_window(ctx, &time_updating_partitions,
-            &time_updating_producers, &time_updating_subscribers,
-            &dead_pe_time);
+            &time_updating_subscribers, &dead_pe_time);
 
         const unsigned long long end_partition_window = hvr_current_time_us();
 
@@ -2774,7 +2762,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     n_updates_sent,
                     &perf_info,
                     time_updating_partitions,
-                    time_updating_producers,
                     time_updating_subscribers,
                     dead_pe_time,
                     time_sending,

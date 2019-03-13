@@ -116,7 +116,7 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
     --cpu-freq=High \
     --mem-bind=local"
 export EXE_ARGS="$CELL_DIM $PE_ROWS $PE_COLS $MAX_NUM_TIMESTEPS \
-    $INFECTION_RADIUS 480 $SCRATCH/491520-vert.16000-y.32000-x.1-infected.bin"
+    $INFECTION_RADIUS 540 $SCRATCH/491520-vert.16000-y.32000-x.1-infected.bin"
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""
