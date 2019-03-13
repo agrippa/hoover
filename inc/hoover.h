@@ -310,11 +310,6 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_msg_buf_pool_t msg_buf_pool;
 
-#if 0
-    hvr_msg_buf_node_t *buffered_msgs;
-    unsigned n_buffered_msgs;
-#endif
-
 #define N_VERTICES_PER_BUF 10240
     hvr_partition_t *vert_partition_buf;
 
