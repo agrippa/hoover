@@ -3,7 +3,18 @@
 import os
 import sys
 
-def read_trace_file(fp):
+def edge_key(e):
+    if e['dir'] == 'IN':
+        return (-1, e['pe'], e['offset'])
+    elif e['dir'] == 'BIDIRECTIONAL':
+        return (0, e['pe'], e['offset'])
+    elif e['dir'] == 'OUT':
+        return (1, e['pe'], e['offset'])
+    else:
+        assert False
+
+
+def read_edge_trace_file(fp):
     records = {}
     for line in fp:
         tokens = line.split(',')
@@ -23,6 +34,8 @@ def read_trace_file(fp):
                           'pe': int(t[1]),
                           'offset': int(t[2])})
 
+        edges.sort(key = edge_key)
+
         assert vec_id not in records
         records[vec_id] = {'iter': it,
                            'pe': pe,
@@ -30,7 +43,7 @@ def read_trace_file(fp):
                            'edges': edges}
     return records
 
-def is_equal(r1, r2):
+def edges_are_equal(r1, r2):
     edges1 = r1['edges']
     edges2 = r2['edges']
 
@@ -49,28 +62,30 @@ def is_equal(r1, r2):
             return False
     return True
 
-def record_to_str(r):
-    return '{PE=' + str(r['pe']) + ', ID=' + str(r['vec_id']) + ', EDGES=' + \
-            str(r['edges']) + '}'
+def edges_to_str(r):
+    edge_str = '\n'.join(['    ' + str(e['dir']) + ' ' + str(e['pe']) + ' ' + str(e['offset']) for e in r['edges']])
+    return '{PE=' + str(r['pe']) + ', ID=' + str(r['vec_id']) + ', EDGES=\n' + \
+            edge_str + '}'
 
-if len(sys.argv) != 3:
-    sys.stderr.write('usage: python compare_edge_traces.py file1 file2\n')
-    sys.exit(1)
+if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        sys.stderr.write('usage: python compare_edge_traces.py file1 file2\n')
+        sys.exit(1)
 
-fp1 = open(sys.argv[1], 'r')
-fp2 = open(sys.argv[2], 'r')
+    fp1 = open(sys.argv[1], 'r')
+    fp2 = open(sys.argv[2], 'r')
 
-records1 = read_trace_file(fp1)
-print('Loaded ' + str(len(records1)) + ' records from ' + sys.argv[1])
-records2 = read_trace_file(fp2)
-print('Loaded ' + str(len(records2)) + ' records from ' + sys.argv[2])
+    records1 = read_edge_trace_file(fp1)
+    print('Loaded ' + str(len(records1)) + ' records from ' + sys.argv[1])
+    records2 = read_edge_trace_file(fp2)
+    print('Loaded ' + str(len(records2)) + ' records from ' + sys.argv[2])
 
-for r1_id in records1.keys():
-    r1 = records1[r1_id]
-    r2 = records2[r1_id]
+    for r1_id in records1.keys():
+        r1 = records1[r1_id]
+        r2 = records2[r1_id]
 
-    if not is_equal(r1, r2):
-        print(record_to_str(r1))
-        print(record_to_str(r2))
-        print('')
+        if not edges_are_equal(r1, r2):
+            print(edges_to_str(r1))
+            print(edges_to_str(r2))
+            print('')
 

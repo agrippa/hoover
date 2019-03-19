@@ -23,7 +23,7 @@ void hvr_set_msg_send(int dst_pe, int src_pe, hvr_time_t iter, int metadata,
     memcpy(msg->msg_buf + 1, msg->set->bit_vector,
             msg->set->bit_vector_len * sizeof(bit_vec_element_type));
 
-    hvr_mailbox_send(msg->msg_buf, msg->msg_buf_len, dst_pe, -1, mailbox, NULL);
+    hvr_mailbox_send(msg->msg_buf, msg->msg_buf_len, dst_pe, -1, mailbox);
 }
 
 void hvr_set_msg_copy(hvr_set_t *dst, hvr_internal_set_msg_t *msg) {

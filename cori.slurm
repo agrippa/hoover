@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:20:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -89,6 +89,7 @@ export HVR_EDGES_POOL_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1
+# export HVR_CACHE_TRACE_DUMP=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
 # export HVR_HANG_ABORT=300
@@ -115,8 +116,8 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
     --cpu_bind=verbose,cores \
     --cpu-freq=High \
     --mem-bind=local"
-export EXE_ARGS="$CELL_DIM $PE_ROWS $PE_COLS $MAX_NUM_TIMESTEPS \
-    $INFECTION_RADIUS 540 $SCRATCH/491520-vert.16000-y.32000-x.1-infected.bin"
+export EXE_ARGS="$CELL_DIM $CELL_DIM $PE_ROWS $PE_COLS $MAX_NUM_TIMESTEPS \
+    $INFECTION_RADIUS 600 $SCRATCH/491520-vert.16000-y.32000-x.1-infected.bin"
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""

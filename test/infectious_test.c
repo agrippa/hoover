@@ -19,13 +19,13 @@
 #define NEXT_CREATED 7
 
 #define PORTAL_CAPTURE_RADIUS 5.0
-#define PE_ROW(this_pe) ((this_pe) / pe_cols)
-#define PE_COL(this_pe) ((this_pe) % pe_cols)
-#define PE_ROW_CELL_START(this_pe) ((double)PE_ROW(this_pe) * cell_dim)
-#define PE_COL_CELL_START(this_pe) ((double)PE_COL(this_pe) * cell_dim)
-#define CELL_ROW(y_coord) ((y_coord) / cell_dim)
-#define CELL_COL(x_coord) ((x_coord) / cell_dim)
-#define CELL_INDEX(cell_row, cell_col) ((cell_row) * pe_cols + (cell_col))
+#define PE_ROW(this_pe) ((this_pe) / n_cells_x)
+#define PE_COL(this_pe) ((this_pe) % n_cells_x)
+#define PE_ROW_CELL_START(this_pe) ((double)PE_ROW(this_pe) * cell_dim_y)
+#define PE_COL_CELL_START(this_pe) ((double)PE_COL(this_pe) * cell_dim_x)
+#define CELL_ROW(y_coord) ((y_coord) / cell_dim_y)
+#define CELL_COL(x_coord) ((x_coord) / cell_dim_x)
+#define CELL_INDEX(cell_row, cell_col) ((cell_row) * n_cells_x + (cell_col))
 
 int max_modeled_timestep = 0;
 size_t n_local_actors = 0;
@@ -42,8 +42,9 @@ typedef struct _portal_t {
 } portal_t;
 
 static int npes, pe;
-static int pe_rows, pe_cols;
-static double cell_dim;
+static int n_cells_y, n_cells_x;
+static double cell_dim_y;
+static double cell_dim_x;
 static double infection_radius;
 static int max_num_timesteps;
 
@@ -125,8 +126,8 @@ hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
     const double y = hvr_vertex_get(PY, actor, ctx);
     const double x = hvr_vertex_get(PX, actor, ctx);
 
-    const double global_y_dim = (double)pe_rows * cell_dim;
-    const double global_x_dim = (double)pe_cols * cell_dim;
+    const double global_y_dim = (double)n_cells_y * cell_dim_y;
+    const double global_x_dim = (double)n_cells_x * cell_dim_x;
 
     assert((int)timestep < max_num_timesteps);
     assert(x < global_x_dim);
@@ -172,8 +173,8 @@ static void compute_next_pos(double p_x, double p_y,
     double new_x = p_x + vx;
     double new_y = p_y + vy;
 
-    const double global_x_dim = (double)pe_cols * cell_dim;
-    const double global_y_dim = (double)pe_rows * cell_dim;
+    const double global_x_dim = (double)n_cells_x * cell_dim_x;
+    const double global_y_dim = (double)n_cells_y * cell_dim_y;
     if (new_x >= global_x_dim) new_x -= global_x_dim;
     if (new_y >= global_y_dim) new_y -= global_y_dim;
     if (new_x < 0.0) new_x += global_x_dim;
@@ -315,8 +316,8 @@ void might_interact(const hvr_partition_t partition,
         hvr_ctx_t ctx) {
 
     // The global dimensions of the full simulation space
-    const double global_x_dim = (double)pe_cols * cell_dim;
-    const double global_y_dim = (double)pe_rows * cell_dim;
+    const double global_x_dim = (double)n_cells_x * cell_dim_x;
+    const double global_y_dim = (double)n_cells_y * cell_dim_y;
 
     // Dimension of each partition in the row, column, time directions
     double y_dim = global_y_dim / (double)n_y_partition;
@@ -331,14 +332,13 @@ void might_interact(const hvr_partition_t partition,
     unsigned partition_y = (partition / n_x_partition) % n_y_partition;
     unsigned partition_x = partition % n_x_partition;
 
-    double min_time = (double)partition_time * time_dim;
-    double max_time = min_time + time_dim;
-
     // Get bounding box of partition in the grid coordinate system
     double min_y = (double)partition_y * y_dim;
     double max_y = min_y + y_dim;
     double min_x = (double)partition_x * x_dim;
     double max_x = min_x + x_dim;
+    double min_time = (double)partition_time * time_dim;
+    double max_time = min_time + time_dim;
 
     /*
      * Expand partition bounding box to include any possible points within
@@ -495,22 +495,23 @@ static int safe_fread(double *buf, size_t n_to_read, FILE *fp) {
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc != 8) {
-        fprintf(stderr, "usage: %s <cell-dim> "
-                "<pe-rows> <pe-cols> "
+    if (argc != 9) {
+        fprintf(stderr, "usage: %s <cell-dim-y> <cell-dim-x> "
+                "<n-cells-y> <n-cells-x> "
                 "<max-num-timesteps> <infection-radius> "
                 "<time-limit> <input-file>\n",
                 argv[0]);
         return 1;
     }
 
-    cell_dim = atof(argv[1]);
-    pe_rows = atoi(argv[2]);
-    pe_cols = atoi(argv[3]);
-    max_num_timesteps = atoi(argv[4]);
-    infection_radius = atof(argv[5]);
-    int time_limit = atoi(argv[6]);
-    char *input_filename = argv[7];
+    cell_dim_y = atof(argv[1]);
+    cell_dim_x = atof(argv[2]);
+    n_cells_y = atoi(argv[3]);
+    n_cells_x = atoi(argv[4]);
+    max_num_timesteps = atoi(argv[5]);
+    infection_radius = atof(argv[6]);
+    int time_limit = atoi(argv[7]);
+    char *input_filename = argv[8];
 
     n_time_partition = max_num_timesteps;
     n_y_partition = 200;
@@ -518,8 +519,8 @@ int main(int argc, char **argv) {
     hvr_partition_t npartitions = n_time_partition * n_y_partition *
         n_x_partition;
 
-    const double global_x_dim = (double)pe_cols * cell_dim;
-    const double global_y_dim = (double)pe_rows * cell_dim;
+    const double global_x_dim = (double)n_cells_x * cell_dim_x;
+    const double global_y_dim = (double)n_cells_y * cell_dim_y;
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
         p_sync[i] = SHMEM_SYNC_VALUE;
@@ -529,17 +530,18 @@ int main(int argc, char **argv) {
     pe = shmem_my_pe();
     npes = shmem_n_pes();
     if (pe == 0) fprintf(stderr, "Running with %d PEs\n", npes);
-    assert(npes == pe_rows * pe_cols);
+    assert(npes == n_cells_y * n_cells_x);
 
     hvr_ctx_create(&hvr_ctx);
 
     const double my_cell_start_x = PE_COL_CELL_START(pe);
-    const double my_cell_end_x = my_cell_start_x + cell_dim;
+    const double my_cell_end_x = my_cell_start_x + cell_dim_x;
     const double my_cell_start_y = PE_ROW_CELL_START(pe);
-    const double my_cell_end_y = my_cell_start_y + cell_dim;
+    const double my_cell_end_y = my_cell_start_y + cell_dim_y;
 
-    unsigned long long start_count_local = hvr_current_time_us();
+    // unsigned long long start_count_local = hvr_current_time_us();
     FILE *input = fopen(input_filename, "rb");
+    assert(input);
     /*
      * 0: actor id
      * 1: px
@@ -556,14 +558,13 @@ int main(int argc, char **argv) {
         }
     }
     fclose(input);
-    unsigned long long elapsed_count_local = hvr_current_time_us() -
-        start_count_local;
+    // unsigned long long elapsed_count_local = hvr_current_time_us() -
+    //     start_count_local;
     // fprintf(stderr, "PE %d took %f ms to count local, %lu local actors\n", pe,
     //         (double)elapsed_count_local / 1000.0, n_local_actors);
 
-    unsigned long long start_pop_local = hvr_current_time_us();
+    // unsigned long long start_pop_local = hvr_current_time_us();
     hvr_vertex_t *actors = hvr_vertex_create_n(n_local_actors, hvr_ctx);
-    const int t = 0;
 
     size_t index = 0;
     input = fopen(input_filename, "rb");
@@ -608,8 +609,8 @@ int main(int argc, char **argv) {
         total_n_actors += actors_per_pe[p];
     }
 
-    unsigned long long elapsed_pop_local = hvr_current_time_us() -
-        start_pop_local;
+    // unsigned long long elapsed_pop_local = hvr_current_time_us() -
+    //     start_pop_local;
     // fprintf(stderr, "PE %d took %f ms to populate local\n", pe,
     //         (double)elapsed_pop_local / 1000.0);
 
@@ -697,7 +698,7 @@ int main(int argc, char **argv) {
                 "iters\n", npes, max_num_timesteps, infection_radius,
                 (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
                 n_local_actors, hvr_ctx->iter);
-        printf("In total %llu msgs sent, %llu msgs received\n", total_msgs_sent,
+        printf("In total %lu msgs sent, %lu msgs received\n", total_msgs_sent,
                 total_msgs_recv);
         printf("Max modeled timestep across all PEs = %d, # vertices on PE 0 = "
                 "%lu\n", all_max_modeled_timestep, hvr_n_allocated(hvr_ctx));

@@ -84,7 +84,7 @@ static void get_from_mailbox_with_rotation(uint64_t starting_offset, void *data,
 }
 
 int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
-        int max_tries, hvr_mailbox_t *mailbox, uint64_t *out_tries) {
+        int max_tries, hvr_mailbox_t *mailbox) {
     // So that sentinel values are always cohesive
     assert(msg_len % sizeof(sentinel) == 0);
 
@@ -123,10 +123,6 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
             indices = shmem_uint64_atomic_fetch(mailbox->indices, target_pe);
         }
         try++;
-    }
-
-    if (out_tries) {
-        *out_tries = try;
     }
 
     if (try == max_tries) {

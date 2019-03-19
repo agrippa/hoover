@@ -22,7 +22,7 @@ void hvr_mailbox_init(hvr_mailbox_t *mailbox, size_t capacity_in_bytes);
  * succeeds, 0 otherwise.
  */
 int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
-        int max_tries, hvr_mailbox_t *mailbox, uint64_t *out_tries);
+        int max_tries, hvr_mailbox_t *mailbox);
 
 /*
  * Check my local mailbox for a new message. If one is found, a pointer to it is

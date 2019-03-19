@@ -5,6 +5,7 @@
 
 #include "hvr_common.h"
 #include "hvr_dist_bitvec.h"
+#include "shmem_rw_lock.h"
 
 #define BITS_PER_ELE (sizeof(hvr_dist_bitvec_ele_t) * BITS_PER_BYTE)
 
@@ -39,6 +40,8 @@ void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
             pool_size, 0);
     assert(vec->tracker);
 
+    vec->locks = hvr_rwlock_create_n(vec->dim0_per_pe);
+
     shmem_barrier_all();
 }
 
@@ -53,13 +56,18 @@ void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
     hvr_dist_bitvec_ele_t coord1_mask = (((hvr_dist_bitvec_ele_t)1) <<
             ((hvr_dist_bitvec_ele_t)coord1_bit));
 
+    hvr_rwlock_wlock(vec->locks + coord0_offset, coord0_pe);
+
     shmem_uint64_atomic_or(
             vec->symm_vec + ((coord0_offset * vec->dim1_length_in_words) +
             coord1_word), coord1_mask, coord0_pe);
 
-    shmem_fence();
+    // shmem_fence();
 
     shmem_uint64_atomic_inc(vec->seq_nos + coord0_offset, coord0_pe);
+
+    shmem_quiet();
+    hvr_rwlock_wunlock(vec->locks + coord0_offset, coord0_pe);
 }
 
 void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
@@ -73,13 +81,18 @@ void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
             ((hvr_dist_bitvec_ele_t)coord1_bit));
     coord1_mask = ~coord1_mask;
 
+    hvr_rwlock_wlock(vec->locks + coord0_offset, coord0_pe);
+
     shmem_uint64_atomic_and(
             vec->symm_vec + (coord0_offset * vec->dim1_length_in_words) +
             coord1_word, coord1_mask, coord0_pe);
 
-    shmem_fence();
+    // shmem_fence();
 
     shmem_uint64_atomic_inc(vec->seq_nos + coord0_offset, coord0_pe);
+
+    shmem_quiet();
+    hvr_rwlock_wunlock(vec->locks + coord0_offset, coord0_pe);
 }
 
 void hvr_dist_bitvec_local_subcopy_init(hvr_dist_bitvec_t *vec,
@@ -105,15 +118,26 @@ void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,
 
     out->coord0 = coord0;
 
+    hvr_rwlock_rlock(vec->locks + coord0_offset, coord0_pe);
+
     out->seq_no = shmem_uint64_atomic_fetch(vec->seq_nos + coord0_offset,
             coord0_pe);
 
+    shmem_getmem(out->subvec,
+            vec->symm_vec + (coord0_offset * vec->dim1_length_in_words),
+            vec->dim1_length_in_words * sizeof(uint64_t),
+            coord0_pe);
+
+#if 0
     for (unsigned i = 0; i < vec->dim1_length_in_words; i++) {
         out->subvec[i] =
             shmem_uint64_atomic_fetch(
                 vec->symm_vec + (coord0_offset * vec->dim1_length_in_words + i),
                 coord0_pe);
     }
+#endif
+
+    hvr_rwlock_runlock(vec->locks + coord0_offset, coord0_pe);
 }
 
 uint64_t hvr_dist_bitvec_get_seq_no(hvr_dist_bitvec_size_t coord0,
@@ -122,8 +146,15 @@ uint64_t hvr_dist_bitvec_get_seq_no(hvr_dist_bitvec_size_t coord0,
     const unsigned coord0_offset = coord0 % vec->dim0_per_pe;
     assert(coord0_offset < vec->dim0_per_pe);
 
-    return shmem_uint64_atomic_fetch(vec->seq_nos + coord0_offset,
+    // hvr_rwlock_rlock(vec->locks + coord0_offset, coord0_pe);
+
+    uint64_t curr_seq_no = shmem_uint64_atomic_fetch(
+            vec->seq_nos + coord0_offset,
             coord0_pe);
+
+    // hvr_rwlock_runlock(vec->locks + coord0_offset, coord0_pe);
+
+    return curr_seq_no;
 }
 
 int hvr_dist_bitvec_local_subcopy_contains(hvr_dist_bitvec_size_t coord1,

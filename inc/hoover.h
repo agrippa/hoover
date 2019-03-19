@@ -108,7 +108,7 @@ typedef hvr_edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
 #define VERT_PER_UPDATE 16
 typedef struct _hvr_vertex_update_t {
     hvr_vertex_t verts[VERT_PER_UPDATE];
-    uint8_t is_invalidation[VERT_PER_UPDATE];
+    int is_invalidation[VERT_PER_UPDATE];
     unsigned len;
 } hvr_vertex_update_t;
 
@@ -202,9 +202,11 @@ typedef struct _hvr_internal_ctx_t {
 
     // Used to write traces of the simulation out, for later visualization
     int dump_mode;
+    int cache_dump_mode;
     int only_last_iter_dump;
     FILE *dump_file;
     FILE *edges_dump_file;
+    FILE *cache_dump_file;
 
     /*
      * Strict mode forces a global barrier on every iteration of the simulation.

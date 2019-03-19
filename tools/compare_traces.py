@@ -3,7 +3,7 @@
 import os
 import sys
 
-def read_trace_file(fp):
+def read_vertex_trace_file(fp):
     records = {}
     for line in fp:
         tokens = line.split(',')
@@ -23,7 +23,7 @@ def read_trace_file(fp):
         records[vec_id] = {'iter': it, 'pe': pe, 'vec_id': vec_id, 'vec': vec}
     return records
 
-def is_equal(r1, r2):
+def vertices_are_equal(r1, r2):
     vec1 = r1['vec']
     vec2 = r2['vec']
 
@@ -33,28 +33,33 @@ def is_equal(r1, r2):
             return False
     return True
 
-def record_to_str(r):
-    return '{PE=' + str(r['pe']) + ', ID=' + str(r['vec_id']) + ', VEC=' + \
-            str(r['vec']) + '}'
+def vertex_to_str(r):
+    vec_id = r['vec_id']
+    offset = vec_id & 0xffffffff
+    pe = vec_id >> 32
+    return '{PE=' + str(r['pe']) + ', ID=' + str(vec_id) + ' (PE=' + str(pe) + \
+            ', OFFSET=' + str(offset) + '), VEC=' + str(r['vec']) + '}'
 
-if len(sys.argv) != 3:
-    sys.stderr.write('usage: python compare_traces.py file1 file2\n')
-    sys.exit(1)
+if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        sys.stderr.write('usage: python compare_traces.py file1 file2\n')
+        sys.exit(1)
 
-fp1 = open(sys.argv[1], 'r')
-fp2 = open(sys.argv[2], 'r')
+    fp1 = open(sys.argv[1], 'r')
+    fp2 = open(sys.argv[2], 'r')
 
-records1 = read_trace_file(fp1)
-print('Loaded ' + str(len(records1)) + ' records from ' + sys.argv[1])
-records2 = read_trace_file(fp2)
-print('Loaded ' + str(len(records2)) + ' records from ' + sys.argv[2])
+    records1 = read_vertex_trace_file(fp1)
+    print('Loaded ' + str(len(records1)) + ' records from ' + sys.argv[1])
+    records2 = read_vertex_trace_file(fp2)
+    print('Loaded ' + str(len(records2)) + ' records from ' + sys.argv[2])
 
-for r1_id in records1.keys():
-    r1 = records1[r1_id]
-    r2 = records2[r1_id]
+    for r1_id in records1.keys():
+        r1 = records1[r1_id]
+        r2 = records2[r1_id]
 
-    if not is_equal(r1, r2):
-        print(record_to_str(r1))
-        print(record_to_str(r2))
-        print('')
+        if not vertices_are_equal(r1, r2):
+            print(vertex_to_str(r1))
+            print(vertex_to_str(r2))
+            print('')
+    print('Done!')
 
