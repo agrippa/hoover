@@ -26,8 +26,6 @@ typedef struct _hvr_dist_bitvec_t {
     // Symmetrically allocated local portion of the vector
     hvr_dist_bitvec_ele_t *symm_vec;
 
-    long *locks;
-
     uint64_t *seq_nos;
 
     /*
