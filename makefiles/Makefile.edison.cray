@@ -1,4 +1,5 @@
 CFLAGS=-g -O2 -Iinc -std=c99 -Wall
+CPPFLAGS=-g -O2 -Iinc -std=c++11 -Wall
 # SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1 -L$(OPENSHMEM_INSTALL)/lib64 -lsma
 SHMEM_FLAGS=-Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1
 # CC=oshcc
@@ -17,7 +18,7 @@ bin/libhoover.a: src/hoover.c \
 	src/hvr_set.c src/hvr_edge_set.c src/hvr_vertex.c \
 	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_sparse_arr.c \
 	src/hvr_map.c src/hvr_set_msg.c src/hvr_msg_buf_pool.c \
-	src/hvr_2d_edge_set.c src/hvr_irregular_matrix.c src/shmem_rw_lock.c
+	src/hvr_2d_edge_set.c src/hvr_irregular_matrix.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_irregular_matrix.o src/hvr_irregular_matrix.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_2d_edge_set.o src/hvr_2d_edge_set.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_msg_buf_pool.o src/hvr_msg_buf_pool.c
@@ -33,14 +34,13 @@ bin/libhoover.a: src/hoover.c \
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_dist_bitvec.o src/hvr_dist_bitvec.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_sparse_arr.o src/hvr_sparse_arr.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_map.o src/hvr_map.c
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/shmem_rw_lock.o src/shmem_rw_lock.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/dlmalloc.o src/dlmalloc/dlmalloc.c
 	ar rcs bin/libhoover.a bin/hoover.o \
 		bin/hvr_vertex_pool.o bin/hvr_vertex_iter.o bin/hvr_mailbox.o bin/hvr_set.o \
 		bin/hvr_edge_set.o bin/hvr_vertex.o bin/hvr_vertex_cache.o \
 		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o bin/dlmalloc.o \
 		bin/hvr_set_msg.o bin/hvr_msg_buf_pool.o bin/hvr_2d_edge_set.o \
-		bin/hvr_irregular_matrix.o bin/shmem_rw_lock.o
+		bin/hvr_irregular_matrix.o
 
 bin/generate_vertices: test/generate_vertices.c
 	$(CC) -O0 -g $^ -o $@ -std=c99
@@ -143,8 +143,9 @@ bin/mailbox_test: test/mailbox_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/mailbox_test.c -o bin/mailbox_test.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/mailbox_test.o -o $@ -lhoover -lm -lpthread
 
-bin/pas: test/pas.cpp
-	$(CXX) -std=c++11 $(CFLAGS) $^ -o $@ -lhoover -lm -Lbin $(SHMEM_FLAGS)
+bin/pas: test/pas.cpp bin/libhoover.a
+	$(CC) $(CPPFLAGS) $(SHMEM_FLAGS) -fPIC -c test/pas.cpp -o bin/pas.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/pas.o -o $@ -lhoover -lm -lpthread
 
 bin/test_map: test/test_map.c
 	$(CC) $(CFLAGS) $^ -o $@ -Lbin -lhoover -lm $(SHMEM_FLAGS)
