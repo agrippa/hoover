@@ -140,10 +140,3 @@ srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480
 # srun $SLURM_ARGS $HOME/hoover/bin/hvr_dist_bitvec_test
-
-# module load valgrind4hpc
-# valgrind4hpc -n $(( $SLURM_NNODES * $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
-#     --launcher-args="$SLURM_ARGS" $HOME/hoover/bin/infectious_test $EXE_ARGS
-
-# valgrind4hpc -n $(( $SLURM_NNODES * $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
-#     --launcher-args="$SLURM_ARGS" $HOME/hoover/bin/infectious_test $EXE_ARGS

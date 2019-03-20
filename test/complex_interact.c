@@ -8,7 +8,7 @@
 
 #include <hoover.h>
 
-unsigned N = 10000;
+unsigned N = 2000;
 int pe, npes;
 
 hvr_partition_t actor_to_partition(hvr_vertex_t *vertex, hvr_ctx_t ctx) {

@@ -108,7 +108,7 @@ typedef hvr_edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
 #define VERT_PER_UPDATE 16
 typedef struct _hvr_vertex_update_t {
     hvr_vertex_t verts[VERT_PER_UPDATE];
-    int is_invalidation[VERT_PER_UPDATE];
+    uint8_t is_invalidation[VERT_PER_UPDATE];
     unsigned len;
 } hvr_vertex_update_t;
 

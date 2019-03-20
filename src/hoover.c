@@ -366,7 +366,6 @@ static void handle_new_subscription(
 static void handle_existing_subscription(hvr_partition_t p,
         unsigned long long *time_spent_processing_dead_pes,
         hvr_internal_ctx_t *ctx) {
-    // TODO this is costing us a lot of time
     if (ctx->iter < ctx->next_producer_info_check[p]) {
         return;
     }
