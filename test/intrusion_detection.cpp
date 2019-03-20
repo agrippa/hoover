@@ -351,12 +351,12 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
          * structure (addition of a vertex and/or edge). If it does, make that
          * change and explore further.
          */
-        hvr_edge_info_t *neighbors;
-        int n_neighbors;
-        hvr_get_neighbors(last_added, &neighbors, &n_neighbors, ctx);
+        hvr_vertex_t **verts;
+        hvr_edge_type_t *dirs;
+        int n_neighbors = hvr_get_neighbors(last_added, &verts, &dirs, ctx);
 
         for (unsigned j = 0; j < n_neighbors; j++) {
-            hvr_vertex_t *neighbor = hvr_get_vertex(neighbors[j].id, ctx);
+            hvr_vertex_t *neighbor = verts[j];
 
             if (already_in_subgraph(neighbor->id, curr_state)) {
                 /*
@@ -401,7 +401,6 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
                 }
             }
         }
-        free(neighbors);
     }
 }
 
@@ -478,7 +477,8 @@ static void sort_patterns_by_score(pattern_count_t *patterns,
     }
 }
 
-void start_time_step(hvr_vertex_iter_t *iter, hvr_ctx_t ctx) {
+void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
+        hvr_ctx_t ctx) {
     /*
      * On each time step, calculate a random number of vertices to insert. Then,
      * use hvr_sparse_vec_create_n to insert them with 3 randomly generated
@@ -827,8 +827,12 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 }
 
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_vertex_t *local_coupled_val, hvr_vertex_t *global_coupled_val,
-        hvr_set_t *coupled_pes, int n_coupled_pes) {
+        hvr_vertex_t *local_coupled_val,
+        hvr_vertex_t *all_coupled_vals,
+        hvr_vertex_t *global_coupled_val,
+        hvr_set_t *coupled_pes, int n_coupled_pes,
+        int *updates_on_this_iter,
+        hvr_set_t *terminated_coupled_pes) {
     return 0;
 }
 

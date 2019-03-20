@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 4
+#SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:20:00
+#SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -106,9 +106,6 @@ cd job.$SLURM_JOB_ID
 #   2 - highly optimized version of memcpy if one is available for the processor
 #       being used. In this release, a highly optimized version of memcpy() is
 #       available only for Intel Haswell, Broadwell and KNL processors.
-#
-# For some reason, SHMEM_OPTIMIZED_MEMCPY=0 seems to trigger bus errors on
-# Edison/Cori for some workloads.
 export SHMEM_OPTIMIZED_MEMCPY=1
 
 export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
@@ -121,22 +118,19 @@ export EXE_ARGS="$CELL_DIM $CELL_DIM $PE_ROWS $PE_COLS $MAX_NUM_TIMESTEPS \
 
 echo "RUNNING INFECTIOUS MODEL"
 echo ""
-# oshrun --npersocket 16 $HOME/hoover/bin/init_test 30
-# oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/hvr_set_msg_test
-# oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/mailbox_test
-# oshrun --npersocket 16 /global/homes/j/jmg3/hoover/bin/infectious_test $EXE_ARGS
+# oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/init_test 30
+# oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/hvr_set_msg_test
+# oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/mailbox_test
+# oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/infectious_test $EXE_ARGS
 
 srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun -n 2 $HOME/hoover/bin/complex_interact2
 # srun -n 2 $HOME/hoover/bin/stale_state
 # srun -n 2 $HOME/hoover/bin/complex_interact
 # srun $SLURM_ARGS $HOME/hoover/bin/init_test 1000
+# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480
 
 # Edge microbenchmarks
 # srun -n 1 $HOME/hoover/bin/hvr_map_microbenchmark
 # srun -n 1 $HOME/hoover/bin/hvr_2d_set_microbenchmark
 # srun -n 1 $HOME/hoover/bin/hvr_irregular_matrix_microbenchmark
-
-# srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
-# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480
-# srun $SLURM_ARGS $HOME/hoover/bin/hvr_dist_bitvec_test
