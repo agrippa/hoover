@@ -9,37 +9,25 @@
 
 #define PATCH_GRAPH 0
 #define AGENT_GRAPH 1
-#define GRAPH_FEAT 18
+#define GRAPH_FEAT 9
 
-#define PATCH_X 0
-#define PATCH_Y 1
-#define PATCH_LAMBDA_H 2
-#define PATCH_SV 3
-#define PATCH_EV 4
-#define PATCH_IV 5
-#define PATCH_NV 6
-#define PATCH_MAXSTAY0 7
-#define PATCH_MAXSTAY1 8
-#define PATCH_MAXSTAY2 9
-#define PATCH_MAXSTAY3 10
-#define PATCH_ALPHA0 11
-#define PATCH_ALPHA1 12
-#define PATCH_ALPHA2 13
-#define PATCH_ALPHA3 14
-#define PATCH_TIMESTEP 15
-#define PATCH_NEXT_TIMESTEP_CREATED 16
-#define PATCH_ID 17
+#define PATCH_LAMBDA_H 0
+#define PATCH_SV 1
+#define PATCH_EV 2
+#define PATCH_IV 3
+#define PATCH_NV 4
+#define PATCH_TIMESTEP 5
+#define PATCH_NEXT_TIMESTEP_CREATED 6
+#define PATCH_ID 7
 
-#define AGENT_X 0
-#define AGENT_Y 1
-#define AGENT_HOME_X 2
-#define AGENT_HOME_Y 3
-#define AGENT_HEALTH 4
-#define AGENT_ACTIVITY 5
-#define AGENT_CURRENT_STAY 6
-#define AGENT_TIMESTEP 7
-#define AGENT_NEXT_TIMESTEP_CREATED 8
-#define AGENT_ID 9
+#define AGENT_PATCH 0
+#define AGENT_HOME_PATCH 1
+#define AGENT_HEALTH 2
+#define AGENT_ACTIVITY 3
+#define AGENT_CURRENT_STAY 4
+#define AGENT_TIMESTEP 5
+#define AGENT_NEXT_TIMESTEP_CREATED 6
+#define AGENT_ID 7
 
 // Set to a tiny value so patch & agent can find each other iff they are at the same spot
 const double connectivity_threshold = 0.01;
@@ -48,7 +36,6 @@ const double connectivity_threshold = 0.01;
 const double space_dim = 100.0;
 // Put patches in square tiles, one patch per partition (they are used interchangeably in variable names)
 const hvr_partition_t partition_dim = 64;
-const hvr_partition_t n_partitions = partition_dim * partition_dim;
 const double partition_side_len = space_dim / double(partition_dim);
 
 // Agents are distributed evenly across all PEs
@@ -59,9 +46,12 @@ const uint64_t total_num_init_Ih_agents = std::ceil(total_num_agents * 0.02);
 // Four activities for each patch
 // Do not change! Hard coded everywhere!
 const uint64_t activities_per_patch = 4;
+const double activities_maxstay[4] = {2, 4, 6, 8};
+const double activities_alpha[4] = {1.0, 0.9, 0.8, 0.7};
 
 // Number of days for the simulation
-const int n_days = 120;
+// const int n_days = 120;
+const int n_days = 1;
 // Number of agent time steps per day
 // Changing this will affect dt_h/dt_v and therefore other parameters
 const int agent_steps_per_day = 8;
@@ -69,6 +59,9 @@ const int agent_steps_per_day = 8;
 const int patch_steps_per_agent_step = 50;
 
 const hvr_time_t max_agent_timestep = agent_steps_per_day * n_days;
+
+const hvr_partition_t n_partitions = max_agent_timestep * partition_dim *
+        partition_dim;
 
 // ***** We only care about adult female mosquitoes *****
 // Natural per capita emergence rate
@@ -176,34 +169,23 @@ void init_constants() {
     agents_per_pe = std::ceil(double(total_num_agents) / double(npes));
     initial_infected_agents_per_pe = std::ceil(
             double(total_num_init_Ih_agents) / double(npes));
-    patches_per_pe = (n_partitions + npes - 1) / npes;
+    patches_per_pe = ((partition_dim * partition_dim) + npes - 1) / npes;
     patches_start = patches_per_pe * mype;
     patches_end = patches_start + patches_per_pe;
+    if (patches_end > partition_dim * partition_dim) {
+        patches_end = partition_dim * partition_dim;
+    }
 }
 
-// Given the ID of a patch/partition, return the coordinates of its center
-void patch_id_to_xy(const hvr_partition_t patch, double& x, double& y) {
-    const uint64_t p_row = patch / partition_dim;
-    const uint64_t p_col = patch % partition_dim;
-    x = (double(p_row) + 0.5) * partition_side_len;
-    y = (double(p_col) + 0.5) * partition_side_len;
+static void patch_id_to_row_col(const hvr_partition_t patch, int &row,
+        int &col) {
+    row = patch / partition_dim;
+    col = patch % partition_dim;
 }
 
-
-// Given coordinates, return the row & column of the patch/partition it is in
-void xy_to_p_row_col(const double x, const double y, uint64_t& p_row, uint64_t& p_col) {
-    p_row = std::floor(x / partition_side_len);
-    p_col = std::floor(y / partition_side_len);
+static hvr_partition_t row_col_to_patch_id(int row, int col) {
+    return row * partition_dim + col;
 }
-
-
-// Given coordinates, return the ID of the patch/partition it is in
-hvr_partition_t xy_to_patch_id(const double x, const double y) {
-    uint64_t p_row, p_col;
-    xy_to_p_row_col(x, y, p_row, p_col);
-    return p_row * partition_dim + p_col;
-}
-
 
 // Initialize patch vertices, each patch has 15 attributes
 void init_patches(hvr_vertex_t*& patches, hvr_ctx_t ctx) {
@@ -214,13 +196,9 @@ void init_patches(hvr_vertex_t*& patches, hvr_ctx_t ctx) {
     patches = hvr_vertex_create_n(patches_per_pe, ctx);
 
     for (uint64_t i = 0; i < patches_per_pe; i++) {
-        double x, y;
-        patch_id_to_xy(patches_start + i, x, y);
+        int patch_id = patches_start + i;
 
-        hvr_vertex_set(PATCH_ID, mype * patches_per_pe + i, patches + i, ctx);
-
-        hvr_vertex_set(PATCH_X, x, patches + i, ctx);
-        hvr_vertex_set(PATCH_Y, y, patches + i, ctx);
+        hvr_vertex_set(PATCH_ID, patch_id, patches + i, ctx);
 
         // Dynamic attributes (5 of them):
         // Store Ihh & Nhh for the record?
@@ -229,14 +207,6 @@ void init_patches(hvr_vertex_t*& patches, hvr_ctx_t ctx) {
         hvr_vertex_set(PATCH_EV, 0.0, patches + i, ctx);       // Ev
         hvr_vertex_set(PATCH_IV, 0.0, patches + i, ctx);       // Iv
         hvr_vertex_set(PATCH_NV, Kv / 2.0, patches + i, ctx);  // Nv = Sv + Ev + Iv
-        hvr_vertex_set(PATCH_MAXSTAY0, 2, patches + i, ctx);
-        hvr_vertex_set(PATCH_MAXSTAY1, 4, patches + i, ctx);
-        hvr_vertex_set(PATCH_MAXSTAY2, 6, patches + i, ctx);
-        hvr_vertex_set(PATCH_MAXSTAY3, 8, patches + i, ctx);
-        hvr_vertex_set(PATCH_ALPHA0, 1.0, patches + i, ctx);
-        hvr_vertex_set(PATCH_ALPHA1, 0.9, patches + i, ctx);
-        hvr_vertex_set(PATCH_ALPHA2, 0.8, patches + i, ctx);
-        hvr_vertex_set(PATCH_ALPHA3, 0.7, patches + i, ctx);
 
         hvr_vertex_set(GRAPH_FEAT, PATCH_GRAPH, patches + i, ctx);
 
@@ -244,7 +214,6 @@ void init_patches(hvr_vertex_t*& patches, hvr_ctx_t ctx) {
         hvr_vertex_set(PATCH_NEXT_TIMESTEP_CREATED, 0, patches + i, ctx);
     }
 }
-
 
 // Initialize agent vertices, each agent has 7 attributes
 void init_agents(hvr_vertex_t*& agents, hvr_ctx_t ctx) {
@@ -261,14 +230,11 @@ void init_agents(hvr_vertex_t*& agents, hvr_ctx_t ctx) {
         // Generate patch ID & activity ID
         const hvr_partition_t patch_id = pch_rng(rng);
         const uint64_t act_id = act_rng(rng);
+        int agent_id = mype * agents_per_pe + i;
 
-        double x, y;
-        patch_id_to_xy(patch_id, x, y);
-
-        hvr_vertex_set(AGENT_ID, mype * agents_per_pe + i, agents + i, ctx);
-
-        hvr_vertex_set(AGENT_HOME_X, x, agents + i, ctx);
-        hvr_vertex_set(AGENT_HOME_Y, y, agents + i, ctx);
+        hvr_vertex_set(AGENT_ID, agent_id, agents + i, ctx);
+        hvr_vertex_set(AGENT_HOME_PATCH, patch_id, agents + i, ctx);
+        hvr_vertex_set(AGENT_PATCH, patch_id, agents + i, ctx);
 
         // Health condition of an agent
         // 0.0:     susceptible
@@ -283,8 +249,6 @@ void init_agents(hvr_vertex_t*& agents, hvr_ctx_t ctx) {
         }
 
         // Dynamic attributes (5 of them):
-        hvr_vertex_set(AGENT_X, x, agents + i, ctx);    // Current x
-        hvr_vertex_set(AGENT_Y, y, agents + i, ctx);    // Current y
         hvr_vertex_set(AGENT_HEALTH, h, agents + i, ctx);    // Health condition
         hvr_vertex_set(AGENT_ACTIVITY, double(act_id), agents + i, ctx);  // ID of current activity
         hvr_vertex_set(AGENT_CURRENT_STAY, 0.0, agents + i, ctx);  // Time steps stayed at current activity
@@ -300,105 +264,118 @@ void init_agents(hvr_vertex_t*& agents, hvr_ctx_t ctx) {
  * of patches, given the row-major patch ID. The neighbors list include the
  * patch itself.
  */
-void find_neighbor_patches(const hvr_partition_t p, hvr_partition_t* neighbors,
-        int& n_neighbors) {
-    const uint64_t p_row = p / partition_dim;
-    const uint64_t p_col = p % partition_dim;
-
-    if (p == 0) {                                       // Upper left corner
+void find_neighbor_patches(hvr_partition_t p_row, hvr_partition_t p_col,
+        hvr_partition_t *out_rows, hvr_partition_t *out_cols,
+        int &n_neighbors) {
+    if (p_row == 0 && p_col == 0) {
+        // Upper left corner
         n_neighbors = 4;
-        neighbors[0] = p;
-        neighbors[1] = p + 1;
-        neighbors[2] = p + partition_dim;
-        neighbors[3] = p + partition_dim + 1;
-    } else if (p == n_partitions - 1) {                 // Lower right corner
+        out_rows[0] = p_row;     out_cols[0] = p_col;
+        out_rows[1] = p_row;     out_cols[1] = p_col + 1;
+        out_rows[2] = p_row + 1; out_cols[2] = p_col;
+        out_rows[3] = p_row + 1; out_cols[3] = p_col + 1;
+    } else if (p_row == partition_dim - 1 && p_col == partition_dim - 1) {
+        // Lower right corner
         n_neighbors = 4;
-        neighbors[0] = p;
-        neighbors[1] = p - 1;
-        neighbors[2] = p - partition_dim;
-        neighbors[3] = p - partition_dim - 1;
-    } else if (p == partition_dim - 1) {                // Upper right corner
+        out_rows[0] = p_row;     out_cols[0] = p_col;
+        out_rows[1] = p_row;     out_cols[1] = p_col - 1;
+        out_rows[2] = p_row - 1; out_cols[2] = p_col;
+        out_rows[3] = p_row - 1; out_cols[3] = p_col - 1;
+    } else if (p_row == 0 && p_col == partition_dim - 1) {
+        // Upper right corner
         n_neighbors = 4;
-        neighbors[0] = p - 1;
-        neighbors[1] = p;
-        neighbors[2] = p + partition_dim - 1;
-        neighbors[3] = p + partition_dim;
-    } else if (p == n_partitions - partition_dim) {     // Lower left corner
+        out_rows[0] = p_row;     out_cols[0] = p_col;
+        out_rows[1] = p_row;     out_cols[1] = p_col - 1;
+        out_rows[2] = p_row + 1; out_cols[2] = p_col;
+        out_rows[3] = p_row + 1; out_cols[3] = p_col - 1;
+    } else if (p_row == partition_dim - 1 && p_col == 0) {
+        // Lower left corner
         n_neighbors = 4;
-        neighbors[0] = p + 1;
-        neighbors[1] = p;
-        neighbors[2] = p - partition_dim + 1;
-        neighbors[3] = p - partition_dim;
-    } else if (p_row == 0) {                            // Upper edge
+        out_rows[0] = p_row;     out_cols[0] = p_col;
+        out_rows[1] = p_row;     out_cols[1] = p_col + 1;
+        out_rows[2] = p_row - 1; out_cols[2] = p_col;
+        out_rows[3] = p_row - 1; out_cols[3] = p_col + 1;
+    } else if (p_row == 0) {
+        // Upper edge
         n_neighbors = 6;
-        neighbors[0] = p - 1;
-        neighbors[1] = p;
-        neighbors[2] = p + 1;
-        neighbors[3] = p + partition_dim - 1;
-        neighbors[4] = p + partition_dim;
-        neighbors[5] = p + partition_dim + 1;
-    } else if (p_col == 0) {                            // Left edge
+        out_rows[0] = p_row;     out_cols[0] = p_col - 1;
+        out_rows[1] = p_row;     out_cols[1] = p_col;
+        out_rows[2] = p_row;     out_cols[2] = p_col + 1;
+        out_rows[3] = p_row + 1; out_cols[3] = p_col - 1;
+        out_rows[4] = p_row + 1; out_cols[4] = p_col;
+        out_rows[5] = p_row + 1; out_cols[5] = p_col + 1;
+    } else if (p_col == 0) {
+        // Left edge
         n_neighbors = 6;
-        neighbors[0] = p - partition_dim;
-        neighbors[1] = p - partition_dim + 1;
-        neighbors[2] = p;
-        neighbors[3] = p + 1;
-        neighbors[4] = p + partition_dim;
-        neighbors[5] = p + partition_dim + 1;
-    } else if (p_row == partition_dim - 1) {            // Lower edge
+        out_rows[0] = p_row - 1; out_cols[0] = p_col;
+        out_rows[1] = p_row - 1; out_cols[1] = p_col + 1;
+        out_rows[2] = p_row;     out_cols[2] = p_col;
+        out_rows[3] = p_row;     out_cols[3] = p_col + 1;
+        out_rows[4] = p_row + 1; out_cols[4] = p_col;
+        out_rows[5] = p_row + 1; out_cols[5] = p_col + 1;
+    } else if (p_row == partition_dim - 1) {
+        // Lower edge
         n_neighbors = 6;
-        neighbors[0] = p - partition_dim - 1;
-        neighbors[1] = p - partition_dim;
-        neighbors[2] = p - partition_dim + 1;
-        neighbors[3] = p - 1;
-        neighbors[4] = p;
-        neighbors[5] = p + 1;
-    } else if (p_col == partition_dim - 1) {            // Right edge
+        out_rows[0] = p_row;     out_cols[0] = p_col - 1;
+        out_rows[1] = p_row;     out_cols[1] = p_col;
+        out_rows[2] = p_row;     out_cols[2] = p_col + 1;
+        out_rows[3] = p_row - 1; out_cols[3] = p_col - 1;
+        out_rows[4] = p_row - 1; out_cols[4] = p_col;
+        out_rows[5] = p_row - 1; out_cols[5] = p_col + 1;
+    } else if (p_col == partition_dim - 1) {
+        // Right edge
         n_neighbors = 6;
-        neighbors[0] = p - partition_dim - 1;
-        neighbors[1] = p - partition_dim;
-        neighbors[2] = p - 1;
-        neighbors[3] = p;
-        neighbors[4] = p + partition_dim - 1;
-        neighbors[5] = p + partition_dim;
+        out_rows[0] = p_row - 1; out_cols[0] = p_col;
+        out_rows[1] = p_row - 1; out_cols[1] = p_col - 1;
+        out_rows[2] = p_row;     out_cols[2] = p_col;
+        out_rows[3] = p_row;     out_cols[3] = p_col - 1;
+        out_rows[4] = p_row + 1; out_cols[4] = p_col;
+        out_rows[5] = p_row + 1; out_cols[5] = p_col - 1;
     } else {                                            // Interior
         n_neighbors = 9;
-        neighbors[0] = p - partition_dim - 1;
-        neighbors[1] = p - partition_dim;
-        neighbors[2] = p - partition_dim + 1;
-        neighbors[3] = p - 1;
-        neighbors[4] = p;
-        neighbors[5] = p + 1;
-        neighbors[6] = p + partition_dim - 1;
-        neighbors[7] = p + partition_dim;
-        neighbors[8] = p + partition_dim + 1;
+        out_rows[0] = p_row - 1; out_cols[0] = p_col - 1;
+        out_rows[1] = p_row - 1; out_cols[1] = p_col;
+        out_rows[2] = p_row - 1; out_cols[2] = p_col + 1;
+        out_rows[3] = p_row;     out_cols[3] = p_col - 1;
+        out_rows[4] = p_row;     out_cols[4] = p_col;
+        out_rows[5] = p_row;     out_cols[5] = p_col + 1;
+        out_rows[6] = p_row + 1; out_cols[6] = p_col - 1;
+        out_rows[7] = p_row + 1; out_cols[7] = p_col;
+        out_rows[8] = p_row + 1; out_cols[8] = p_col + 1;
     }
 }
 
-
-// Given the home coordinates of an agent, generate a random destination that is not too far
-// away from home, return the new coordinates.
-void move_to_new_patch(const double home_x, const double home_y, double& new_x,
-        double& new_y) {
-    const hvr_partition_t p = xy_to_patch_id(home_x, home_y);
+/*
+ * Given the home coordinates of an agent, generate a random destination that is
+ * not too far away from home, return the new coordinates.
+ */
+void move_to_new_patch(const int home_patch, int& new_patch) {
+    int home_row, home_col;
+    patch_id_to_row_col(home_patch, home_row, home_col);
 
     // Find neighbors of the home patch
     int n_choices;
-    hvr_partition_t choices[9];
-    find_neighbor_patches(p, choices, n_choices);
+    hvr_partition_t choices_rows[9];
+    hvr_partition_t choices_cols[9];
+    find_neighbor_patches(home_row, home_col, choices_rows, choices_cols,
+            n_choices);
 
     // Pick one from the neighbors, and return the coordinates
     std::uniform_int_distribution<> choice_rng(0, n_choices - 1);
-    const hvr_partition_t choice = choices[choice_rng(rng)];
-    assert(choice < n_partitions);
-    patch_id_to_xy(choice, new_x, new_y);
+    int choice_index = choice_rng(rng);
+    int new_row = choices_rows[choice_index];
+    int new_col = choices_cols[choice_index];
+    new_patch = row_col_to_patch_id(new_row, new_col);
 }
 
 // Return the current patch/partition ID of an agent
 hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
-    const double x = hvr_vertex_get(0, actor, ctx);
-    const double y = hvr_vertex_get(1, actor, ctx);
-    return xy_to_patch_id(x, y);
+    int actor_type = (int)hvr_vertex_get(GRAPH_FEAT, actor, ctx);
+    if (actor_type == PATCH_GRAPH) {
+        return (hvr_partition_t)hvr_vertex_get(PATCH_ID, actor, ctx);
+    } else {
+        return (hvr_partition_t)hvr_vertex_get(AGENT_PATCH, actor, ctx);
+    }
 }
 
 static void update_patch(hvr_vertex_t *patch, hvr_vertex_t **neighbors,
@@ -439,8 +416,13 @@ static void update_patch(hvr_vertex_t *patch, hvr_vertex_t **neighbors,
                     continue;
                 }
 
+                assert(directions[i] == DIRECTED_IN);
+                assert((int)hvr_vertex_get(AGENT_TIMESTEP, neighbor, ctx) ==
+                        timestep - 1);
+
                 const double h = hvr_vertex_get(AGENT_HEALTH, neighbor, ctx);
-                const uint64_t act = hvr_vertex_get(AGENT_ACTIVITY, neighbor, ctx);
+                const uint64_t act = hvr_vertex_get(AGENT_ACTIVITY, neighbor,
+                        ctx);
                 Nh[act] += 1;
 
                 if (h < 2.5 && h > 1.5)     // Infectious!
@@ -454,16 +436,16 @@ static void update_patch(hvr_vertex_t *patch, hvr_vertex_t **neighbors,
             double Nv = hvr_vertex_get(PATCH_NV, prev, ctx);
 
             // Get relative risks of being bitten
-            const double alpha_0 = hvr_vertex_get(PATCH_ALPHA0, patch, ctx);
-            const double alpha_1 = hvr_vertex_get(PATCH_ALPHA1, patch, ctx);
-            const double alpha_2 = hvr_vertex_get(PATCH_ALPHA2, patch, ctx);
-            const double alpha_3 = hvr_vertex_get(PATCH_ALPHA3, patch, ctx);
+            const double alpha_0 = activities_alpha[0];
+            const double alpha_1 = activities_alpha[1];
+            const double alpha_2 = activities_alpha[2];
+            const double alpha_3 = activities_alpha[3];
 
             // Calculate effective numbers of agents
-            const double Nhh = Nh[0] * alpha_0 + Nh[1] * alpha_1 + Nh[2] * alpha_2 +
-                Nh[3] * alpha_3;
-            const double Ihh = Ih[0] * alpha_0 + Ih[1] * alpha_1 + Ih[2] * alpha_2 +
-                Ih[3] * alpha_3;
+            const double Nhh = Nh[0] * alpha_0 + Nh[1] * alpha_1 +
+                Nh[2] * alpha_2 + Nh[3] * alpha_3;
+            const double Ihh = Ih[0] * alpha_0 + Ih[1] * alpha_1 +
+                Ih[2] * alpha_2 + Ih[3] * alpha_3;
 
             // Compute the mosquitoes' life cycles: ODE solving with RK4
             // Maybe I should compute lambda_v & h_v only once?
@@ -525,22 +507,13 @@ static void update_patch(hvr_vertex_t *patch, hvr_vertex_t **neighbors,
         hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
         assert(next);
 
+        hvr_vertex_set(GRAPH_FEAT, PATCH_GRAPH, next, ctx);
         hvr_vertex_set(PATCH_ID,                    hvr_vertex_get(PATCH_ID, patch, ctx),             next, ctx);
-        hvr_vertex_set(PATCH_X,                     hvr_vertex_get(PATCH_X, patch, ctx),              next, ctx);
-        hvr_vertex_set(PATCH_Y,                     hvr_vertex_get(PATCH_Y, patch, ctx),              next, ctx);
         hvr_vertex_set(PATCH_LAMBDA_H,              hvr_vertex_get(PATCH_LAMBDA_H, patch, ctx),       next, ctx);
         hvr_vertex_set(PATCH_SV,                    hvr_vertex_get(PATCH_SV, patch, ctx),             next, ctx);
         hvr_vertex_set(PATCH_EV,                    hvr_vertex_get(PATCH_EV, patch, ctx),             next, ctx);
         hvr_vertex_set(PATCH_IV,                    hvr_vertex_get(PATCH_IV, patch, ctx),             next, ctx);
         hvr_vertex_set(PATCH_NV,                    hvr_vertex_get(PATCH_NV, patch, ctx),             next, ctx);
-        hvr_vertex_set(PATCH_MAXSTAY0,              hvr_vertex_get(PATCH_MAXSTAY0, patch, ctx),       next, ctx);
-        hvr_vertex_set(PATCH_MAXSTAY1,              hvr_vertex_get(PATCH_MAXSTAY1, patch, ctx),       next, ctx);
-        hvr_vertex_set(PATCH_MAXSTAY2,              hvr_vertex_get(PATCH_MAXSTAY2, patch, ctx),       next, ctx);
-        hvr_vertex_set(PATCH_MAXSTAY3,              hvr_vertex_get(PATCH_MAXSTAY3, patch, ctx),       next, ctx);
-        hvr_vertex_set(PATCH_ALPHA0,                hvr_vertex_get(PATCH_ALPHA0, patch, ctx),         next, ctx);
-        hvr_vertex_set(PATCH_ALPHA1,                hvr_vertex_get(PATCH_ALPHA1, patch, ctx),         next, ctx);
-        hvr_vertex_set(PATCH_ALPHA2,                hvr_vertex_get(PATCH_ALPHA2, patch, ctx),         next, ctx);
-        hvr_vertex_set(PATCH_ALPHA3,                hvr_vertex_get(PATCH_ALPHA3, patch, ctx),         next, ctx);
         hvr_vertex_set(PATCH_TIMESTEP,              1 + hvr_vertex_get(PATCH_TIMESTEP, patch, ctx), next, ctx);
         hvr_vertex_set(PATCH_NEXT_TIMESTEP_CREATED, 0, next, ctx);
 
@@ -562,6 +535,8 @@ static void update_agent(hvr_vertex_t *agent, hvr_vertex_t **neighbors,
             hvr_vertex_t *neighbor = neighbors[i];
             if ((int)hvr_vertex_get(GRAPH_FEAT, neighbor, ctx) == PATCH_GRAPH) {
                 assert(patch == NULL);
+                // Think this might not be true?
+                assert(directions[i] == DIRECTED_IN);
                 assert((int)hvr_vertex_get(PATCH_TIMESTEP, neighbor, ctx) ==
                         timestep - 1);
                 patch = neighbor;
@@ -590,7 +565,7 @@ static void update_agent(hvr_vertex_t *agent, hvr_vertex_t **neighbors,
         // Update health status
         const double health = hvr_vertex_get(AGENT_HEALTH, prev, ctx);
         const int act_id = hvr_vertex_get(AGENT_ACTIVITY, prev, ctx);
-        const double alpha = hvr_vertex_get(act_id + PATCH_ALPHA0, patch, ctx);
+        const double alpha = activities_alpha[act_id];
 
         // Generate a random number for health status transition
         std::uniform_real_distribution<> h_trans(0.0, 1.0);
@@ -615,17 +590,14 @@ static void update_agent(hvr_vertex_t *agent, hvr_vertex_t **neighbors,
 
         // Now decide if the agent should move to a new location
         const double stayed = hvr_vertex_get(AGENT_CURRENT_STAY, prev, ctx);
-        const double max_stay = hvr_vertex_get(act_id + PATCH_MAXSTAY0, patch,
-                ctx);
+        const double max_stay = activities_maxstay[act_id];
 
         if (stayed >= max_stay - 0.001) {
-            const double home_x = hvr_vertex_get(AGENT_HOME_X, prev, ctx);
-            const double home_y = hvr_vertex_get(AGENT_HOME_Y, prev, ctx);
-
-            double new_x, new_y;
-            move_to_new_patch(home_x, home_y, new_x, new_y);
-            hvr_vertex_set(AGENT_X, new_x, agent, ctx);
-            hvr_vertex_set(AGENT_Y, new_y, agent, ctx);
+            const int home_patch = (int)hvr_vertex_get(AGENT_HOME_PATCH, prev,
+                    ctx);
+            int new_patch;
+            move_to_new_patch(home_patch, new_patch);
+            hvr_vertex_set(AGENT_PATCH, new_patch, agent, ctx);
 
             // Moved to a new patch, now generate a random activity ID
             std::uniform_int_distribution<> act_rng(0, activities_per_patch - 1);
@@ -645,11 +617,10 @@ static void update_agent(hvr_vertex_t *agent, hvr_vertex_t **neighbors,
         hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
         assert(next);
 
+        hvr_vertex_set(GRAPH_FEAT, AGENT_GRAPH, next, ctx);
         hvr_vertex_set(AGENT_ID, hvr_vertex_get(AGENT_ID, agent, ctx), next, ctx);
-        hvr_vertex_set(AGENT_X, hvr_vertex_get(AGENT_X, agent, ctx), next, ctx);
-        hvr_vertex_set(AGENT_Y, hvr_vertex_get(AGENT_Y, agent, ctx), next, ctx);
-        hvr_vertex_set(AGENT_HOME_X, hvr_vertex_get(AGENT_HOME_X, agent, ctx), next, ctx);
-        hvr_vertex_set(AGENT_HOME_Y, hvr_vertex_get(AGENT_HOME_Y, agent, ctx), next, ctx);
+        hvr_vertex_set(AGENT_PATCH, hvr_vertex_get(AGENT_PATCH, agent, ctx), next, ctx);
+        hvr_vertex_set(AGENT_HOME_PATCH, hvr_vertex_get(AGENT_HOME_PATCH, agent, ctx), next, ctx);
         hvr_vertex_set(AGENT_HEALTH, hvr_vertex_get(AGENT_HEALTH, agent, ctx), next, ctx);
         hvr_vertex_set(AGENT_ACTIVITY, hvr_vertex_get(AGENT_ACTIVITY, agent, ctx), next, ctx);
         hvr_vertex_set(AGENT_CURRENT_STAY, hvr_vertex_get(AGENT_CURRENT_STAY, agent, ctx), next, ctx);
@@ -682,8 +653,37 @@ void might_interact(const hvr_partition_t partition,
                    unsigned *n_interacting_partitions,
                    const unsigned interacting_partitions_capacity,
                    hvr_ctx_t ctx) {
-    interacting_partitions[0] = partition;
-    *n_interacting_partitions = 1;
+    /*
+     * Given a partition (time, row, col) it can interact with
+     * (time - 1, row, col) or (time + 1, row, col)
+     */
+    hvr_partition_t t = partition / (partition_dim * partition_dim);
+    hvr_partition_t row = (partition / partition_dim) % partition_dim;
+    hvr_partition_t col = partition % partition_dim;
+
+    int n_choices;
+    hvr_partition_t choices_rows[9];
+    hvr_partition_t choices_cols[9];
+    find_neighbor_patches(row, col, choices_rows, choices_cols, n_choices);
+
+    int n = 0;
+    if (t > 0) {
+        for (int c = 0; c < n_choices; c++) {
+            interacting_partitions[n++] =
+                (t - 1) * partition_dim * partition_dim +
+                choices_rows[c] * partition_dim + choices_cols[c];
+        }
+    }
+
+    if (t < max_agent_timestep - 1) {
+        for (int c = 0; c < n_choices; c++) {
+            interacting_partitions[n++] =
+                (t + 1) * partition_dim * partition_dim +
+                choices_rows[c] * partition_dim + choices_cols[c];
+        }
+    }
+
+    *n_interacting_partitions = n;
 }
 
 // We do some statistics here, and we do not abort
@@ -724,9 +724,84 @@ void update_coupled_val(hvr_vertex_iter_t *iter,
 }
 
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_vertex_t *local_coupled_metric, hvr_vertex_t *global_coupled_metric,
-        hvr_set_t *coupled_pes, int n_coupled_pes) {
+        hvr_vertex_t *local_coupled_metric, // coupled_pes[shmem_my_pe()]
+        hvr_vertex_t *all_coupled_metrics, // Each PE's val
+        hvr_vertex_t *global_coupled_metric, // Sum reduction of coupled_pes
+        hvr_set_t *coupled_pes, // An array of size npes, with each PE's val
+        int n_coupled_pes,
+        int *updates_on_this_iter, // An array of size npes, the number of vertex updates done on each coupled PE
+        hvr_set_t *terminated_coupled_pes) {
+    int sum_updates = 0;
+    for (int i = 0; i < ctx->npes; i++) {
+        sum_updates += updates_on_this_iter[i];
+    }
+    printf("PE %d saw %d updates from %d coupled PEs on iter %d\n",
+            mype, sum_updates, n_coupled_pes, ctx->iter);
+
     return 0;
+}
+
+/*
+ * Each agent and patch should have an edge with its previous and next state.
+ *
+ * Each patch should also have edges with all vertices in its patch on the prior
+ * time step.
+ *
+ * Each agent should have edges with their current patch on its next timestep.
+ */
+hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
+        hvr_ctx_t ctx) {
+    int base_type =     (int)hvr_vertex_get(GRAPH_FEAT, base, ctx);
+    int neighbor_type = (int)hvr_vertex_get(GRAPH_FEAT, neighbor, ctx);
+
+    int base_timestep, neighbor_timestep;
+    if (base_type == PATCH_GRAPH) {
+        base_timestep = hvr_vertex_get(PATCH_TIMESTEP, base, ctx);
+        neighbor_timestep = hvr_vertex_get(PATCH_TIMESTEP, neighbor, ctx);
+    } else {
+        assert(base_type == AGENT_GRAPH);
+        base_timestep = hvr_vertex_get(AGENT_TIMESTEP, base, ctx);
+        neighbor_timestep = hvr_vertex_get(AGENT_TIMESTEP, neighbor, ctx);
+    }
+
+    if (base_type == neighbor_type) {
+        int base_id, neighbor_id;
+        if (base_type == PATCH_GRAPH) {
+            base_id = hvr_vertex_get(PATCH_ID, base, ctx);
+            neighbor_id = hvr_vertex_get(PATCH_ID, neighbor, ctx);
+        } else {
+            base_id = hvr_vertex_get(AGENT_ID, base, ctx);
+            neighbor_id = hvr_vertex_get(AGENT_ID, neighbor, ctx);
+        }
+
+        if (base_id == neighbor_id &&
+                abs(neighbor_timestep - base_timestep) == 1) {
+            if (base_timestep < neighbor_timestep) {
+                return DIRECTED_OUT;
+            } else {
+                return DIRECTED_IN;
+            }
+        }
+    } else {
+        hvr_vertex_t *agent = (base_type == AGENT_GRAPH ? base : neighbor);
+        hvr_vertex_t *patch = (base_type == PATCH_GRAPH ? base : neighbor);
+        int agent_timestep = (int)hvr_vertex_get(AGENT_TIMESTEP, agent, ctx);
+        int patch_timestep = (int)hvr_vertex_get(AGENT_TIMESTEP, patch, ctx);
+
+        hvr_partition_t patch_id = (hvr_partition_t)hvr_vertex_get(AGENT_PATCH,
+                agent, ctx);
+
+        if (patch_id == (int)hvr_vertex_get(PATCH_ID, patch, ctx) &&
+                abs(neighbor_timestep - base_timestep) == 1) {
+            if (base_timestep < neighbor_timestep) {
+                return DIRECTED_OUT;
+            } else {
+                return DIRECTED_IN;
+            }
+        }
+    }
+
+    return NO_EDGE;
 }
 
 int main() {

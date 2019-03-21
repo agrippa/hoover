@@ -123,7 +123,8 @@ echo ""
 # oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/mailbox_test
 # oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/infectious_test $EXE_ARGS
 
-srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
+srun $SLURM_ARGS $HOME/hoover/bin/pas $EXE_ARGS
+# srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun -n 2 $HOME/hoover/bin/complex_interact2
 # srun -n 2 $HOME/hoover/bin/stale_state
 # srun -n 2 $HOME/hoover/bin/complex_interact

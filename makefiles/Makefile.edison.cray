@@ -145,7 +145,7 @@ bin/mailbox_test: test/mailbox_test.c bin/libhoover.a
 
 bin/pas: test/pas.cpp bin/libhoover.a
 	$(CC) $(CPPFLAGS) $(SHMEM_FLAGS) -fPIC -c test/pas.cpp -o bin/pas.o
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/pas.o -o $@ -lhoover -lm -lpthread
+	$(CC) $(CPPFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/pas.o -o $@ -lhoover -lm -lpthread -lstdc++
 
 bin/test_map: test/test_map.c
 	$(CC) $(CFLAGS) $^ -o $@ -Lbin -lhoover -lm $(SHMEM_FLAGS)
