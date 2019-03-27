@@ -14,13 +14,14 @@ typedef struct _hvr_vertex_t {
 
     double values[HVR_MAX_VECTOR_SIZE];
 
-    struct _hvr_vertex_t *next_in_partition;
-    struct _hvr_vertex_t *prev_in_partition;
-
     hvr_time_t creation_iter;
     unsigned char needs_send;
     unsigned char needs_processing;
     hvr_partition_t curr_part;
+
+    // These two fields must be the last in the vertex struct, in this order
+    struct _hvr_vertex_t *next_in_partition;
+    struct _hvr_vertex_t *prev_in_partition;
 } hvr_vertex_t;
 
 /*
@@ -55,8 +56,8 @@ static inline void hvr_vertex_set(const unsigned feature, const double val,
         hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     assert(feature < HVR_MAX_VECTOR_SIZE);
     if (val != vert->values[feature]) {
-        vert->needs_send = 1;
         vert->values[feature] = val;
+        vert->needs_send = 1;
     }
 }
 

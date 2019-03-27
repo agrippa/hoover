@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -87,12 +87,12 @@ export HVR_SPARSE_ARR_SEGS=8192
 export HVR_SPARSE_ARR_POOL=$((192 * 1024 * 1024));
 export HVR_EDGES_POOL_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
-# export HVR_TRACE_DUMP=1
-# export HVR_TRACE_DUMP_ONLY_LAST=1
+export HVR_TRACE_DUMP=1
+export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_CACHE_TRACE_DUMP=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-# export HVR_HANG_ABORT=300
+# export HVR_HANG_ABORT=100
 # export HVR_HANG_ABORT_PE=17
 
 cd $SCRATCH
@@ -123,12 +123,17 @@ echo ""
 # oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/mailbox_test
 # oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/infectious_test $EXE_ARGS
 
-srun $SLURM_ARGS $HOME/hoover/bin/pas $EXE_ARGS
+# srun $SLURM_ARGS $HOME/hoover/bin/init_test 500
+
+export SIMULATION_TIMESTEPS=60
+export MAX_SECONDS=120
+srun $SLURM_ARGS $HOME/hoover/bin/simple_nbody_test $SIMULATION_TIMESTEPS $MAX_SECONDS
+
+# srun $SLURM_ARGS $HOME/hoover/bin/pas $EXE_ARGS
 # srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 # srun -n 2 $HOME/hoover/bin/complex_interact2
 # srun -n 2 $HOME/hoover/bin/stale_state
 # srun -n 2 $HOME/hoover/bin/complex_interact
-# srun $SLURM_ARGS $HOME/hoover/bin/init_test 1000
 # srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480
 
 # Edge microbenchmarks

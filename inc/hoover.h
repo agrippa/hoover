@@ -300,7 +300,6 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_local_subcopy_t *dead_info;
     hvr_time_t *next_producer_info_check;
     hvr_time_t *curr_producer_info_interval;
-#define MAX_PRODUCER_INFO_INTERVAL 1
 
     // Edge from PE -> partitions we need to notify it about
     hvr_sparse_arr_t pe_subscription_info;
