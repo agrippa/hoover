@@ -1,6 +1,8 @@
 #ifndef _HVR_VERTEX_H
 #define _HVR_VERTEX_H
 
+#include <string.h>
+
 #include "hvr_common.h"
 
 #ifdef __cplusplus
@@ -49,6 +51,16 @@ static inline double hvr_vertex_get(const unsigned feature,
     return vert->values[feature];
 }
 
+static inline uint64_t hvr_vertex_get_uint64(const unsigned feature,
+        const hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
+    assert(sizeof(uint64_t) == sizeof(double));
+    assert(feature < HVR_MAX_VECTOR_SIZE);
+
+    uint64_t result;
+    memcpy(&result, &(vert->values[feature]), sizeof(result));
+    return result;
+}
+
 /*
  * Set the specified feature to the specified value in the provided vector.
  */
@@ -57,6 +69,18 @@ static inline void hvr_vertex_set(const unsigned feature, const double val,
     assert(feature < HVR_MAX_VECTOR_SIZE);
     if (val != vert->values[feature]) {
         vert->values[feature] = val;
+        vert->needs_send = 1;
+    }
+}
+
+static inline void hvr_vertex_set_uint64(const unsigned feature,
+        const uint64_t val, hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
+    assert(sizeof(uint64_t) == sizeof(double));
+    assert(feature < HVR_MAX_VECTOR_SIZE);
+
+    uint64_t old = hvr_vertex_get_uint64(feature, vert, in_ctx);
+    if (val != old) {
+        memcpy(&(vert->values[feature]), &val, sizeof(val));
         vert->needs_send = 1;
     }
 }
@@ -93,6 +117,10 @@ extern int hvr_vertex_equal(hvr_vertex_t *a, hvr_vertex_t *b, hvr_ctx_t in_ctx);
  * hasn't been made to the vertices attributes.
  */
 extern void hvr_vertex_trigger_update(hvr_vertex_t *vert, hvr_ctx_t in_ctx);
+
+static inline hvr_vertex_id_t hvr_vertex_get_id(hvr_vertex_t *vert) {
+    return vert->id;
+}
 
 #ifdef __cplusplus
 }

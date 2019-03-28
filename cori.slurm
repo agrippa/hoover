@@ -125,7 +125,7 @@ echo ""
 
 # srun $SLURM_ARGS $HOME/hoover/bin/init_test 500
 
-export SIMULATION_TIMESTEPS=60
+export SIMULATION_TIMESTEPS=20
 export MAX_SECONDS=120
 srun $SLURM_ARGS $HOME/hoover/bin/simple_nbody_test $SIMULATION_TIMESTEPS $MAX_SECONDS
 

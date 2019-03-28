@@ -786,12 +786,11 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_mailbox_init(&new_ctx->vertex_update_mailbox,        128 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_delete_mailbox,        128 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->forward_mailbox,              128 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->vertex_msg_mailbox,            32 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->coupling_mailbox,              16 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->coupling_mailbox,              16 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->coupling_ack_and_dead_mailbox, 32 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->cluster_mailbox,               16 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->coupling_val_mailbox,          16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->start_iter_mailbox,            16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->start_iter_ack_mailbox,        16 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->to_couple_with_mailbox,        16 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->root_info_mailbox,             16 * 1024 * 1024);
 
@@ -859,9 +858,7 @@ void hvr_init(const hvr_partition_t n_partitions,
     max_msg_len = MAX_MACRO(sizeof(hvr_partition_member_change_t), max_msg_len);
     max_msg_len = MAX_MACRO(sizeof(hvr_dead_pe_msg_t), max_msg_len);
     max_msg_len = MAX_MACRO(sizeof(hvr_coupling_msg_t), max_msg_len);
-    max_msg_len = MAX_MACRO(sizeof(start_iter_msg_t), max_msg_len);
     max_msg_len = MAX_MACRO(sizeof(new_coupling_msg_t), max_msg_len);
-    max_msg_len = MAX_MACRO(sizeof(cluster_ack_msg_t), max_msg_len);
     max_msg_len = MAX_MACRO(new_ctx->coupled_pes_msg.msg_buf_len, max_msg_len);
 
     unsigned max_buffered_msgs = 1000;
@@ -873,6 +870,13 @@ void hvr_init(const hvr_partition_t n_partitions,
     new_ctx->interacting = (hvr_partition_t *)malloc(
             MAX_INTERACTING_PARTITIONS * sizeof(new_ctx->interacting[0]));
     assert(new_ctx->interacting);
+
+    size_t buffered_msgs_pool_size = 1024ULL * 1024ULL;
+    if (getenv("HVR_BUFFERED_MSGS_POOL_SIZE")) {
+        buffered_msgs_pool_size = atoi(getenv("HVR_BUFFERED_MSGS_POOL_SIZE"));
+    }
+    hvr_buffered_msgs_init(new_ctx->vec_cache.pool_size,
+            buffered_msgs_pool_size, &new_ctx->buffered_msgs);
 
     // Print the number of bytes allocated
     // shmem_malloc_wrapper(0);
@@ -1328,6 +1332,48 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
     }
 }
 
+void hvr_send_msg(hvr_vertex_id_t dst_id, hvr_vertex_t *payload,
+        hvr_internal_ctx_t *ctx) {
+    inter_vert_msg_t msg;
+    msg.dst = dst_id;
+    memcpy(&msg.payload, payload, sizeof(*payload));
+
+    hvr_mailbox_send(&msg, sizeof(msg), VERTEX_ID_PE(dst_id), -1,
+            &ctx->vertex_msg_mailbox);
+}
+
+int hvr_poll_msg(hvr_vertex_t *vert, hvr_vertex_t *out,
+        hvr_internal_ctx_t *ctx) {
+    assert(VERTEX_ID_PE(vert->id) == ctx->pe);
+    return hvr_buffered_msgs_poll(VERTEX_ID_OFFSET(vert->id), out,
+            &ctx->buffered_msgs);
+}
+
+static void process_incoming_messages(hvr_internal_ctx_t *ctx) {
+    size_t msg_len;
+    hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
+            &ctx->msg_buf_pool);
+    int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
+            &msg_len, &ctx->vertex_msg_mailbox);
+    while (success) {
+        assert(msg_len == sizeof(inter_vert_msg_t));
+        inter_vert_msg_t *msg = (inter_vert_msg_t *)msg_buf_node->ptr;
+        assert(VERTEX_ID_PE(msg->dst) == ctx->pe);
+
+        size_t offset = VERTEX_ID_OFFSET(msg->dst);
+        hvr_buffered_msgs_insert(offset, &msg->payload, &ctx->buffered_msgs);
+
+        hvr_vertex_t *local = ctx->pool.pool + offset;
+        assert(local->id != HVR_INVALID_VERTEX_ID); // Verify is allocated
+        local->needs_processing = 1;
+
+        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
+                &msg_len, &ctx->vertex_msg_mailbox);
+    }
+
+    hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
+}
+
 static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         process_perf_info_t *perf_info) {
     unsigned n_updates = 0;
@@ -1746,7 +1792,6 @@ static size_t blocking_recv(hvr_msg_buf_node_t *msg_buf_node, hvr_mailbox_t *mb,
 
 static int negotiate_new_root(int other_root, hvr_msg_buf_node_t *msg_buf_node,
         hvr_internal_ctx_t *ctx) {
-    // fprintf(stderr, "PE %d negotiating new root with %d\n", ctx->pe, other_root);
     size_t msg_len;
     // Found the true root PE of the other cluster
     int new_combined_root_pe = (ctx->pe < other_root ? ctx->pe : other_root);
@@ -2695,6 +2740,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     const unsigned long long end_send_updates = hvr_current_time_us();
 
     perf_info.n_received_updates += process_vertex_updates(ctx, &perf_info);
+    process_incoming_messages(ctx);
     const unsigned long long end_vertex_updates = hvr_current_time_us();
 
     hvr_vertex_t coupled_metric;
@@ -2804,6 +2850,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long end_send_updates = hvr_current_time_us();
 
         perf_info.n_received_updates += process_vertex_updates(ctx, &perf_info);
+        process_incoming_messages(ctx);
 
         const unsigned long long end_vertex_updates = hvr_current_time_us();
 
@@ -2971,10 +3018,7 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     hvr_mailbox_destroy(&ctx->forward_mailbox);
     hvr_mailbox_destroy(&ctx->coupling_mailbox);
     hvr_mailbox_destroy(&ctx->coupling_ack_and_dead_mailbox);
-    hvr_mailbox_destroy(&ctx->cluster_mailbox);
     hvr_mailbox_destroy(&ctx->coupling_val_mailbox);
-    hvr_mailbox_destroy(&ctx->start_iter_mailbox);
-    hvr_mailbox_destroy(&ctx->start_iter_ack_mailbox);
     hvr_mailbox_destroy(&ctx->root_info_mailbox);
 
     hvr_sparse_arr_destroy(&ctx->pe_subscription_info);

@@ -21,6 +21,7 @@ extern "C" {
 #include "hvr_set_msg.h"
 #include "hvr_msg_buf_pool.h"
 #include "hvr_irregular_matrix.h"
+#include "hvr_buffered_msgs.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -129,10 +130,6 @@ typedef struct _hvr_coupling_msg_t {
     hvr_vertex_t val;
 } hvr_coupling_msg_t;
 
-typedef struct _start_iter_msg_t {
-    int pe;
-} start_iter_msg_t;
-
 typedef struct _new_coupling_msg_t {
     int pe;
     hvr_time_t iter;
@@ -144,11 +141,10 @@ typedef struct _new_coupling_msg_ack_t {
     int abort;
 } new_coupling_msg_ack_t;
 
-typedef struct _cluster_ack_msg_t {
-    int pe;
-    unsigned nforwards;
-    int requires_resend;
-} cluster_ack_msg_t;
+typedef struct _inter_vert_msg_t {
+    hvr_vertex_id_t dst;
+    hvr_vertex_t payload;
+} inter_vert_msg_t;
 
 /*
  * Per-PE data structure for storing all information about the running problem
@@ -285,13 +281,10 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t vertex_update_mailbox;
     hvr_mailbox_t vertex_delete_mailbox;
     hvr_mailbox_t forward_mailbox;
+    hvr_mailbox_t vertex_msg_mailbox;
 
-    // Actually used
-    hvr_mailbox_t start_iter_mailbox;
-    hvr_mailbox_t start_iter_ack_mailbox;
     hvr_mailbox_t coupling_mailbox;
     hvr_mailbox_t coupling_ack_and_dead_mailbox;
-    hvr_mailbox_t cluster_mailbox;
     hvr_mailbox_t coupling_val_mailbox;
     hvr_mailbox_t to_couple_with_mailbox;
     hvr_mailbox_t root_info_mailbox;
@@ -331,6 +324,8 @@ typedef struct _hvr_internal_ctx_t {
 
     uint64_t total_vertex_msgs_sent;
     uint64_t total_vertex_msgs_recvd;
+
+    hvr_buffered_msgs_t buffered_msgs;
 } hvr_internal_ctx_t;
 
 /*
@@ -377,6 +372,12 @@ extern unsigned long long hvr_current_time_us();
 
 extern int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
         hvr_edge_type_t **out_dirs, hvr_ctx_t in_ctx);
+
+extern void hvr_send_msg(hvr_vertex_id_t dst, hvr_vertex_t *msg,
+        hvr_internal_ctx_t *ctx);
+
+extern int hvr_poll_msg(hvr_vertex_t *vert,
+        hvr_vertex_t *out, hvr_internal_ctx_t *ctx);
 
 extern hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t ctx);
 
