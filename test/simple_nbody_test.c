@@ -19,7 +19,6 @@
 #define VY 5
 #define NEXT_CREATED 6
 #define NEXT_ID 7
-#define HAVE_PREV 8
 #define PREV_PX 9
 #define PREV_PY 10
 #define PREV_VX 11
@@ -58,10 +57,10 @@ hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
     int neighbor_time = (int)hvr_vertex_get(TIMESTEP, neighbor, ctx);
 
     if (abs(base_time - neighbor_time) == 1) {
-        double base_x = hvr_vertex_get(PX, base, ctx);
-        double base_y = hvr_vertex_get(PY, base, ctx);
-        double neighbor_x = hvr_vertex_get(PX, neighbor, ctx);
-        double neighbor_y = hvr_vertex_get(PY, neighbor, ctx);
+        double base_x = hvr_vertex_get(PREV_PX, base, ctx);
+        double base_y = hvr_vertex_get(PREV_PY, base, ctx);
+        double neighbor_x = hvr_vertex_get(PREV_PX, neighbor, ctx);
+        double neighbor_y = hvr_vertex_get(PREV_PY, neighbor, ctx);
         if (distance(base_x, base_y, neighbor_x, neighbor_y) <
                 distance_threshold) {
             if (base_time < neighbor_time) {
@@ -76,8 +75,8 @@ hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
 
 hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
     const int timestep = hvr_vertex_get(TIMESTEP, actor, ctx);
-    const double y = hvr_vertex_get(PY, actor, ctx);
-    const double x = hvr_vertex_get(PX, actor, ctx);
+    const double y = hvr_vertex_get(PREV_PY, actor, ctx);
+    const double x = hvr_vertex_get(PREV_PX, actor, ctx);
 
     const hvr_partition_t timestep_partition = timestep;
     const hvr_partition_t y_partition = (hvr_partition_t)(y / PARTITION_DIM);
@@ -190,7 +189,9 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         const double px = hvr_vertex_get(PREV_PX, vertex, ctx);
         const double py = hvr_vertex_get(PREV_PY, vertex, ctx);
         double accel_x, accel_y;
-        compute_accel(px, py, vertex_timestep, vertex_id, verts, dirs,
+        compute_accel(hvr_vertex_get(PREV_PX, vertex, ctx),
+                hvr_vertex_get(PREV_PY, vertex, ctx),
+                vertex_timestep, vertex_id, verts, dirs,
                 n_neighbors, &accel_x, &accel_y, ctx);
         assert(!isinf(accel_x));
         assert(!isinf(accel_y));
@@ -230,30 +231,29 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         fflush(fp);
     }
 
-    if (vertex_timestep < timesteps - 1 &&
-            hvr_vertex_get(NEXT_CREATED, vertex, ctx) == 0.0) {
-        hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
-        assert(next);
-
-        hvr_vertex_set(TIMESTEP, vertex_timestep + 1, next, ctx);
-        hvr_vertex_set(PARTICLE_ID, vertex_id, next, ctx);
-        hvr_vertex_set(PX, hvr_vertex_get(PX, vertex, ctx), next, ctx);
-        hvr_vertex_set(PY, hvr_vertex_get(PY, vertex, ctx), next, ctx);
-        hvr_vertex_set(VX, hvr_vertex_get(VX, vertex, ctx), next, ctx);
-        hvr_vertex_set(VY, hvr_vertex_get(VY, vertex, ctx), next, ctx);
-        hvr_vertex_set(NEXT_CREATED, 0, next, ctx);
-        hvr_vertex_set_uint64(NEXT_ID, 0, next, ctx);
-        hvr_vertex_set(HAVE_PREV, 0, next, ctx);
-        hvr_vertex_set(PREV_PX, hvr_vertex_get(PX, vertex, ctx), next, ctx);
-        hvr_vertex_set(PREV_PY, hvr_vertex_get(PY, vertex, ctx), next, ctx);
-        hvr_vertex_set(PREV_VX, hvr_vertex_get(VX, vertex, ctx), next, ctx);
-        hvr_vertex_set(PREV_VY, hvr_vertex_get(VY, vertex, ctx), next, ctx);
-
-        hvr_vertex_set_uint64(NEXT_ID, hvr_vertex_get_id(next), vertex, ctx);
-        hvr_vertex_set(NEXT_CREATED, 1, vertex, ctx);
-    }
-
     if (vertex_timestep < timesteps - 1) {
+        if (hvr_vertex_get(NEXT_CREATED, vertex, ctx) == 0.0) {
+            hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
+            assert(next);
+
+            hvr_vertex_set(TIMESTEP, vertex_timestep + 1, next, ctx);
+            hvr_vertex_set(PARTICLE_ID, vertex_id, next, ctx);
+            hvr_vertex_set(PX, hvr_vertex_get(PX, vertex, ctx), next, ctx);
+            hvr_vertex_set(PY, hvr_vertex_get(PY, vertex, ctx), next, ctx);
+            hvr_vertex_set(VX, hvr_vertex_get(VX, vertex, ctx), next, ctx);
+            hvr_vertex_set(VY, hvr_vertex_get(VY, vertex, ctx), next, ctx);
+            hvr_vertex_set(NEXT_CREATED, 0, next, ctx);
+            hvr_vertex_set_uint64(NEXT_ID, 0, next, ctx);
+            hvr_vertex_set(HAVE_PREV, 0, next, ctx);
+            hvr_vertex_set(PREV_PX, hvr_vertex_get(PX, vertex, ctx), next, ctx);
+            hvr_vertex_set(PREV_PY, hvr_vertex_get(PY, vertex, ctx), next, ctx);
+            hvr_vertex_set(PREV_VX, hvr_vertex_get(VX, vertex, ctx), next, ctx);
+            hvr_vertex_set(PREV_VY, hvr_vertex_get(VY, vertex, ctx), next, ctx);
+
+            hvr_vertex_set_uint64(NEXT_ID, hvr_vertex_get_id(next), vertex, ctx);
+            hvr_vertex_set(NEXT_CREATED, 1, vertex, ctx);
+        }
+
         uint64_t next_id = hvr_vertex_get_uint64(NEXT_ID, vertex, ctx);
         hvr_send_msg(next_id, vertex, ctx);
     }
@@ -383,12 +383,21 @@ int main(int argc, char **argv) {
         hvr_vertex_set(TIMESTEP, 0, &particles[i], hvr_ctx);
         hvr_vertex_set(PARTICLE_ID, pe * nparticles_per_pe + i, &particles[i],
                 hvr_ctx);
-        hvr_vertex_set(PX, random_double_in_range(0.0, domain_dim),
+
+        hvr_vertex_set(PREV_PX, random_double_in_range(0.0, domain_dim),
                 &particles[i], hvr_ctx);
-        hvr_vertex_set(PY, random_double_in_range(0.0, domain_dim),
+        hvr_vertex_set(PREV_PY, random_double_in_range(0.0, domain_dim),
                 &particles[i], hvr_ctx);
-        hvr_vertex_set(VX, 0, &particles[i], hvr_ctx);
-        hvr_vertex_set(VY, 0, &particles[i], hvr_ctx);
+        hvr_vertex_set(PREV_VX, 0.0, &particles[i], hvr_ctx);
+        hvr_vertex_set(PREV_VY, 0.0, &particles[i], hvr_ctx);
+
+        hvr_vertex_set(PX, hvr_vertex_get(PREV_PX, &particles[i], hvr_ctx),
+                &particles[i], hvr_ctx);
+        hvr_vertex_set(PY, hvr_vertex_get(PREV_PY, &particles[i], hvr_ctx),
+                &particles[i], hvr_ctx);
+        hvr_vertex_set(VX, 0.0, &particles[i], hvr_ctx);
+        hvr_vertex_set(VY, 0.0, &particles[i], hvr_ctx);
+
         hvr_vertex_set(NEXT_CREATED, 0, &particles[i], hvr_ctx);
         hvr_vertex_set_uint64(NEXT_ID, 0, &particles[i], hvr_ctx);
     }
