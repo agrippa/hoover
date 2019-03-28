@@ -127,10 +127,11 @@ function readSingleFile(e) {
                     }
 
                     var timestep = parseInt(features[0]);
-                    var state = parseInt(features[4]);
+                    var id = parseInt(features[1]);
                     var x = features[2];
                     var y = features[3];
-                    var id = parseInt(features[1]);
+                    var state = 0;
+                    // var state = parseInt(features[4]);
 
                     addPE(pe);
                     addState(state);
