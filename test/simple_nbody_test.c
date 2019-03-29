@@ -9,7 +9,7 @@
 
 #include <hoover.h>
 
-#define MAX_ACCEL 1.0
+#define MAX_ACCEL 0.001
 
 #define TIMESTEP 0
 #define PARTICLE_ID 1
@@ -30,8 +30,6 @@ static double distance_threshold = 10.0;
 static const double domain_dim = 100.0;
 static int timesteps = 20;
 static const int partitions_per_dim = 10;
-
-static FILE *fp = NULL;
 
 #define PARTITION_DIM (domain_dim / partitions_per_dim)
 
@@ -135,11 +133,6 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     int vertex_id = (int)hvr_vertex_get(PARTICLE_ID, vertex, ctx);
     int vertex_timestep = (int)hvr_vertex_get(TIMESTEP, vertex, ctx);
 
-    double px = hvr_vertex_get(PX, vertex, ctx);
-    double py = hvr_vertex_get(PY, vertex, ctx);
-    double vx = hvr_vertex_get(VX, vertex, ctx);
-    double vy = hvr_vertex_get(VY, vertex, ctx);
-
     hvr_vertex_t **verts;
     hvr_edge_type_t *dirs;
     int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
@@ -151,7 +144,6 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         assert((int)hvr_vertex_get(TIMESTEP, &prev, ctx) == vertex_timestep - 1);
         assert((int)hvr_vertex_get(PARTICLE_ID, &prev, ctx) == vertex_id);
 
-        hvr_vertex_set(HAVE_PREV, 1, vertex, ctx);
         hvr_vertex_set(PREV_PX, hvr_vertex_get(PX, &prev, ctx), vertex, ctx);
         hvr_vertex_set(PREV_PY, hvr_vertex_get(PY, &prev, ctx), vertex, ctx);
         hvr_vertex_set(PREV_VX, hvr_vertex_get(VX, &prev, ctx), vertex, ctx);
@@ -163,73 +155,34 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         } while (have_msg);
     }
 
-    fprintf(stderr, "PE %d updating particle %d on iter %d\n", ctx->pe,
-            vertex_id, ctx->iter);
-    fprintf(fp, "PE %d updating particle %d on timestep %d, iter %d. "
-            "p=(%f, %f), v=(%f, %f). # neighbors = %d. have_msg=%d\n", ctx->pe,
-            vertex_id, vertex_timestep, ctx->iter, px, py, vx, vy,
-            n_neighbors, have_msg);
+    const double px = hvr_vertex_get(PREV_PX, vertex, ctx);
+    const double py = hvr_vertex_get(PREV_PY, vertex, ctx);
+    double accel_x, accel_y;
+    compute_accel(hvr_vertex_get(PREV_PX, vertex, ctx),
+            hvr_vertex_get(PREV_PY, vertex, ctx),
+            vertex_timestep, vertex_id, verts, dirs,
+            n_neighbors, &accel_x, &accel_y, ctx);
+    assert(!isinf(accel_x));
+    assert(!isinf(accel_y));
 
-    for (int i = 0; i < n_neighbors; i++) {
-        hvr_vertex_t *neighbor = verts[i];
-        int neighbor_id = (int)hvr_vertex_get(PARTICLE_ID, neighbor, ctx);
-        int neighbor_timestep = (int)hvr_vertex_get(TIMESTEP, neighbor, ctx);
-        fprintf(fp, "  %d: direction=%d. particle %d, timestep %d. "
-                "pos=(%f, %f) vel=(%f %f)\n", i, dirs[i], neighbor_id,
-                neighbor_timestep,
-                hvr_vertex_get(PX, neighbor, ctx),
-                hvr_vertex_get(PY, neighbor, ctx),
-                hvr_vertex_get(VX, neighbor, ctx),
-                hvr_vertex_get(VY, neighbor, ctx));
-    }
+    const double vx = hvr_vertex_get(PREV_VX, vertex, ctx) + accel_x;
+    const double vy = hvr_vertex_get(PREV_VY, vertex, ctx) + accel_y;
+    hvr_vertex_set(VX, vx, vertex, ctx);
+    hvr_vertex_set(VY, vy, vertex, ctx);
+    assert(!isinf(vx));
+    assert(!isinf(vy));
 
-    fflush(fp);
+    double new_px = px + vx;
+    double new_py = py + vy;
+    while (new_px < 0.0) new_px += domain_dim;
+    while (new_px >= domain_dim) new_px -= domain_dim;
+    while (new_py < 0.0) new_py += domain_dim;
+    while (new_py >= domain_dim) new_py -= domain_dim;
+    assert(!isinf(new_px));
+    assert(!isinf(new_py));
 
-    if (hvr_vertex_get(HAVE_PREV, vertex, ctx) > 0) {
-        const double px = hvr_vertex_get(PREV_PX, vertex, ctx);
-        const double py = hvr_vertex_get(PREV_PY, vertex, ctx);
-        double accel_x, accel_y;
-        compute_accel(hvr_vertex_get(PREV_PX, vertex, ctx),
-                hvr_vertex_get(PREV_PY, vertex, ctx),
-                vertex_timestep, vertex_id, verts, dirs,
-                n_neighbors, &accel_x, &accel_y, ctx);
-        assert(!isinf(accel_x));
-        assert(!isinf(accel_y));
-
-        const double vx = hvr_vertex_get(PREV_VX, vertex, ctx) + accel_x;
-        const double vy = hvr_vertex_get(PREV_VY, vertex, ctx) + accel_y;
-        hvr_vertex_set(VX, vx, vertex, ctx);
-        hvr_vertex_set(VY, vy, vertex, ctx);
-        assert(!isinf(vx));
-        assert(!isinf(vy));
-
-        double new_px = px + vx;
-        double new_py = py + vy;
-        while (new_px < 0.0) new_px += domain_dim;
-        while (new_px >= domain_dim) new_px -= domain_dim;
-        while (new_py < 0.0) new_py += domain_dim;
-        while (new_py >= domain_dim) new_py -= domain_dim;
-        assert(!isinf(new_px));
-        assert(!isinf(new_py));
-
-        hvr_vertex_set(PX, new_px, vertex, ctx);
-        hvr_vertex_set(PY, new_py, vertex, ctx);
-
-        fprintf(fp, "  PE %d done updating particle %d on timestep %d. "
-                "p=(%f, %f), v=(%f, %f). # neighbors = %d. changed? %d (%d "
-                "%d %d %d)\n", ctx->pe, vertex_id, vertex_timestep,
-                hvr_vertex_get(PX, vertex, ctx),
-                hvr_vertex_get(PY, vertex, ctx),
-                hvr_vertex_get(VX, vertex, ctx),
-                hvr_vertex_get(VY, vertex, ctx),
-                n_neighbors, vertex->needs_send,
-                px != hvr_vertex_get(PX, vertex, ctx),
-                py != hvr_vertex_get(PY, vertex, ctx),
-                vx != hvr_vertex_get(VX, vertex, ctx),
-                vy != hvr_vertex_get(VY, vertex, ctx)
-                );
-        fflush(fp);
-    }
+    hvr_vertex_set(PX, new_px, vertex, ctx);
+    hvr_vertex_set(PY, new_py, vertex, ctx);
 
     if (vertex_timestep < timesteps - 1) {
         if (hvr_vertex_get(NEXT_CREATED, vertex, ctx) == 0.0) {
@@ -244,7 +197,6 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
             hvr_vertex_set(VY, hvr_vertex_get(VY, vertex, ctx), next, ctx);
             hvr_vertex_set(NEXT_CREATED, 0, next, ctx);
             hvr_vertex_set_uint64(NEXT_ID, 0, next, ctx);
-            hvr_vertex_set(HAVE_PREV, 0, next, ctx);
             hvr_vertex_set(PREV_PX, hvr_vertex_get(PX, vertex, ctx), next, ctx);
             hvr_vertex_set(PREV_PY, hvr_vertex_get(PY, vertex, ctx), next, ctx);
             hvr_vertex_set(PREV_VX, hvr_vertex_get(VX, vertex, ctx), next, ctx);
@@ -370,8 +322,6 @@ int main(int argc, char **argv) {
 
     char filename[1024];
     sprintf(filename, "%d.out", pe);
-    fp = fopen(filename, "w");
-    assert(fp);
 
     hvr_ctx_create(&hvr_ctx);
 
@@ -420,10 +370,8 @@ int main(int argc, char **argv) {
 
     shmem_barrier_all();
 
-    if (pe == 0) {
-        printf("%d PEs done after %d iterations on PE 0\n", npes,
-                hvr_ctx->iter);
-    }
+    printf("%d PEs done after %d iterations on PE %d\n", npes,
+            hvr_ctx->iter, shmem_my_pe());
 
     hvr_finalize(hvr_ctx);
 
