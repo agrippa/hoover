@@ -18,7 +18,7 @@ bin/libhoover.a: src/hoover.c \
 	src/hvr_set.c src/hvr_edge_set.c src/hvr_vertex.c \
 	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_sparse_arr.c \
 	src/hvr_map.c src/hvr_set_msg.c src/hvr_msg_buf_pool.c \
-	src/hvr_2d_edge_set.c src/hvr_irregular_matrix.c src/hvr_buffered_msgs.c
+	src/hvr_2d_edge_set.c src/hvr_irregular_matrix.c src/hvr_buffered_msgs.c src/shmem_rw_lock.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_irregular_matrix.o src/hvr_irregular_matrix.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_2d_edge_set.o src/hvr_2d_edge_set.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_msg_buf_pool.o src/hvr_msg_buf_pool.c
@@ -35,13 +35,14 @@ bin/libhoover.a: src/hoover.c \
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_sparse_arr.o src/hvr_sparse_arr.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_map.o src/hvr_map.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/hvr_buffered_msgs.o src/hvr_buffered_msgs.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/shmem_rw_lock.o src/shmem_rw_lock.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o bin/dlmalloc.o src/dlmalloc/dlmalloc.c
 	ar rcs bin/libhoover.a bin/hoover.o \
 		bin/hvr_vertex_pool.o bin/hvr_vertex_iter.o bin/hvr_mailbox.o bin/hvr_set.o \
 		bin/hvr_edge_set.o bin/hvr_vertex.o bin/hvr_vertex_cache.o \
 		bin/hvr_dist_bitvec.o bin/hvr_sparse_arr.o bin/hvr_map.o bin/dlmalloc.o \
 		bin/hvr_set_msg.o bin/hvr_msg_buf_pool.o bin/hvr_2d_edge_set.o \
-		bin/hvr_irregular_matrix.o bin/hvr_buffered_msgs.o
+		bin/hvr_irregular_matrix.o bin/hvr_buffered_msgs.o bin/shmem_rw_lock.o
 
 bin/generate_vertices: test/generate_vertices.c
 	$(CC) -O0 -g $^ -o $@ -std=c99
