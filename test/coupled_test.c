@@ -123,7 +123,8 @@ int main(int argc, char **argv) {
             hvr_ctx);
 
     hvr_exec_info info = hvr_body(hvr_ctx);
-    printf("PE %d ran for %d iterations\n", shmem_my_pe(), info.executed_iters);
+    printf("SUCCESS PE %d ran for %d iterations\n", shmem_my_pe(),
+            info.executed_iters);
 
     shmem_barrier_all();
 

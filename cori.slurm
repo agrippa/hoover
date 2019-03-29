@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:05:00
+#SBATCH -t 00:20:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -25,7 +25,7 @@ export LD_LIBRARY_PATH=$OPENSHMEM_INSTALL/lib64:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$OFI_HOME/lib:$LD_LIBRARY_PATH
 
 export SHMEM_ABORT_ON_ERROR=1
-export SHMEM_MEMINFO_DISPLAY=1
+# export SHMEM_MEMINFO_DISPLAY=1
 # export LD_PRELOAD=/opt/intel/compilers_and_libraries_2018.2.199/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
@@ -75,7 +75,7 @@ fi
 
 export N_PORTALS=0
 export N_INFECTED=1
-export MAX_NUM_TIMESTEPS=240
+export MAX_NUM_TIMESTEPS=200
 export INFECTION_RADIUS=100
 
 export HVR_SYMM_POOL_SIZE=2084000
@@ -87,8 +87,8 @@ export HVR_SPARSE_ARR_SEGS=8192
 export HVR_SPARSE_ARR_POOL=$((192 * 1024 * 1024));
 export HVR_EDGES_POOL_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
-export HVR_TRACE_DUMP=1
-export HVR_TRACE_DUMP_ONLY_LAST=1
+# export HVR_TRACE_DUMP=1
+# export HVR_TRACE_DUMP_ONLY_LAST=1
 # export HVR_CACHE_TRACE_DUMP=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
@@ -110,33 +110,34 @@ export SHMEM_OPTIMIZED_MEMCPY=1
 
 export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )) \
     --cpus-per-task=$CORES_PER_TASK \
-    --cpu_bind=verbose,cores \
+    --cpu_bind=cores \
     --cpu-freq=High \
     --mem-bind=local"
 export EXE_ARGS="$CELL_DIM $CELL_DIM $PE_ROWS $PE_COLS $MAX_NUM_TIMESTEPS \
     $INFECTION_RADIUS 600 $SCRATCH/491520-vert.16000-y.32000-x.1-infected.bin"
 
-echo "RUNNING INFECTIOUS MODEL"
-echo ""
+##### Example OSSS commands #####
 # oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/init_test 30
 # oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/hvr_set_msg_test
 # oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/mailbox_test
 # oshrun --npersocket $TASKS_PER_SOCKET $HOME/hoover/bin/infectious_test $EXE_ARGS
 
-# srun $SLURM_ARGS $HOME/hoover/bin/init_test 500
+##### Applications #####
+# export SIMULATION_TIMESTEPS=2000
+# export MAX_SECONDS=120
+# srun $SLURM_ARGS $HOME/hoover/bin/simple_nbody_test $SIMULATION_TIMESTEPS $MAX_SECONDS
 
-export SIMULATION_TIMESTEPS=2000
-export MAX_SECONDS=120
-srun $SLURM_ARGS $HOME/hoover/bin/simple_nbody_test $SIMULATION_TIMESTEPS $MAX_SECONDS
-
-# srun $SLURM_ARGS $HOME/hoover/bin/pas $EXE_ARGS
+# srun $SLURM_ARGS $HOME/hoover/bin/pas
 # srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
+
+##### Functional tests #####
+# srun $SLURM_ARGS $HOME/hoover/bin/init_test 500
 # srun -n 2 $HOME/hoover/bin/complex_interact2
 # srun -n 2 $HOME/hoover/bin/stale_state
 # srun -n 2 $HOME/hoover/bin/complex_interact
 # srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480
 
-# Edge microbenchmarks
+##### Edge microbenchmarks #####
 # srun -n 1 $HOME/hoover/bin/hvr_map_microbenchmark
 # srun -n 1 $HOME/hoover/bin/hvr_2d_set_microbenchmark
 # srun -n 1 $HOME/hoover/bin/hvr_irregular_matrix_microbenchmark
