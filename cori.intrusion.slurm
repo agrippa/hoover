@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 8
+#SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:02:00
+#SBATCH -t 00:10:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ###SBATCH --contiguous
@@ -43,39 +43,54 @@ cd $SCRATCH
 
 export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
-if [[ $SLURM_NNODES -eq 1 ]]; then
-    export PE_CHUNKS="4 4 2"
-elif [[ $SLURM_NNODES -eq 8 ]]; then
-    export PE_CHUNKS="8 8 4"
-elif [[ $SLURM_NNODES -eq 64 ]]; then
-    export PE_CHUNKS="16 16 8"
-elif [[ $SLURM_NNODES -eq 512 ]]; then
-    export PE_CHUNKS="32 32 16"
+export PE_PER_SOCKET=1
 
-elif [[ $SLURM_NNODES -eq 2 ]]; then
-    export PE_CHUNKS="3 4 4"
-elif [[ $SLURM_NNODES -eq 16 ]]; then
-    export PE_CHUNKS="6 8 8"
-elif [[ $SLURM_NNODES -eq 128 ]]; then
-    export PE_CHUNKS="12 16 16"
-elif [[ $SLURM_NNODES -eq 1024 ]]; then
-    export PE_CHUNKS="24 32 32"
+if [[ $PE_PER_SOCKET -eq 1 ]]; then
+    export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) --ntasks-per-socket=1 --cpus-per-task=$CORES_PER_SOCKET"
 
-elif [[ $SLURM_NNODES -eq 4 ]]; then
-    export PE_CHUNKS="6 4 4"
-elif [[ $SLURM_NNODES -eq 32 ]]; then
-    export PE_CHUNKS="12 8 8"
-elif [[ $SLURM_NNODES -eq 256 ]]; then
-    export PE_CHUNKS="24 16 16"
+    if [[ $SLURM_NNODES -eq 4 ]]; then
+        export PE_CHUNKS="2 2 2"
+    else
+        echo "Unsupported # of nodes $SLURM_NNODES"
+        exit 1
+    fi
 else
-    echo "Unsupported # of nodes $SLURM_NNODES"
-    exit 1
+    export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1"
+
+    if [[ $SLURM_NNODES -eq 1 ]]; then
+        export PE_CHUNKS="4 4 2"
+    elif [[ $SLURM_NNODES -eq 8 ]]; then
+        export PE_CHUNKS="8 8 4"
+    elif [[ $SLURM_NNODES -eq 64 ]]; then
+        export PE_CHUNKS="16 16 8"
+    elif [[ $SLURM_NNODES -eq 512 ]]; then
+        export PE_CHUNKS="32 32 16"
+
+    elif [[ $SLURM_NNODES -eq 2 ]]; then
+        export PE_CHUNKS="4 4 4"
+    elif [[ $SLURM_NNODES -eq 16 ]]; then
+        export PE_CHUNKS="8 8 8"
+    elif [[ $SLURM_NNODES -eq 128 ]]; then
+        export PE_CHUNKS="16 16 16"
+    elif [[ $SLURM_NNODES -eq 1024 ]]; then
+        export PE_CHUNKS="32 32 32"
+
+    elif [[ $SLURM_NNODES -eq 4 ]]; then
+        export PE_CHUNKS="8 4 4"
+    elif [[ $SLURM_NNODES -eq 32 ]]; then
+        export PE_CHUNKS="16 8 8"
+    elif [[ $SLURM_NNODES -eq 256 ]]; then
+        export PE_CHUNKS="32 16 16"
+    else
+        echo "Unsupported # of nodes $SLURM_NNODES"
+        exit 1
+    fi
 fi
 
 export PARTITIONS="50 50 50"
 export MIN_N_VERTICES_TO_ADD=500
 export MAX_N_VERTICES_TO_ADD=1000
-export TIME_LIMIT_IN_SECONDS=50
+export TIME_LIMIT_IN_SECONDS=300
 export EDGE_DISTANCE=10
 export DOMAIN_SIZE="12000 12000 10000"
 
@@ -83,14 +98,14 @@ export DOMAIN_SIZE="12000 12000 10000"
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
 
 export HVR_VERT_CACHE_SEGS=5000
-export HVR_VEC_CACHE_PREALLOCS=262144
+export HVR_VEC_CACHE_PREALLOCS=524288
+export HVR_SPARSE_ARR_POOL=$((64 * 1024 * 1024))
 
 cd $SCRATCH
 mkdir -p job.$SLURM_JOB_ID
 cd job.$SLURM_JOB_ID
 
-srun --ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) \
-    --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1 \
+srun $SLURM_ARGS \
     $HOME/hoover/bin/intrusion_detection \
     $TIME_LIMIT_IN_SECONDS \
     $EDGE_DISTANCE \

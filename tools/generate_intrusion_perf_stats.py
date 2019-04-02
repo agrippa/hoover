@@ -5,7 +5,7 @@ import sys
 
 if len(sys.argv) != 3:
     sys.stderr.write('usage: python generate_intrusion_perf_stats.py ' +
-            '<job-output-file> <pes-per-node\n')
+            '<job-output-file> <pes-per-node>\n')
     sys.exit(1)
 
 d = {}
