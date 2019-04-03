@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:02:00
+#SBATCH -t 00:06:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ###SBATCH --contiguous
@@ -44,6 +44,7 @@ cd $SCRATCH
 export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
 export PE_PER_SOCKET=1
+# export PE_PER_SOCKET=0
 
 if [[ $PE_PER_SOCKET -eq 1 ]]; then
     export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) --ntasks-per-socket=1 --cpus-per-task=$CORES_PER_SOCKET"
@@ -90,7 +91,7 @@ fi
 export PARTITIONS="50 50 50"
 export MIN_N_VERTICES_TO_ADD=500
 export MAX_N_VERTICES_TO_ADD=1000
-export TIME_LIMIT_IN_SECONDS=60
+export TIME_LIMIT_IN_SECONDS=300
 export EDGE_DISTANCE=10
 export DOMAIN_SIZE="12000 12000 10000"
 

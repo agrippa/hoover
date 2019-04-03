@@ -17,7 +17,7 @@
 #include <hoover.h>
 #include <shmem_rw_lock.h>
 
-#define VERBOSE
+// #define VERBOSE
 
 #define UNIFORM_DIST
 // #define POINT_DIST
@@ -99,7 +99,7 @@ static timestamped_pattern_count_t *neighbor_patterns_buffer = NULL;
 static pattern_count_t *sorted_best_patterns = NULL;
 static unsigned n_sorted_best_patterns = 0;
 
-#define MAX_LOCAL_PATTERNS 200
+#define MAX_LOCAL_PATTERNS 1000
 static pattern_count_t *known_local_patterns = NULL;
 static std::set<int> **pes_sharing_local_patterns = NULL;
 static unsigned n_known_local_patterns = 0;
