@@ -311,8 +311,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_edge_info_t modify_buffer[MAX_MODIFICATIONS];
     hvr_edge_type_t modify_buffer_info[MAX_MODIFICATIONS];
 
-    uint64_t modify_vert_buffer[MAX_MODIFICATIONS];
-    hvr_edge_type_t modify_dir_buffer[MAX_MODIFICATIONS];
+    hvr_edge_info_t edge_buffer[MAX_MODIFICATIONS];
+    hvr_edge_type_t dir_buffer[MAX_MODIFICATIONS];
     hvr_vertex_t *vert_ptr_buffer[MAX_MODIFICATIONS];
 
     hvr_dist_bitvec_t partition_producers;

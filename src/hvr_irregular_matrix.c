@@ -92,19 +92,28 @@ hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i, hvr_vertex_id_t j,
     return NO_EDGE;
 }
 
-void hvr_irr_matrix_linearize(hvr_vertex_id_t i, hvr_vertex_id_t *out_vals,
-        hvr_edge_type_t *out_edges, size_t *out_len, size_t capacity,
-        hvr_irr_matrix_t *m) {
+unsigned hvr_irr_matrix_linearize_zero_copy(hvr_vertex_id_t i,
+        hvr_edge_info_t **out_edges, size_t capacity, hvr_irr_matrix_t *m) {
     const unsigned curr_len = m->edges_len[i];
     hvr_edge_info_t *curr_edges = m->edges[i];
 
     assert(curr_len <= capacity);
 
-    for (unsigned iter = 0; iter < curr_len; iter++) {
-        out_vals[iter] = EDGE_INFO_VERTEX(curr_edges[iter]);
-        out_edges[iter] = EDGE_INFO_EDGE(curr_edges[iter]);
-    }
-    *out_len = curr_len;
+    *out_edges = curr_edges;
+
+    return curr_len;
+}
+
+unsigned hvr_irr_matrix_linearize(hvr_vertex_id_t i, hvr_edge_info_t *out_edges,
+        size_t capacity, hvr_irr_matrix_t *m) {
+    const unsigned curr_len = m->edges_len[i];
+    hvr_edge_info_t *curr_edges = m->edges[i];
+
+    assert(curr_len <= capacity);
+
+    memcpy(out_edges, curr_edges, curr_len * sizeof(*out_edges));
+
+    return curr_len;
 }
 
 void hvr_irr_matrix_usage(size_t *out_bytes_used, size_t *out_bytes_capacity,
