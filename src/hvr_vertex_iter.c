@@ -77,3 +77,64 @@ hvr_vertex_t *hvr_vertex_iter_next(hvr_vertex_iter_t *iter) {
         return result;
     }
 }
+
+void hvr_conc_vertex_iter_init(hvr_conc_vertex_iter_t *iter,
+        unsigned max_chunk_size, hvr_internal_ctx_t *ctx) {
+    hvr_vertex_iter_init(&iter->child, ctx);
+
+    iter->max_chunk_size = max_chunk_size;
+
+    int err = pthread_mutex_init(&iter->mutex, NULL);
+    assert(err == 0);
+}
+
+int hvr_conc_vertex_iter_next_chunk(hvr_conc_vertex_iter_t *iter,
+        hvr_conc_vertex_subiter_t *chunk) {
+    int success = 1;
+
+    int err = pthread_mutex_lock(&iter->mutex);
+    assert(err == 0);
+
+    if (iter->child.current_chunk == NULL) {
+        success = 0;
+    } else {
+        // Set up the subchunk
+        memcpy(&chunk->child, &iter->child, sizeof(chunk->child));
+        chunk->max_index_for_current_chunk =
+            chunk->child.index_for_current_chunk + iter->max_chunk_size;
+        if (chunk->max_index_for_current_chunk >
+                chunk->child.current_chunk->length) {
+            chunk->max_index_for_current_chunk =
+                chunk->child.current_chunk->length;
+        }
+
+        if (chunk->max_index_for_current_chunk ==
+                chunk->child.current_chunk->length) {
+            // Go to the next chunk, the remainder of this chunk is handled
+            iter->child.current_chunk = iter->child.current_chunk->next;
+            iter->child.index_for_current_chunk = 0;
+        } else {
+            // Just move the current index
+            iter->child.index_for_current_chunk =
+                chunk->max_index_for_current_chunk;
+        }
+    }
+
+    err = pthread_mutex_unlock(&iter->mutex);
+    assert(err == 0);
+
+    return success;
+}
+
+hvr_conc_vertex_subiter_t *hvr_conc_vertex_iter_next(
+        hvr_conc_vertex_subiter_t *chunk) {
+    if (chunk->child.index_for_current_chunk >=
+            chunk->max_index_for_current_chunk) {
+        return NULL;
+    }
+
+    hvr_vertex_t *result = hvr_vertex_iter_next(&chunk->child);
+    assert(result);
+    return result;
+}
+
