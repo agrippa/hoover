@@ -132,8 +132,6 @@ hvr_vertex_t *hvr_conc_vertex_iter_next(hvr_conc_vertex_subiter_t *chunk) {
         return NULL;
     }
 
-    hvr_vertex_t *result = hvr_vertex_iter_next(&chunk->child);
-    assert(result);
-    return result;
+    return hvr_vertex_iter_next(&chunk->child);
 }
 

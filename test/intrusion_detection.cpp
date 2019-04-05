@@ -9,6 +9,9 @@
 #include <stdint.h>
 #include <math.h>
 #include <stdlib.h>
+#ifdef MULTITHREADED
+#include <omp.h>
+#endif
 
 #include <set>
 #include <vector>
@@ -601,7 +604,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 pattern_count_t *new_pattern = known_local_patterns +
                     n_known_local_patterns;
                 memcpy(new_pattern, pattern, sizeof(*new_pattern));
-                known_local_patterns[n_known_local_patterns]->clear();
+                pes_sharing_local_patterns[n_known_local_patterns]->clear();
                 pes_sharing_local_patterns[n_known_local_patterns]->insert(
                         pes->begin(), pes->end());
                 n_known_local_patterns++;

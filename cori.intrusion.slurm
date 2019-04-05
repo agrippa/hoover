@@ -57,6 +57,7 @@ if [[ $PE_PER_SOCKET -eq 1 ]]; then
     fi
 
     export OMP_NUM_THREADS=$CORES_PER_SOCKET
+    export EXE=intrusion_detection.multi
 else
     export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1"
 
@@ -90,6 +91,7 @@ else
     fi
 
     export OMP_NUM_THREADS=1
+    export EXE=intrusion_detection
 fi
 
 export PARTITIONS="50 50 50"
@@ -102,8 +104,8 @@ export DOMAIN_SIZE="12000 12000 10000"
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
 
-export HVR_VERT_CACHE_SEGS=5000
-export HVR_VEC_CACHE_PREALLOCS=524288
+export HVR_VERT_CACHE_SEGS=10000
+export HVR_VEC_CACHE_PREALLOCS=$((512 * 1024 * 1024))
 export HVR_SPARSE_ARR_POOL=$((64 * 1024 * 1024))
 
 cd $SCRATCH
@@ -111,7 +113,7 @@ mkdir -p job.$SLURM_JOB_ID
 cd job.$SLURM_JOB_ID
 
 srun $SLURM_ARGS \
-    $HOME/hoover/bin/intrusion_detection \
+    $HOME/hoover/bin/$EXE \
     $TIME_LIMIT_IN_SECONDS \
     $EDGE_DISTANCE \
     $DOMAIN_SIZE \

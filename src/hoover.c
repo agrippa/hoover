@@ -19,13 +19,13 @@
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
 
-// #define DETAILED_PRINTS
+#define DETAILED_PRINTS
 // #define COUPLING_PRINTS
 
 // #define PRINT_PARTITIONS
 #define MAX_INTERACTING_PARTITIONS 4000
 #define N_SEND_ATTEMPTS 10
-#define MAX_PROFILED_ITERS 100000
+#define MAX_PROFILED_ITERS 1000
 
 static int print_profiling = 1;
 static int trace_shmem_malloc = 0;

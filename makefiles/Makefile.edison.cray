@@ -10,7 +10,7 @@ CXX=cc
 all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge_set_test bin/own_edge_test bin/vertex_test bin/init_test \
 	bin/infectious_test bin/write_lock_stress \
 	bin/test_vertex_id bin/edge_info_test bin/add_vertices_test bin/mailbox_test \
-	bin/remove_vertices_test bin/intrusion_detection bin/hvr_dist_bitvec_test \
+	bin/remove_vertices_test bin/intrusion_detection bin/instruction_detection.multi bin/hvr_dist_bitvec_test \
 	bin/pas bin/coupled_test bin/dummy_shmem_test bin/complex_interact bin/stale_state
 
 bin/libhoover.a: src/hoover.c \
@@ -130,6 +130,11 @@ bin/add_vertices_test: test/add_vertices_test.c
 
 bin/remove_vertices_test: test/remove_vertices_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
+
+bin/intrusion_detection.multi: test/intrusion_detection.cpp bin/libhoover.a
+	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/intrusion_detection.cpp -o bin/intrusion_detection.o -DMULTITHREADED -fopenmp
+	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/intrusion_detection.o -o $@ -lhoover -lm -lpthread -lstdc++ -DMULTITHREADED -fopenmp
+
 
 bin/intrusion_detection: test/intrusion_detection.cpp bin/libhoover.a
 	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/intrusion_detection.cpp -o bin/intrusion_detection.o
