@@ -287,10 +287,6 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
         unsigned *n_explores,
         unsigned curr_depth,
         unsigned max_depth,
-        unsigned *count_local_gets,
-        unsigned *count_remote_gets,
-        unsigned *count_cached_remote_fetches,
-        unsigned *count_uncached_remote_fetches,
         unsigned long long *accum_tracking_time) {
     *n_explores += 1;
 
@@ -299,6 +295,7 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
      * states after this traversal.
      */
     const unsigned long long start_tracking_time = hvr_current_time_us();
+
     int found = 0;
     for (unsigned i = 0; i < *n_known_patterns && !found; i++) {
         if (patterns_identical(&(curr_state->adjacency_matrix),
@@ -312,7 +309,9 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
                     other_pes->insert(owning_pe);
                 }
             }
+
             known_patterns[i].count += 1;
+
             found = 1;
         }
     }
@@ -373,9 +372,6 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
                     explore_subgraphs(neighbor, &new_state, known_patterns,
                             pes_sharing_local_patterns, n_known_patterns, ctx,
                             n_explores, curr_depth + 1, max_depth,
-                            count_local_gets, count_remote_gets,
-                            count_cached_remote_fetches,
-                            count_uncached_remote_fetches,
                             accum_tracking_time);
                 }
             } else {
@@ -390,9 +386,6 @@ static inline void explore_subgraphs(hvr_vertex_t *last_added,
                 explore_subgraphs(neighbor, &new_state, known_patterns,
                         pes_sharing_local_patterns, n_known_patterns, ctx,
                         n_explores, curr_depth + 1, max_depth,
-                        count_local_gets, count_remote_gets,
-                        count_cached_remote_fetches,
-                        count_uncached_remote_fetches,
                         accum_tracking_time);
             }
         }
@@ -550,9 +543,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         unsigned max_depth = MAX_SUBGRAPH_VERTICES - 1;
         explore_subgraphs(vertex, &sub, known_local_patterns,
             pes_sharing_local_patterns, &n_known_local_patterns, ctx,
-            &n_this_explores, 0, max_depth, &n_local_gets, &n_remote_gets,
-            &n_cached_remote_fetches, &n_uncached_remote_fetches,
-            &accum_tracking_time);
+            &n_this_explores, 0, max_depth, &accum_tracking_time);
         n_explores += n_this_explores;
     }
 

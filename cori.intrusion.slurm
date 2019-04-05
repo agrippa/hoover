@@ -55,6 +55,8 @@ if [[ $PE_PER_SOCKET -eq 1 ]]; then
         echo "Unsupported # of nodes $SLURM_NNODES"
         exit 1
     fi
+
+    export OMP_NUM_THREADS=$CORES_PER_SOCKET
 else
     export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1"
 
@@ -86,6 +88,8 @@ else
         echo "Unsupported # of nodes $SLURM_NNODES"
         exit 1
     fi
+
+    export OMP_NUM_THREADS=1
 fi
 
 export PARTITIONS="50 50 50"

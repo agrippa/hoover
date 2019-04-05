@@ -126,8 +126,7 @@ int hvr_conc_vertex_iter_next_chunk(hvr_conc_vertex_iter_t *iter,
     return success;
 }
 
-hvr_conc_vertex_subiter_t *hvr_conc_vertex_iter_next(
-        hvr_conc_vertex_subiter_t *chunk) {
+hvr_vertex_t *hvr_conc_vertex_iter_next(hvr_conc_vertex_subiter_t *chunk) {
     if (chunk->child.index_for_current_chunk >=
             chunk->max_index_for_current_chunk) {
         return NULL;

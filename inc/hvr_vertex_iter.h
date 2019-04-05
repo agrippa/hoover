@@ -1,6 +1,8 @@
 #ifndef _HVR_VERTEX_ITER_H
 #define _HVR_VERTEX_ITER_H
 
+#include <pthread.h>
+
 #include "hvr_vertex_pool.h"
 #include "hvr_vertex.h"
 
