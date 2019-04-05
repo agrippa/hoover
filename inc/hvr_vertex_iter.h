@@ -18,6 +18,7 @@ typedef struct _hvr_conc_vertex_iter_t {
     hvr_vertex_iter_t child;
 
     unsigned max_chunk_size;
+    unsigned n_chunks_generated;
     pthread_mutex_t mutex;
 } hvr_conc_vertex_iter_t;
 

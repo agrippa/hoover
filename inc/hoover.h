@@ -172,10 +172,10 @@ typedef struct _hvr_internal_ctx_t {
     hvr_time_t iter;
 
     // Sets of the partitions that have been live in a recent time window.
-    hvr_set_t *subscriber_partition_time_window;
-    hvr_set_t *producer_partition_time_window;
-    hvr_set_t *new_subscriber_partition_time_window;
-    hvr_set_t *new_producer_partition_time_window;
+    hvr_set_t *subscribed_partitions;
+    hvr_set_t *produced_partitions;
+    hvr_set_t *new_subscribed_partitions;
+    hvr_set_t *new_produced_partitions;
 
     // User callbacks
     hvr_update_metadata_func update_metadata;

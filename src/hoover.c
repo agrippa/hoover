@@ -19,7 +19,7 @@
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
 
-#define DETAILED_PRINTS
+// #define DETAILED_PRINTS
 // #define COUPLING_PRINTS
 
 // #define PRINT_PARTITIONS
@@ -494,15 +494,15 @@ static void handle_new_unsubscription(hvr_partition_t p,
             ctx->dead_info + p);
 }
 
-static void update_partition_time_window(hvr_internal_ctx_t *ctx,
+static void update_partition_window(hvr_internal_ctx_t *ctx,
         unsigned long long *out_time_updating_partitions,
         unsigned long long *out_time_updating_subscribers,
         unsigned long long *out_time_spent_processing_dead_pes) {
     unsigned long long time_spent_processing_dead_pes = 0;
     const unsigned long long start = hvr_current_time_us();
 
-    hvr_set_wipe(ctx->new_subscriber_partition_time_window);
-    hvr_set_wipe(ctx->new_producer_partition_time_window);
+    hvr_set_wipe(ctx->new_subscribed_partitions);
+    hvr_set_wipe(ctx->new_produced_partitions);
 
     // Update the set of partitions in a temporary buffer
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
@@ -513,7 +513,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
          */
         if (ctx->local_partition_lists[p]) {
             // Producer
-            hvr_set_insert(p, ctx->new_producer_partition_time_window);
+            hvr_set_insert(p, ctx->new_produced_partitions);
         }
 
         if (ctx->local_partition_lists[p] || (ctx->mirror_partition_lists[p] &&
@@ -531,7 +531,7 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
             for (unsigned i = 0; i < n_interacting; i++) {
                 assert(ctx->interacting[i] < ctx->n_partitions);
                 hvr_set_insert(ctx->interacting[i],
-                        ctx->new_subscriber_partition_time_window);
+                        ctx->new_subscribed_partitions);
             }
         }
     }
@@ -546,13 +546,12 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
          * of that.
          */
         update_partition_info(p,
-                ctx->new_producer_partition_time_window,
-                ctx->producer_partition_time_window,
+                ctx->new_produced_partitions,
+                ctx->produced_partitions,
                 &ctx->partition_producers, ctx);
 
-        const int old_sub = hvr_set_contains(p,
-                ctx->subscriber_partition_time_window);
-        if (hvr_set_contains(p, ctx->new_subscriber_partition_time_window)) {
+        const int old_sub = hvr_set_contains(p, ctx->subscribed_partitions);
+        if (hvr_set_contains(p, ctx->new_subscribed_partitions)) {
             if (!old_sub) {
                 /*
                  * New subscription on this iteration. Copy down the set of
@@ -591,11 +590,9 @@ static void update_partition_time_window(hvr_internal_ctx_t *ctx,
      * Copy the newly computed partition windows for this PE over for next time
      * when we need to check for changes.
      */
-    hvr_set_copy(ctx->subscriber_partition_time_window,
-            ctx->new_subscriber_partition_time_window);
+    hvr_set_copy(ctx->subscribed_partitions, ctx->new_subscribed_partitions);
 
-    hvr_set_copy(ctx->producer_partition_time_window,
-            ctx->new_producer_partition_time_window);
+    hvr_set_copy(ctx->produced_partitions, ctx->new_produced_partitions);
 
     const unsigned long long end = hvr_current_time_us();
 
@@ -636,14 +633,10 @@ void hvr_init(const hvr_partition_t n_partitions,
         (new_ctx->p_sync)[i] = SHMEM_SYNC_VALUE;
     }
 
-    new_ctx->subscriber_partition_time_window = hvr_create_empty_set(
-            n_partitions);
-    new_ctx->producer_partition_time_window = hvr_create_empty_set(
-            n_partitions);
-    new_ctx->new_subscriber_partition_time_window = hvr_create_empty_set(
-            n_partitions);
-    new_ctx->new_producer_partition_time_window = hvr_create_empty_set(
-            n_partitions);
+    new_ctx->subscribed_partitions = hvr_create_empty_set(n_partitions);
+    new_ctx->produced_partitions = hvr_create_empty_set(n_partitions);
+    new_ctx->new_subscribed_partitions = hvr_create_empty_set(n_partitions);
+    new_ctx->new_produced_partitions = hvr_create_empty_set(n_partitions);
 
     assert(n_partitions < HVR_INVALID_PARTITION);
     new_ctx->n_partitions = n_partitions;
@@ -980,9 +973,9 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
              *   1. This PE becomes a producer of the partition, updating the
              *      global directory.
              *   2. The remote PE stops subscribing to this partition, before
-             *      looping around to update_partition_time_window to realize
+             *      looping around to update_partition_window to realize
              *      this PE's change in status and send it a subscription msg.
-             *   3. The remote PE loops around to update_partition_time_window
+             *   3. The remote PE loops around to update_partition_window
              *      and sends out notifications to all producers that it is
              *      leaving the partition.
              */
@@ -1226,7 +1219,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
 
     // Am I subscribed to the partition the vertex is now in
     int am_subscribed = (hvr_set_contains(partition,
-                ctx->subscriber_partition_time_window) ||
+                ctx->subscribed_partitions) ||
             hvr_vertex_get_owning_pe(new_vert) == ctx->pe);
 
     /*
@@ -1236,7 +1229,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
     if (updated) {
         // Assert that I was subscribed to updates from this partition
         assert(hvr_set_contains(updated->part,
-                    ctx->subscriber_partition_time_window) ||
+                    ctx->subscribed_partitions) ||
                 hvr_vertex_get_owning_pe(new_vert) == ctx->pe);
 
         if (am_subscribed) {
@@ -1318,8 +1311,8 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
 
             // A brand new vertex, or at least this is our first update on it
             updated = hvr_vertex_cache_add(new_vert, partition, &ctx->vec_cache);
-            prepend_to_partition_list(&updated->vert, ctx->mirror_partition_lists,
-                    ctx);
+            prepend_to_partition_list(&updated->vert,
+                    ctx->mirror_partition_lists, ctx);
             create_new_edges(updated, ctx->interacting, n_interacting, ctx,
                     &local_count_new_should_have_edges);
             if (perf_info) {
@@ -2446,9 +2439,9 @@ static void save_profiling_info(
 
     saved_profiling_info[n_profiled_iters].n_partitions = ctx->n_partitions;
     saved_profiling_info[n_profiled_iters].n_producer_partitions =
-        hvr_set_count(ctx->producer_partition_time_window);
+        hvr_set_count(ctx->produced_partitions);
     saved_profiling_info[n_profiled_iters].n_subscriber_partitions =
-        hvr_set_count(ctx->subscriber_partition_time_window);
+        hvr_set_count(ctx->subscribed_partitions);
     saved_profiling_info[n_profiled_iters].n_allocated_verts =
         hvr_n_allocated(ctx);
     saved_profiling_info[n_profiled_iters].n_mirrored_verts =
@@ -2463,10 +2456,10 @@ static void save_profiling_info(
     assert(saved_profiling_info[n_profiled_iters].producer_partitions_str &&
             saved_profiling_info[n_profiled_iters].subscriber_partitions_str);
 
-    hvr_set_to_string(ctx->producer_partition_time_window,
+    hvr_set_to_string(ctx->produced_partitions,
             saved_profiling_info[n_profiled_iters].producer_partitions_str,
             PARTITIONS_STR_BUFSIZE, NULL);
-    hvr_set_to_string(ctx->subscriber_partition_time_window,
+    hvr_set_to_string(ctx->subscribed_partitions,
             saved_profiling_info[n_profiled_iters].subscriber_partitions_str,
             PARTITIONS_STR_BUFSIZE, NULL);
 #endif
@@ -2491,10 +2484,10 @@ static void save_profiling_info(
         hvr_sparse_arr_used_bytes(&ctx->pe_subscription_info);
     saved_profiling_info[n_profiled_iters].producer_info_bytes =
         bytes_used_by_subcopy_arr(ctx->producer_info, ctx->n_partitions,
-                ctx->subscriber_partition_time_window);
+                ctx->subscribed_partitions);
     saved_profiling_info[n_profiled_iters].dead_info_bytes =
         bytes_used_by_subcopy_arr(ctx->dead_info, ctx->n_partitions,
-                ctx->subscriber_partition_time_window),
+                ctx->subscribed_partitions),
     saved_profiling_info[n_profiled_iters].vertex_cache_capacity =
         vertex_cache_capacity;
     saved_profiling_info[n_profiled_iters].vertex_cache_used =
@@ -2735,11 +2728,11 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     /*
      * Compute a set of all partitions which locally active partitions might
      * need notifications on. Subscribe to notifications about partitions from
-     * update_partition_time_window in the global registry.
+     * update_partition_window in the global registry.
      */
     unsigned long long dead_pe_time, time_updating_partitions,
                   time_updating_subscribers;
-    update_partition_time_window(ctx, &time_updating_partitions,
+    update_partition_window(ctx, &time_updating_partitions,
             &time_updating_subscribers, &dead_pe_time);
     const unsigned long long end_partition_window = hvr_current_time_us();
 
@@ -2866,7 +2859,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long end_update_partitions = hvr_current_time_us();
 
-        update_partition_time_window(ctx, &time_updating_partitions,
+        update_partition_window(ctx, &time_updating_partitions,
             &time_updating_subscribers, &dead_pe_time);
 
         const unsigned long long end_partition_window = hvr_current_time_us();

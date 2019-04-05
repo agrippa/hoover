@@ -83,6 +83,7 @@ void hvr_conc_vertex_iter_init(hvr_conc_vertex_iter_t *iter,
     hvr_vertex_iter_init(&iter->child, ctx);
 
     iter->max_chunk_size = max_chunk_size;
+    iter->n_chunks_generated = 0;
 
     int err = pthread_mutex_init(&iter->mutex, NULL);
     assert(err == 0);
@@ -118,6 +119,8 @@ int hvr_conc_vertex_iter_next_chunk(hvr_conc_vertex_iter_t *iter,
             iter->child.index_for_current_chunk =
                 chunk->max_index_for_current_chunk;
         }
+
+        iter->n_chunks_generated += 1;
     }
 
     err = pthread_mutex_unlock(&iter->mutex);

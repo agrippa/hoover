@@ -547,7 +547,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
 
 #ifdef MULTITHREADED
     hvr_conc_vertex_iter_t conc_iter;
-    hvr_conc_vertex_iter_init(&conc_iter, 1024, ctx);
+    hvr_conc_vertex_iter_init(&conc_iter, 4096, ctx);
 
 #pragma omp parallel shared(conc_iter, n_explores)
     {
@@ -586,6 +586,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
             }
         }
     }
+
+    printf("PE %d processed %u chunks with %u threads on iter %d\n",
+            ctx->pe, conc_iter.n_chunks_generated, nthreads, ctx->iter);
 
     /*
      * Collapse results from each thread-private local patterns into a list of
