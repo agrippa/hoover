@@ -78,6 +78,24 @@ typedef struct _profiling_info_t {
     char *subscriber_partitions_str;
     char *producer_partitions_str;
 #endif
+
+#ifdef DETAILED_PRINTS
+    size_t pool_size_in_bytes;
+    size_t pe_subscription_info_bytes;
+    size_t producer_info_bytes;
+    size_t dead_info_bytes;
+    size_t vertex_cache_capacity;
+    size_t vertex_cache_used;
+    double vertex_cache_val_used;
+    double vertex_cache_val_capacity;
+    unsigned vertex_cache_max_len;
+
+    size_t edge_bytes_used;
+    size_t edge_bytes_allocated;
+    size_t edge_bytes_capacity;
+    size_t max_edges;
+    size_t max_edges_index;
+#endif
 } profiling_info_t;
 
 profiling_info_t saved_profiling_info[MAX_PROFILED_ITERS];
@@ -2453,6 +2471,50 @@ static void save_profiling_info(
             PARTITIONS_STR_BUFSIZE, NULL);
 #endif
 
+#ifdef DETAILED_PRINTS
+    size_t vertex_cache_capacity, vertex_cache_used;
+    double vertex_cache_val_capacity, vertex_cache_val_used;
+    unsigned vertex_cache_max_len;
+
+    size_t edge_bytes_used, edge_bytes_allocated, edge_bytes_capacity,
+           max_edges, max_edges_index;
+    hvr_irr_matrix_usage(&edge_bytes_used, &edge_bytes_capacity,
+            &edge_bytes_allocated, &max_edges, &max_edges_index, &ctx->edges);
+
+    hvr_map_size_in_bytes(&ctx->vec_cache.cache_map, &vertex_cache_capacity,
+            &vertex_cache_used, &vertex_cache_val_capacity,
+            &vertex_cache_val_used, &vertex_cache_max_len);
+
+    saved_profiling_info[n_profiled_iters].pool_size_in_bytes =
+        hvr_pool_size_in_bytes(ctx);
+    saved_profiling_info[n_profiled_iters].pe_subscription_info_bytes =
+        hvr_sparse_arr_used_bytes(&ctx->pe_subscription_info);
+    saved_profiling_info[n_profiled_iters].producer_info_bytes =
+        bytes_used_by_subcopy_arr(ctx->producer_info, ctx->n_partitions,
+                ctx->subscriber_partition_time_window);
+    saved_profiling_info[n_profiled_iters].dead_info_bytes =
+        bytes_used_by_subcopy_arr(ctx->dead_info, ctx->n_partitions,
+                ctx->subscriber_partition_time_window),
+    saved_profiling_info[n_profiled_iters].vertex_cache_capacity =
+        vertex_cache_capacity;
+    saved_profiling_info[n_profiled_iters].vertex_cache_used =
+        vertex_cache_used;
+    saved_profiling_info[n_profiled_iters].vertex_cache_val_used =
+        vertex_cache_val_used;
+    saved_profiling_info[n_profiled_iters].vertex_cache_val_capacity =
+        vertex_cache_val_capacity;
+    saved_profiling_info[n_profiled_iters].vertex_cache_max_len =
+        vertex_cache_max_len;
+    saved_profiling_info[n_profiled_iters].edge_bytes_used =
+        edge_bytes_used;
+    saved_profiling_info[n_profiled_iters].edge_bytes_allocated =
+        edge_bytes_allocated;
+    saved_profiling_info[n_profiled_iters].edge_bytes_capacity =
+        edge_bytes_capacity;
+    saved_profiling_info[n_profiled_iters].max_edges = max_edges;
+    saved_profiling_info[n_profiled_iters].max_edges_index = max_edges_index;
+#endif
+
     n_profiled_iters++;
 }
 
@@ -2539,36 +2601,23 @@ static void print_profiling_info(profiling_info_t *info) {
 #endif
 
 #ifdef DETAILED_PRINTS
-    size_t edge_set_capacity, edge_set_used, vertex_cache_capacity,
-           vertex_cache_used;
-    double edge_set_val_capacity, edge_set_val_used, vertex_cache_val_capacity,
-           vertex_cache_val_used;
-    unsigned edge_set_max_len, vertex_cache_max_len;
-    hvr_map_size_in_bytes(&ctx->edges.map, &edge_set_capacity, &edge_set_used,
-            &edge_set_val_capacity, &edge_set_val_used, &edge_set_max_len);
-    hvr_map_size_in_bytes(&ctx->vec_cache.cache_map, &vertex_cache_capacity,
-            &vertex_cache_used, &vertex_cache_val_capacity,
-            &vertex_cache_val_used, &vertex_cache_max_len);
     fprintf(profiling_fp, "  management data structure: vertex pool = %llu "
             "bytes, PE sub info = %llu bytes, producer info = %llu bytes, dead "
-            "info = %llu bytes, edge set = %f MB (%f%% "
-            "efficiency), vertex cache = %f MB (%f%% efficiency)\n",
-            hvr_pool_size_in_bytes(ctx),
-            hvr_sparse_arr_used_bytes(&ctx->pe_subscription_info),
-            bytes_used_by_subcopy_arr(ctx->producer_info, ctx->n_partitions,
-                ctx->subscriber_partition_time_window),
-            bytes_used_by_subcopy_arr(ctx->dead_info, ctx->n_partitions,
-                ctx->subscriber_partition_time_window),
-            (double)edge_set_capacity / (1024.0 * 1024.0),
-            100.0 * (double)edge_set_used / (double)edge_set_capacity,
-            (double)vertex_cache_capacity / (1024.0 * 1024.0),
-            100.0 * (double)vertex_cache_used / (double)vertex_cache_capacity);
-    fprintf(profiling_fp, "    edge set value mean len=%f capacity=%f max "
-            "len=%u\n", edge_set_val_used, edge_set_val_capacity,
-            edge_set_max_len);
+            "info = %llu bytes, vertex cache = %f MB (%f%% efficiency)\n",
+            info->pool_size_in_bytes,
+            info->pe_subscription_info_bytes,
+            info->producer_info_bytes,
+            info->dead_info_bytes,
+            (double)info->vertex_cache_capacity / (1024.0 * 1024.0),
+            100.0 * (double)info->vertex_cache_used /
+                (double)info->vertex_cache_capacity);
+    fprintf(profiling_fp, "    edge set: used=%llu allocated=%llu "
+            "capacity=%llu max # edges=%lu max edges index=%llu\n",
+            info->edge_bytes_used, info->edge_bytes_allocated,
+            info->edge_bytes_capacity, info->max_edges, info->max_edges_index);
     fprintf(profiling_fp, "    vert cache value mean len=%f capacity=%f max "
-            "len=%u\n", vertex_cache_val_used, vertex_cache_val_capacity,
-            vertex_cache_max_len);
+            "len=%u\n", info->vertex_cache_val_used,
+            info->vertex_cache_val_capacity, info->vertex_cache_max_len);
 #endif
 }
 
@@ -2890,12 +2939,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         ctx->iter += 1;
 
-        // size_t bytes_used, bytes_allocated, bytes_capacity, max_edges, max_edges_index;
-        // hvr_irr_matrix_usage(&bytes_used, &bytes_capacity, &bytes_allocated,
-        //         &max_edges, &max_edges_index, &ctx->edges);
-        // fprintf(stderr, "PE %d completed iter %d, %llu / %llu / %llu, %f, %llu max edges\n", ctx->pe,
-        //         ctx->iter, bytes_used, bytes_capacity, bytes_allocated,
-        //         100.0 * (double)bytes_capacity / (double)bytes_allocated, max_edges);
     }
 
     shmem_quiet();

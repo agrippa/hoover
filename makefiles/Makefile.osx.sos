@@ -1,14 +1,18 @@
-CFLAGS=-Wall -g -O2 -Iinc
+CFLAGS=-Wall -g -O2 -Iinc -Wall -std=c99
+SHMEM_FLAGS=-Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1
 
 all: bin/libhoover.so bin/edge_set_test bin/sparse_vec_test bin/init_test \
 	bin/infectious_test bin/add_vertices_test bin/test_vertex_id \
 	bin/multi_graph_test bin/remove_vertices_test bin/intrusion_detection
 
-bin/libhoover.so: src/hoover.c src/hvr_avl_tree.c src/shmem_rw_lock.c \
+bin/libhoover.so: src/hoover.c \
 	src/hvr_vertex_pool.c src/hvr_vertex_iter.c src/hvr_mailbox.c \
 	src/hvr_set.c src/hvr_edge_set.c src/hvr_vertex.c \
-	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c
-	oshcc $(CFLAGS) $^ -o $@ -shared -fPIC -lm
+	src/hvr_vertex_cache.c src/hvr_dist_bitvec.c src/hvr_sparse_arr.c \
+	src/hvr_map.c src/hvr_set_msg.c src/hvr_msg_buf_pool.c \
+	src/hvr_2d_edge_set.c src/hvr_irregular_matrix.c src/hvr_buffered_msgs.c \
+	src/shmem_rw_lock.c
+	oshcc $(SHMEM_FLAGS) $(CFLAGS) $^ -o $@ -shared -fPIC -lm
 
 bin/init_test: test/init_test.c
 	oshcc $(CFLAGS) $^ -o $@ -Lbin -lhoover -lm
