@@ -25,8 +25,8 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
     cache->npartitions = npartitions;
 
     unsigned n_preallocs = 1024;
-    if (getenv("HVR_VEC_CACHE_PREALLOCS")) {
-        n_preallocs = atoi(getenv("HVR_VEC_CACHE_PREALLOCS"));
+    if (getenv("HVR_VERT_CACHE_PREALLOCS")) {
+        n_preallocs = atoi(getenv("HVR_VERT_CACHE_PREALLOCS"));
     }
 
     hvr_vertex_cache_node_t *prealloc =

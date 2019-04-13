@@ -9,8 +9,10 @@
 #include <stdint.h>
 #include <math.h>
 #include <stdlib.h>
+
 #ifdef MULTITHREADED
 #include <omp.h>
+#include <shmemx.h>
 #endif
 
 #include <set>
@@ -974,7 +976,12 @@ int main(int argc, char **argv) {
         nthreads = omp_get_num_threads();
 #endif
 
+#ifdef MULTITHREADED
+    int provided = shmemx_init_thread(SHMEM_THREAD_MULTIPLE);
+    assert(provided == SHMEM_THREAD_MULTIPLE);
+#else
     shmem_init();
+#endif
 
     pe = shmem_my_pe();
     npes = shmem_n_pes();

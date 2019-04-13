@@ -15,6 +15,13 @@
 #include <shmem.h>
 #include <shmemx.h>
 
+#ifdef HVR_MULTITHREADED
+#include <omp.h>
+#define HVR_IS_MULTITHREADED 1
+#else
+#define HVR_IS_MULTITHREADED 0
+#endif
+
 #include "hoover.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
@@ -51,7 +58,6 @@ typedef struct _profiling_info_t {
     process_perf_info_t perf_info;
     unsigned long long time_updating_partitions;
     unsigned long long time_updating_subscribers;
-    unsigned long long dead_pe_time;
     unsigned long long time_sending;
     int should_abort;
     unsigned long long coupling_coupling;
@@ -147,7 +153,7 @@ static void send_vertex_update_msg(hvr_vertex_update_t *msg, int pe,
         hvr_mailbox_t *mbox, process_perf_info_t *perf_info,
         hvr_internal_ctx_t *ctx, unsigned long long *start,
         unsigned long long *time_sending) {
-    int success = hvr_mailbox_send(msg, sizeof(*msg), pe, N_SEND_ATTEMPTS, mbox);
+    int success = hvr_mailbox_send(msg, sizeof(*msg), pe, N_SEND_ATTEMPTS, mbox, 0);
     while (!success) {
         // Try processing some inbound messages, then re-sending
         if (perf_info) {
@@ -158,7 +164,7 @@ static void send_vertex_update_msg(hvr_vertex_update_t *msg, int pe,
         } else {
             process_vertex_updates(ctx, perf_info);
         }
-        success = hvr_mailbox_send(msg, sizeof(*msg), pe, N_SEND_ATTEMPTS, mbox);
+        success = hvr_mailbox_send(msg, sizeof(*msg), pe, N_SEND_ATTEMPTS, mbox, 0);
     }
     ctx->total_vertex_msgs_sent += msg->len;
     msg->len = 0;
@@ -302,10 +308,10 @@ static inline void update_partition_info(hvr_partition_t p,
          */
         if (hvr_set_contains(p, local_new)) {
             // Became active
-            hvr_dist_bitvec_set(p, ctx->pe, registry);
+            hvr_dist_bitvec_set(p, ctx->pe, registry, HVR_IS_MULTITHREADED);
         } else {
             // Went inactive
-            hvr_dist_bitvec_clear(p, ctx->pe, registry);
+            hvr_dist_bitvec_clear(p, ctx->pe, registry, HVR_IS_MULTITHREADED);
         }
     }
 }
@@ -340,9 +346,7 @@ static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
     }
 }
 
-static void handle_new_subscription(
-        hvr_partition_t p,
-        unsigned long long *time_spent_processing_dead_pes,
+static void handle_new_subscription(hvr_partition_t p,
         hvr_internal_ctx_t *ctx) {
     hvr_dist_bitvec_local_subcopy_init(&ctx->terminated_pes,
             ctx->dead_info + p);
@@ -365,7 +369,7 @@ static void handle_new_subscription(
         if (hvr_dist_bitvec_local_subcopy_contains(pe,
                     ctx->producer_info + p)) {
             hvr_mailbox_send(&change, sizeof(change), pe,
-                    -1, &ctx->forward_mailbox);
+                    -1, &ctx->forward_mailbox, HVR_IS_MULTITHREADED);
         }
     }
 
@@ -376,15 +380,16 @@ static void handle_new_subscription(
         for (int pe = 0; pe < ctx->npes; pe++) {
             if (hvr_dist_bitvec_local_subcopy_contains(pe,
                         ctx->dead_info + p)) {
+#ifdef HVR_MULTITHREADED
+#pragma omp critical
+#endif
                 pull_vertices_from_dead_pe(pe, p, ctx);
             }
         }
-        *time_spent_processing_dead_pes += (hvr_current_time_us() - start);
     }
 }
 
 static void handle_existing_subscription(hvr_partition_t p,
-        unsigned long long *time_spent_processing_dead_pes,
         hvr_internal_ctx_t *ctx) {
     if (ctx->iter < ctx->next_producer_info_check[p]) {
         return;
@@ -426,7 +431,7 @@ static void handle_existing_subscription(hvr_partition_t p,
                     &ctx->local_partition_producers)) {
             // New producer
             hvr_mailbox_send(&change, sizeof(change), pe,
-                    -1, &ctx->forward_mailbox);
+                    -1, &ctx->forward_mailbox, HVR_IS_MULTITHREADED);
         }
     }
 
@@ -443,18 +448,18 @@ static void handle_existing_subscription(hvr_partition_t p,
         hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
                 &ctx->local_terminated_pes);
 
-        const unsigned long long start = hvr_current_time_us();
         for (int pe = 0; pe < ctx->npes; pe++) {
             if (!hvr_dist_bitvec_local_subcopy_contains(pe,
                         ctx->dead_info + p) &&
                     hvr_dist_bitvec_local_subcopy_contains(pe,
                         &ctx->local_terminated_pes)) {
                 // New dead PE
+#ifdef HVR_MULTITHREADED
+#pragma omp critical
+#endif
                 pull_vertices_from_dead_pe(pe, p, ctx);
             }
         }
-        *time_spent_processing_dead_pes += (hvr_current_time_us() -
-                start);
 
         hvr_dist_bitvec_local_subcopy_copy(ctx->dead_info + p,
                 &ctx->local_terminated_pes);
@@ -471,7 +476,7 @@ static void handle_new_unsubscription(hvr_partition_t p,
         if (hvr_dist_bitvec_local_subcopy_contains(pe,
                     ctx->producer_info + p)) {
             hvr_mailbox_send(&change, sizeof(change), pe,
-                    -1, &ctx->forward_mailbox);
+                    -1, &ctx->forward_mailbox, HVR_IS_MULTITHREADED);
         }
     }
 
@@ -479,6 +484,10 @@ static void handle_new_unsubscription(hvr_partition_t p,
      * Invalidate all vertices cached in this partition because we won't be
      * getting new updates.
      */
+#ifdef HVR_MULTITHREADED
+#pragma omp critical
+    {
+#endif
     hvr_vertex_t *iter = ctx->mirror_partition_lists[p];
     while (iter) {
         hvr_vertex_t *next = iter->next_in_partition;
@@ -487,6 +496,9 @@ static void handle_new_unsubscription(hvr_partition_t p,
         }
         iter = next;
     }
+#ifdef HVR_MULTITHREADED
+    }
+#endif
 
     hvr_dist_bitvec_local_subcopy_destroy(&ctx->partition_producers,
             ctx->producer_info + p);
@@ -496,9 +508,7 @@ static void handle_new_unsubscription(hvr_partition_t p,
 
 static void update_partition_window(hvr_internal_ctx_t *ctx,
         unsigned long long *out_time_updating_partitions,
-        unsigned long long *out_time_updating_subscribers,
-        unsigned long long *out_time_spent_processing_dead_pes) {
-    unsigned long long time_spent_processing_dead_pes = 0;
+        unsigned long long *out_time_updating_subscribers) {
     const unsigned long long start = hvr_current_time_us();
 
     hvr_set_wipe(ctx->new_subscribed_partitions);
@@ -538,8 +548,17 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
 
     const unsigned long long after_part_updates = hvr_current_time_us();
 
-    // For each partition
+#ifdef HVR_MULTITHREADED
+    assert(ctx->thread_safe);
+#pragma omp parallel
+    {
+    const int nthreads = omp_get_num_threads();
+    const int tid = omp_get_thread_num();
+
+    for (hvr_partition_t p = tid; p < ctx->n_partitions; p += nthreads) {
+#else
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
+#endif
         /*
          * For all partitions, check if our producer relationship to any of them
          * has changed on this iteration. If it has, notify the global registry
@@ -560,8 +579,7 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
                  * the set of dead PEs that were producers of this partition,
                  * and pull vertices from those PEs.
                  */
-                handle_new_subscription(p, &time_spent_processing_dead_pes,
-                        ctx);
+                handle_new_subscription(p, ctx);
                 ctx->next_producer_info_check[p] = ctx->iter + 1;
                 ctx->curr_producer_info_interval[p] = 1;
             } else {
@@ -570,8 +588,7 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
                  * list of producers and check for changes. If a change is
                  * found, notify the new producer that we're subscribed.
                  */
-                handle_existing_subscription(p, &time_spent_processing_dead_pes,
-                        ctx);
+                handle_existing_subscription(p, ctx);
             }
         } else {
             // If we are not subscribed to partition p
@@ -585,6 +602,9 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
             }
         }
     }
+#ifdef HVR_MULTITHREADED
+    }
+#endif
 
     /*
      * Copy the newly computed partition windows for this PE over for next time
@@ -596,7 +616,6 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
 
     const unsigned long long end = hvr_current_time_us();
 
-    *out_time_spent_processing_dead_pes = time_spent_processing_dead_pes;
     *out_time_updating_partitions = after_part_updates - start;
     *out_time_updating_subscribers = end - after_part_updates;
 }
@@ -620,6 +639,14 @@ void hvr_init(const hvr_partition_t n_partitions,
     new_ctx->initialized = 1;
 
     assert(max_graph_traverse_depth >= 1);
+
+    new_ctx->thread_safe = (shmemx_query_thread() == SHMEM_THREAD_MULTIPLE);
+#ifdef HVR_MULTITHREADED
+#pragma omp parallel
+    {
+        shmemx_thread_register();
+    }
+#endif
 
     new_ctx->p_wrk = (long long *)shmem_malloc_wrapper(
             SHMEM_REDUCE_MIN_WRKDATA_SIZE * sizeof(long long));
@@ -921,7 +948,7 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
     int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->forward_mailbox);
+            &msg_len, &ctx->forward_mailbox, 0);
     while (success) {
         assert(msg_len == sizeof(hvr_partition_member_change_t));
         /*
@@ -986,7 +1013,7 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
             }
         }
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->forward_mailbox);
+                &msg_len, &ctx->forward_mailbox, 0);
     }
 
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
@@ -1334,7 +1361,7 @@ void hvr_send_msg(hvr_vertex_id_t dst_id, hvr_vertex_t *payload,
     memcpy(&msg.payload, payload, sizeof(*payload));
 
     hvr_mailbox_send(&msg, sizeof(msg), VERTEX_ID_PE(dst_id), -1,
-            &ctx->vertex_msg_mailbox);
+            &ctx->vertex_msg_mailbox, 0);
 }
 
 int hvr_poll_msg(hvr_vertex_t *vert, hvr_vertex_t *out,
@@ -1349,7 +1376,7 @@ static void process_incoming_messages(hvr_internal_ctx_t *ctx) {
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
     int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->vertex_msg_mailbox);
+            &msg_len, &ctx->vertex_msg_mailbox, 0);
     while (success) {
         assert(msg_len == sizeof(inter_vert_msg_t));
         inter_vert_msg_t *msg = (inter_vert_msg_t *)msg_buf_node->ptr;
@@ -1363,7 +1390,7 @@ static void process_incoming_messages(hvr_internal_ctx_t *ctx) {
         local->needs_processing = 1;
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->vertex_msg_mailbox);
+                &msg_len, &ctx->vertex_msg_mailbox, 0);
     }
 
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
@@ -1379,7 +1406,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
     int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->vertex_delete_mailbox);
+            &msg_len, &ctx->vertex_delete_mailbox, 0);
     while (success) {
         assert(msg_len == sizeof(hvr_vertex_update_t));
         hvr_vertex_update_t *msg = (hvr_vertex_update_t *)msg_buf_node->ptr;
@@ -1391,12 +1418,12 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         ctx->total_vertex_msgs_recvd += msg->len;
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->vertex_delete_mailbox);
+                &msg_len, &ctx->vertex_delete_mailbox, 0);
     }
 
     const unsigned long long midpoint = hvr_current_time_us();
     success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->vertex_update_mailbox);
+            &msg_len, &ctx->vertex_update_mailbox, 0);
     while (success) {
         assert(msg_len == sizeof(hvr_vertex_update_t));
         hvr_vertex_update_t *msg = (hvr_vertex_update_t *)msg_buf_node->ptr;
@@ -1409,7 +1436,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         ctx->total_vertex_msgs_recvd += msg->len;
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->vertex_update_mailbox);
+                &msg_len, &ctx->vertex_update_mailbox, 0);
     }
 
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
@@ -1725,7 +1752,7 @@ static void wait_for_full_coupling_info(hvr_msg_buf_node_t *msg_buf_node,
         size_t msg_len;
         int success = hvr_mailbox_recv(msg_buf_node->ptr,
                 msg_buf_node->buf_size, &msg_len,
-                &ctx->coupling_mailbox);
+                &ctx->coupling_mailbox, 0);
         if (success) {
             if (msg_len == sizeof(new_coupling_msg_t)) {
                 new_coupling_msg_t *msg =
@@ -1739,7 +1766,7 @@ static void wait_for_full_coupling_info(hvr_msg_buf_node_t *msg_buf_node,
                      * cluster. So resend to myself.
                      */
                     hvr_mailbox_send(msg, sizeof(*msg), ctx->pe, -1,
-                            &ctx->coupling_mailbox);
+                            &ctx->coupling_mailbox, 0);
                 } else {
                     // Reply, forwarding them to your root
                     new_coupling_msg_ack_t ack;
@@ -1747,7 +1774,7 @@ static void wait_for_full_coupling_info(hvr_msg_buf_node_t *msg_buf_node,
                     ack.root_pe = ctx->coupled_pes_root;
                     ack.abort = 0;
                     hvr_mailbox_send(&ack, sizeof(ack), msg->pe, -1,
-                            &ctx->coupling_ack_and_dead_mailbox);
+                            &ctx->coupling_ack_and_dead_mailbox, 0);
                 }
             } else if (msg_len == ctx->to_couple_with_msg.msg_buf_len) {
                 hvr_internal_set_msg_t *msg =
@@ -1779,7 +1806,7 @@ static size_t blocking_recv(hvr_msg_buf_node_t *msg_buf_node, hvr_mailbox_t *mb,
     int success;
     do {
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, mb);
+                &msg_len, mb, 0);
     } while (!success);
     return msg_len;
 }
@@ -1845,7 +1872,7 @@ static int check_incoming_coupling_requests(hvr_msg_buf_node_t *msg_buf_node,
 
     size_t msg_len;
     int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->coupling_mailbox);
+            &msg_len, &ctx->coupling_mailbox, 0);
     if (success) {
         assert(msg_len == sizeof(new_coupling_msg_t));
         new_coupling_msg_t *msg =
@@ -1858,7 +1885,7 @@ static int check_incoming_coupling_requests(hvr_msg_buf_node_t *msg_buf_node,
         ack.root_pe = ctx->coupled_pes_root;
         ack.abort = 0;
         hvr_mailbox_send(&ack, sizeof(ack), request_src_pe, -1,
-                &ctx->coupling_ack_and_dead_mailbox);
+                &ctx->coupling_ack_and_dead_mailbox, 0);
 
 #ifdef COUPLING_PRINTS
         fprintf(stderr, "PE %d got coupling request from %d\n", ctx->pe,
@@ -1889,7 +1916,7 @@ static int wait_for_coupling_ack(hvr_msg_buf_node_t *msg_buf_node,
     do {
         success = hvr_mailbox_recv(msg_buf_node->ptr,
                 msg_buf_node->buf_size, &msg_len,
-                &ctx->coupling_mailbox);
+                &ctx->coupling_mailbox, 0);
         if (success) {
             assert(msg_len == sizeof(new_coupling_msg_t));
             new_coupling_msg_t *remote_coupling_msg =
@@ -1907,13 +1934,13 @@ static int wait_for_coupling_ack(hvr_msg_buf_node_t *msg_buf_node,
             ack.root_pe = ctx->coupled_pes_root;
             ack.abort = 1;
             hvr_mailbox_send(&ack, sizeof(ack), remote_coupling_msg->pe,
-                    -1, &ctx->coupling_ack_and_dead_mailbox);
+                    -1, &ctx->coupling_ack_and_dead_mailbox, 0);
 
         }
 
         success = hvr_mailbox_recv(msg_buf_node->ptr,
                 msg_buf_node->buf_size, &msg_len,
-                &ctx->coupling_ack_and_dead_mailbox);
+                &ctx->coupling_ack_and_dead_mailbox, 0);
         if (success) {
             if (msg_len == sizeof(hvr_dead_pe_msg_t)) {
                 hvr_dead_pe_msg_t *msg = (hvr_dead_pe_msg_t *)msg_buf_node->ptr;
@@ -1996,7 +2023,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             size_t msg_len;
             int success = hvr_mailbox_recv(msg_buf_node->ptr,
                     msg_buf_node->buf_size, &msg_len,
-                    &ctx->to_couple_with_mailbox);
+                    &ctx->to_couple_with_mailbox, 0);
             if (success) {
                 // unsigned long long elapsed = hvr_current_time_us() - start_prev_waiting;
                 assert(msg_len == ctx->to_couple_with_msg.msg_buf_len);
@@ -2077,7 +2104,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                 int is_dead = 0;
                 do {
                     hvr_mailbox_send(&my_coupling_msg, sizeof(my_coupling_msg),
-                            expected_root_pe, -1, &ctx->coupling_mailbox);
+                            expected_root_pe, -1, &ctx->coupling_mailbox, 0);
 #ifdef COUPLING_PRINTS
                     fprintf(stderr, "PE %d sending coupling request to %d\n",
                             ctx->pe, expected_root_pe);
@@ -2258,7 +2285,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             } else {
                 // fprintf(stderr, "PE %d sending coupled val to %d\n", ctx->pe, p);
                 hvr_mailbox_send(&coupled_val_msg, sizeof(coupled_val_msg), p,
-                        -1, &ctx->coupling_val_mailbox);
+                        -1, &ctx->coupling_val_mailbox, 0);
             }
         }
     }
@@ -2268,7 +2295,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     while (!hvr_set_equal(ctx->received_from, ctx->coupled_pes)) {
         size_t msg_len;
         int success = hvr_mailbox_recv(msg_buf_node->ptr,
-                msg_buf_node->buf_size, &msg_len, &ctx->coupling_val_mailbox);
+                msg_buf_node->buf_size, &msg_len, &ctx->coupling_val_mailbox, 0);
         if (success) {
             assert(msg_len == sizeof(hvr_coupling_msg_t));
             hvr_coupling_msg_t *msg = (hvr_coupling_msg_t *)msg_buf_node->ptr;
@@ -2366,7 +2393,6 @@ static void save_profiling_info(
         process_perf_info_t *perf_info,
         unsigned long long time_updating_partitions,
         unsigned long long time_updating_subscribers,
-        unsigned long long dead_pe_time,
         unsigned long long time_sending,
         int should_abort,
         unsigned long long coupling_coupling,
@@ -2408,7 +2434,6 @@ static void save_profiling_info(
             perf_info, sizeof(*perf_info));
     saved_profiling_info[n_profiled_iters].time_updating_partitions = time_updating_partitions;
     saved_profiling_info[n_profiled_iters].time_updating_subscribers = time_updating_subscribers;
-    saved_profiling_info[n_profiled_iters].dead_pe_time = dead_pe_time;
     saved_profiling_info[n_profiled_iters].time_sending = time_sending;
     saved_profiling_info[n_profiled_iters].should_abort = should_abort;
 
@@ -2526,11 +2551,10 @@ static void print_profiling_info(profiling_info_t *info) {
     fprintf(profiling_fp, "  update actor partitions %f\n",
             (double)(info->end_update_partitions - info->end_update_dist) / 1000.0);
     fprintf(profiling_fp, "  update partition window %f - update time = "
-            "(parts=%f subscribers=%f) dead PE time %f\n",
+            "(parts=%f subscribers=%f)\n",
             (double)(info->end_partition_window - info->end_update_partitions) / 1000.0,
             (double)info->time_updating_partitions / 1000.0,
-            (double)info->time_updating_subscribers / 1000.0,
-            (double)info->dead_pe_time / 1000.0);
+            (double)info->time_updating_subscribers / 1000.0);
     fprintf(profiling_fp, "  update neighbors %f\n",
             (double)(info->end_neighbor_updates - info->end_partition_window) / 1000.0);
     fprintf(profiling_fp, "  send updates %f - %u changes, %f ms sending\n",
@@ -2730,10 +2754,9 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      * need notifications on. Subscribe to notifications about partitions from
      * update_partition_window in the global registry.
      */
-    unsigned long long dead_pe_time, time_updating_partitions,
-                  time_updating_subscribers;
+    unsigned long long time_updating_partitions, time_updating_subscribers;
     update_partition_window(ctx, &time_updating_partitions,
-            &time_updating_subscribers, &dead_pe_time);
+            &time_updating_subscribers);
     const unsigned long long end_partition_window = hvr_current_time_us();
 
     /*
@@ -2802,7 +2825,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 &perf_info,
                 time_updating_partitions,
                 time_updating_subscribers,
-                dead_pe_time,
                 time_sending,
                 should_abort,
                 coupling_coupling,
@@ -2860,7 +2882,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long end_update_partitions = hvr_current_time_us();
 
         update_partition_window(ctx, &time_updating_partitions,
-            &time_updating_subscribers, &dead_pe_time);
+            &time_updating_subscribers);
 
         const unsigned long long end_partition_window = hvr_current_time_us();
 
@@ -2906,7 +2928,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     &perf_info,
                     time_updating_partitions,
                     time_updating_subscribers,
-                    dead_pe_time,
                     time_sending,
                     should_abort,
                     coupling_coupling,
@@ -2961,7 +2982,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     dead_msg.pe = ctx->pe;
     for (int p = 0; p < ctx->npes; p++) {
         hvr_mailbox_send(&dead_msg, sizeof(dead_msg), p, -1,
-                &ctx->coupling_ack_and_dead_mailbox);
+                &ctx->coupling_ack_and_dead_mailbox, 0);
     }
 
     this_pe_has_exited = 1;
@@ -2978,7 +2999,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
         if (ctx->local_partition_lists[p]) {
-            hvr_dist_bitvec_set(p, ctx->pe, &ctx->terminated_pes);
+            hvr_dist_bitvec_set(p, ctx->pe, &ctx->terminated_pes, 0);
         }
     }
 
@@ -3052,6 +3073,13 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     hvr_msg_buf_pool_destroy(&ctx->msg_buf_pool);
 
     free(ctx->interacting);
+
+#ifdef HVR_MULTITHREADED
+#pragma omp parallel
+    {
+        shmemx_thread_unregister();
+    }
+#endif
 
     free(ctx);
 }

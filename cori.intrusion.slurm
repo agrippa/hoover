@@ -27,7 +27,6 @@ export LD_LIBRARY_PATH=$HCLIB_HOME/modules/openshmem/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$HCLIB_HOME/modules/sos/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$OFI_HOME/lib:$LD_LIBRARY_PATH
 
-export LD_PRELOAD=/opt/intel/compilers_and_libraries_2018.2.199/linux/tbb/lib/intel64/gcc4.7/libtbbmalloc.so.2
 export SMA_OFI_PROVIDER=gni
 # export FI_LOG_LEVEL=info
 
@@ -49,8 +48,13 @@ export PE_PER_SOCKET=1
 if [[ $PE_PER_SOCKET -eq 1 ]]; then
     export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) --ntasks-per-socket=1 --cpus-per-task=$CORES_PER_SOCKET"
 
-    if [[ $SLURM_NNODES -eq 4 ]]; then
+    if [[ $SLURM_NNODES -eq 1 ]]; then
+        export PE_CHUNKS="2 1 1"
+
+    elif [[ $SLURM_NNODES -eq 4 ]]; then
         export PE_CHUNKS="2 2 2"
+    elif [[ $SLURM_NNODES -eq 32 ]]; then
+        export PE_CHUNKS="4 4 4"
     else
         echo "Unsupported # of nodes $SLURM_NNODES"
         exit 1
@@ -58,6 +62,7 @@ if [[ $PE_PER_SOCKET -eq 1 ]]; then
 
     export OMP_NUM_THREADS=$CORES_PER_SOCKET
     export EXE=intrusion_detection.multi
+    export SHMEM_MAX_NUM_THREADS=$OMP_NUM_THREADS
 else
     export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1"
 
@@ -101,15 +106,16 @@ if [[ $PE_PER_SOCKET -eq 1 ]]; then
     export MIN_N_VERTICES_TO_ADD=$(($MIN_N_VERTICES_TO_ADD * $CORES_PER_SOCKET))
     export MAX_N_VERTICES_TO_ADD=$(($MAX_N_VERTICES_TO_ADD * $CORES_PER_SOCKET))
 fi
-export TIME_LIMIT_IN_SECONDS=30
+export TIME_LIMIT_IN_SECONDS=180
 export EDGE_DISTANCE=10
 export DOMAIN_SIZE="12000 12000 10000"
 
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
 
-export HVR_VERT_CACHE_SEGS=10000
-export HVR_VEC_CACHE_PREALLOCS=$((1024 * 1024))
+export HVR_SYMM_POOL_SIZE=$((4 * 1024 * 1024))
+export HVR_VERT_CACHE_SEGS=40000
+export HVR_VERT_CACHE_PREALLOCS=$((8 * 1024 * 1024))
 export HVR_SPARSE_ARR_POOL=$((64 * 1024 * 1024))
 export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
 

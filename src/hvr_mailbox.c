@@ -1,4 +1,5 @@
 #include <shmem.h>
+#include <shmemx.h>
 #include <string.h>
 #include <assert.h>
 #include <stdlib.h>
@@ -84,7 +85,7 @@ static void get_from_mailbox_with_rotation(uint64_t starting_offset, void *data,
 }
 
 int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
-        int max_tries, hvr_mailbox_t *mailbox) {
+        int max_tries, hvr_mailbox_t *mailbox, int multithreaded) {
     // So that sentinel values are always cohesive
     assert(msg_len % sizeof(sentinel) == 0);
 
@@ -143,15 +144,21 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
     put_in_mailbox_with_rotation(&msg_len, sizeof(msg_len), msg_len_offset,
             mailbox, target_pe);
     put_in_mailbox_with_rotation(msg, msg_len, msg_offset, mailbox, target_pe);
-    // shmem_fence();
-    shmem_quiet();
+
+    if (multithreaded) {
+        shmemx_thread_quiet();
+    } else {
+        // shmem_fence();
+        shmem_quiet();
+    }
+
     put_in_mailbox_with_rotation(&sentinel, sizeof(sentinel),
             start_send_offset, mailbox, target_pe);
     return 1;
 }
 
 int hvr_mailbox_recv(void *msg, size_t msg_capacity, size_t *msg_len,
-        hvr_mailbox_t *mailbox) {
+        hvr_mailbox_t *mailbox, int multithreaded) {
     uint32_t read_index, write_index;
     uint64_t curr_indices;
 
@@ -229,7 +236,12 @@ int hvr_mailbox_recv(void *msg, size_t msg_capacity, size_t *msg_len,
     }
     mailbox->indices_curr_val = new_indices;
 
-    shmem_quiet();
+    if (multithreaded) {
+        shmemx_thread_quiet();
+    } else {
+        // shmem_fence();
+        shmem_quiet();
+    }
 
     return 1;
 }

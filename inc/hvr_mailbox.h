@@ -22,7 +22,7 @@ void hvr_mailbox_init(hvr_mailbox_t *mailbox, size_t capacity_in_bytes);
  * succeeds, 0 otherwise.
  */
 int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
-        int max_tries, hvr_mailbox_t *mailbox);
+        int max_tries, hvr_mailbox_t *mailbox, int multithreaded);
 
 /*
  * Check my local mailbox for a new message. If one is found, a pointer to it is
@@ -30,7 +30,7 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
  * is returned. Otherwise, 0 is returned to indicate no message was found.
  */
 int hvr_mailbox_recv(void *msg, size_t msg_capacity, size_t *msg_len,
-        hvr_mailbox_t *mailbox);
+        hvr_mailbox_t *mailbox, int multithreaded);
 
 void hvr_mailbox_destroy(hvr_mailbox_t *mailbox);
 

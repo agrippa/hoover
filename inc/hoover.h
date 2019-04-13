@@ -154,10 +154,15 @@ typedef struct _inter_vert_msg_t {
 typedef struct _hvr_internal_ctx_t {
     // Has the HOOVER runtime been initialized?
     int initialized;
+
     // The current PE (caches shmem_my_pe())
     int pe;
+
     // The number of PEs (caches shmem_n_pes())
     int npes;
+
+    // Is the current OpenSHMEM runtime configured thread-safe?
+    int thread_safe;
 
     hvr_vertex_pool_t pool;
     hvr_partition_t *vertex_partitions; // only set while exiting
