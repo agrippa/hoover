@@ -87,6 +87,21 @@ typedef struct _hvr_vertex_update_t hvr_vertex_update_t;
 
 typedef hvr_vertex_id_t hvr_edge_info_t;
 
+static inline hvr_edge_type_t flip_edge_direction(hvr_edge_type_t dir) {
+    switch (dir) {
+        case (DIRECTED_IN):
+            return DIRECTED_OUT;
+        case (DIRECTED_OUT):
+            return DIRECTED_IN;
+        case (BIDIRECTIONAL):
+            return BIDIRECTIONAL;
+        case (NO_EDGE):
+            return NO_EDGE;
+        default:
+            abort();
+    }
+}
+
 #define EDGE_INFO_VERTEX(my_edge_info) (0x3fffffffffffffff & (my_edge_info))
 #define EDGE_INFO_EDGE(my_edge_info) ((my_edge_info) >> 62)
 

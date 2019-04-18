@@ -9,6 +9,11 @@
 
 #include <hoover.h>
 
+#ifdef MULTITHREADED
+#include <omp.h>
+#include <shmemx.h>
+#endif
+
 #define TIME_STEP 0
 #define ACTOR_ID 1
 #define PX 2
@@ -33,6 +38,9 @@ uint64_t total_n_actors = 0;
 static unsigned n_time_partition = 0;
 static unsigned n_y_partition = 0;
 static unsigned n_x_partition = 0;
+#ifdef MULTITHREADED
+static int nthreads = 1;
+#endif
 
 typedef struct _portal_t {
     int pes[2];
@@ -519,6 +527,12 @@ int main(int argc, char **argv) {
     hvr_partition_t npartitions = n_time_partition * n_y_partition *
         n_x_partition;
 
+#ifdef MULTITHREADED
+#pragma omp parallel
+#pragma omp single
+    nthreads = omp_get_num_threads();
+#endif
+
     const double global_x_dim = (double)n_cells_x * cell_dim_x;
     const double global_y_dim = (double)n_cells_y * cell_dim_y;
 
@@ -526,10 +540,20 @@ int main(int argc, char **argv) {
         p_sync[i] = SHMEM_SYNC_VALUE;
     }
 
+#ifdef MULTITHREADED
+    int provided = shmemx_init_thread(SHMEM_THREAD_MULTIPLE);
+    assert(provided == SHMEM_THREAD_MULTIPLE);
+#else
     shmem_init();
+#endif
     pe = shmem_my_pe();
     npes = shmem_n_pes();
-    if (pe == 0) fprintf(stderr, "Running with %d PEs\n", npes);
+    if (pe == 0) {
+        fprintf(stderr, "Running with %d PEs\n", npes);
+#ifdef MULTITHREADED
+        fprintf(stderr, "Running with %d OMP threads\n", nthreads);
+#endif
+    }
     assert(npes == n_cells_y * n_cells_x);
 
     hvr_ctx_create(&hvr_ctx);

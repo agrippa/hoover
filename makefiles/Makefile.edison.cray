@@ -9,12 +9,11 @@ CC=cc
 CXX=cc
 
 HOOVER_OBJS=bin/hoover.o bin/hvr_vertex_pool.o bin/hvr_vertex_iter.o \
-			bin/hvr_mailbox.o bin/hvr_set.o bin/hvr_edge_set.o \
-			bin/hvr_vertex.o bin/hvr_vertex_cache.o bin/hvr_dist_bitvec.o \
+			bin/hvr_mailbox.o bin/hvr_set.o bin/hvr_vertex.o \
+			bin/hvr_vertex_cache.o bin/hvr_dist_bitvec.o \
 			bin/hvr_sparse_arr.o bin/hvr_map.o bin/hvr_set_msg.o \
-			bin/hvr_msg_buf_pool.o bin/hvr_2d_edge_set.o \
-			bin/hvr_irregular_matrix.o bin/hvr_buffered_msgs.o \
-			bin/shmem_rw_lock.o bin/dlmalloc.o
+			bin/hvr_msg_buf_pool.o bin/hvr_irregular_matrix.o \
+			bin/hvr_buffered_msgs.o bin/dlmalloc.o bin/shmem_rw_lock.o
 HOOVER_MT_OBJS=$(patsubst bin/%.o,bin/%.mo,$(HOOVER_OBJS))
 
 all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge_set_test bin/own_edge_test bin/vertex_test bin/init_test \
@@ -69,10 +68,6 @@ bin/hvr_irregular_matrix_test: test/hvr_irregular_matrix_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_irregular_matrix_test.c -o bin/hvr_irregular_matrix_test.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_irregular_matrix_test.o -o $@ -l:libhoover.a -lm -lpthread
 
-bin/hvr_2d_edge_set_test: test/hvr_2d_edge_set_test.c bin/libhoover.a
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_2d_edge_set_test.c -o bin/hvr_2d_edge_set_test.o
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_2d_edge_set_test.o -o $@ -l:libhoover.a -lm -lpthread
-
 bin/hvr_2d_set_microbenchmark: test/hvr_2d_set_microbenchmark.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_2d_set_microbenchmark.c -o bin/hvr_2d_set_microbenchmark.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_2d_set_microbenchmark.o -o $@ -l:libhoover.a -lm -lpthread
@@ -96,6 +91,10 @@ bin/test_sparse_arr: test/test_sparse_arr.c bin/libhoover.a
 bin/infectious_test: test/infectious_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/infectious_test.c -o bin/infectious_test.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/infectious_test.o -o $@ -lhoover -lm -lpthread
+
+bin/infectious_test.multi: test/infectious_test.c bin/libhoover_mt.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/infectious_test.c -o bin/infectious_test.multi.o -DMULTITHREADED -fopenmp
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/infectious_test.multi.o -o $@ -lhoover_mt -lm -lpthread -DMULTITHREADED -fopenmp
 
 bin/hvr_set_msg_test: test/hvr_set_msg_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_set_msg_test.c -o bin/hvr_set_msg_test.o
@@ -130,9 +129,8 @@ bin/remove_vertices_test: test/remove_vertices_test.c
 	$(CC) $(CFLAGS) $^ -o $@ -lhoover -Lbin $(SHMEM_FLAGS)
 
 bin/intrusion_detection.multi: test/intrusion_detection.cpp bin/libhoover_mt.a
-	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/intrusion_detection.cpp -o bin/intrusion_detection.o -DMULTITHREADED -fopenmp
-	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/intrusion_detection.o -o $@ -lhoover_mt -lm -lpthread -lstdc++ -DMULTITHREADED -fopenmp
-
+	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/intrusion_detection.cpp -o bin/intrusion_detection.multi.o -DMULTITHREADED -fopenmp
+	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/intrusion_detection.multi.o -o $@ -lhoover_mt -lm -lpthread -lstdc++ -DMULTITHREADED -fopenmp
 
 bin/intrusion_detection: test/intrusion_detection.cpp bin/libhoover.a
 	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/intrusion_detection.cpp -o bin/intrusion_detection.o

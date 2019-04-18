@@ -128,7 +128,7 @@ export EXE_ARGS="$CELL_DIM $CELL_DIM $PE_ROWS $PE_COLS $MAX_NUM_TIMESTEPS \
 # srun $SLURM_ARGS $HOME/hoover/bin/simple_nbody_test $SIMULATION_TIMESTEPS $MAX_SECONDS
 
 # srun $SLURM_ARGS $HOME/hoover/bin/pas
-# srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
+srun $SLURM_ARGS $HOME/hoover/bin/infectious_test $EXE_ARGS
 
 ##### Functional tests #####
 # srun $SLURM_ARGS $HOME/hoover/bin/init_test 500

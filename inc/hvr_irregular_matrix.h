@@ -18,8 +18,8 @@ typedef struct _hvr_irr_matrix_t {
 void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
         hvr_irr_matrix_t *m);
 
-hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i, hvr_vertex_id_t j,
-        hvr_irr_matrix_t *m);
+hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i,
+        hvr_vertex_id_t j, const hvr_irr_matrix_t *m);
 
 void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
         hvr_irr_matrix_t *m);

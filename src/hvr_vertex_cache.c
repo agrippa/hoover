@@ -15,7 +15,7 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
         prealloc_segs = atoi(getenv("HVR_VERT_CACHE_SEGS"));
     }
 
-    hvr_map_init(&cache->cache_map, prealloc_segs, 0, 0, 1, CACHED_VERT_INFO);
+    hvr_map_init(&cache->cache_map, prealloc_segs, 0, 0, 1);
 
     cache->partitions = (hvr_vertex_cache_node_t **)malloc(
             npartitions * sizeof(hvr_vertex_cache_node_t *));
@@ -59,25 +59,14 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
  */
 hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
         hvr_vertex_cache_t *cache) {
-    hvr_map_val_list_t vals_list;
-    int n = hvr_map_linearize(vert, &cache->cache_map, &vals_list);
-    assert(n == -1 || n == 1);
-
-    if (n == -1) {
-        cache->cache_perf_info.nmisses++;
-        return NULL;
-    } else {
-        cache->cache_perf_info.nhits++;
-        return hvr_map_val_list_get(0, &vals_list).cached_vert;
-    }
+    return (hvr_vertex_cache_node_t *)hvr_map_get(vert, &cache->cache_map);
 }
 
 void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *node,
         hvr_vertex_cache_t *cache) {
     assert(node);
 
-    hvr_map_val_t to_remove = {.cached_vert = node};
-    hvr_map_remove(node->vert.id, to_remove, &cache->cache_map);
+    hvr_map_remove(node->vert.id, node, &cache->cache_map);
 
     // Remove from partitions list
     linked_list_remove_helper(node, node->part_prev, node->part_next,
@@ -162,8 +151,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     new_node->part_prev = NULL;
     cache->partitions[part] = new_node;
 
-    hvr_map_val_t to_insert = {.cached_vert = new_node};
-    hvr_map_add(vert->id, to_insert, &cache->cache_map);
+    hvr_map_add(vert->id, new_node, &cache->cache_map);
 
     cache->n_cached_vertices++;
 

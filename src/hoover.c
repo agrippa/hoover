@@ -92,8 +92,6 @@ typedef struct _profiling_info_t {
     size_t dead_info_bytes;
     size_t vertex_cache_capacity;
     size_t vertex_cache_used;
-    double vertex_cache_val_used;
-    double vertex_cache_val_capacity;
     unsigned vertex_cache_max_len;
 
     size_t edge_bytes_used;
@@ -112,7 +110,6 @@ typedef enum {
 } hvr_change_type_t;
 
 static void handle_new_vertex(hvr_vertex_t *new_vert,
-        int is_invalidation,
         process_perf_info_t *perf_info,
         hvr_internal_ctx_t *ctx);
 
@@ -340,7 +337,7 @@ static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
                         sizeof(tmp_vert), dead_pe);
 
                 process_perf_info_t dummy_perf_info;
-                handle_new_vertex(&tmp_vert, 0, &dummy_perf_info, ctx);
+                handle_new_vertex(&tmp_vert, &dummy_perf_info, ctx);
             }
         }
     }
@@ -511,10 +508,19 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
         unsigned long long *out_time_updating_subscribers) {
     const unsigned long long start = hvr_current_time_us();
 
-    hvr_set_wipe(ctx->new_subscribed_partitions);
-    hvr_set_wipe(ctx->new_produced_partitions);
+#ifdef HVR_MULTITHREADED
+    assert(ctx->thread_safe);
+#endif
+
+    hvr_set_t *new_subscribed_partitions = ctx->new_subscribed_partitions;
+    hvr_set_t *new_produced_partitions = ctx->new_produced_partitions;
+    hvr_set_wipe(new_subscribed_partitions);
+    hvr_set_wipe(new_produced_partitions);
 
     // Update the set of partitions in a temporary buffer
+#ifdef HVR_MULTITHREADED
+#pragma omp parallel for
+#endif
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
         /*
          * Update the global registry with which partitions this PE provides
@@ -523,7 +529,11 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
          */
         if (ctx->local_partition_lists[p]) {
             // Producer
-            hvr_set_insert(p, ctx->new_produced_partitions);
+#ifdef HVR_MULTITHREADED
+            hvr_set_insert_atomic(p, new_produced_partitions);
+#else
+            hvr_set_insert(p, new_produced_partitions);
+#endif
         }
 
         if (ctx->local_partition_lists[p] || (ctx->mirror_partition_lists[p] &&
@@ -531,7 +541,13 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
                     ctx->max_graph_traverse_depth - 1)) {
             // Subscriber to any interacting partitions with p
             unsigned n_interacting;
-            ctx->might_interact(p, ctx->interacting, &n_interacting,
+#ifdef HVR_MULTITHREADED
+            hvr_partition_t *interacting = ctx->per_thread_interacting +
+                (omp_get_thread_num() * MAX_INTERACTING_PARTITIONS);
+#else
+            hvr_partition_t *interacting = ctx->interacting;
+#endif
+            ctx->might_interact(p, interacting, &n_interacting,
                     MAX_INTERACTING_PARTITIONS, ctx);
 
             /*
@@ -539,9 +555,12 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
              * interact with.
              */
             for (unsigned i = 0; i < n_interacting; i++) {
-                assert(ctx->interacting[i] < ctx->n_partitions);
-                hvr_set_insert(ctx->interacting[i],
-                        ctx->new_subscribed_partitions);
+#ifdef HVR_MULTITHREADED
+                hvr_set_insert_atomic(interacting[i],
+                        new_subscribed_partitions);
+#else
+                hvr_set_insert(interacting[i], new_subscribed_partitions);
+#endif
             }
         }
     }
@@ -549,28 +568,20 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
     const unsigned long long after_part_updates = hvr_current_time_us();
 
 #ifdef HVR_MULTITHREADED
-    assert(ctx->thread_safe);
-#pragma omp parallel
-    {
-    const int nthreads = omp_get_num_threads();
-    const int tid = omp_get_thread_num();
-
-    for (hvr_partition_t p = tid; p < ctx->n_partitions; p += nthreads) {
-#else
-    for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
+#pragma omp parallel for
 #endif
+    for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
         /*
          * For all partitions, check if our producer relationship to any of them
          * has changed on this iteration. If it has, notify the global registry
          * of that.
          */
-        update_partition_info(p,
-                ctx->new_produced_partitions,
+        update_partition_info(p, new_produced_partitions,
                 ctx->produced_partitions,
                 &ctx->partition_producers, ctx);
 
         const int old_sub = hvr_set_contains(p, ctx->subscribed_partitions);
-        if (hvr_set_contains(p, ctx->new_subscribed_partitions)) {
+        if (hvr_set_contains(p, new_subscribed_partitions)) {
             if (!old_sub) {
                 /*
                  * New subscription on this iteration. Copy down the set of
@@ -602,17 +613,14 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
             }
         }
     }
-#ifdef HVR_MULTITHREADED
-    }
-#endif
 
     /*
      * Copy the newly computed partition windows for this PE over for next time
      * when we need to check for changes.
      */
-    hvr_set_copy(ctx->subscribed_partitions, ctx->new_subscribed_partitions);
+    hvr_set_copy(ctx->subscribed_partitions, new_subscribed_partitions);
 
-    hvr_set_copy(ctx->produced_partitions, ctx->new_produced_partitions);
+    hvr_set_copy(ctx->produced_partitions, new_produced_partitions);
 
     const unsigned long long end = hvr_current_time_us();
 
@@ -645,6 +653,8 @@ void hvr_init(const hvr_partition_t n_partitions,
 #pragma omp parallel
     {
         shmemx_thread_register();
+#pragma omp single
+        new_ctx->nthreads = omp_get_num_threads();
     }
 #endif
 
@@ -903,11 +913,18 @@ void hvr_init(const hvr_partition_t n_partitions,
     if (getenv("HVR_MAX_BUFFERED_MSGS")) {
         max_buffered_msgs = atoi(getenv("HVR_MAX_BUFFERED_MSGS"));
     }
-    hvr_msg_buf_pool_init(&new_ctx->msg_buf_pool, max_msg_len, max_buffered_msgs);
+    hvr_msg_buf_pool_init(&new_ctx->msg_buf_pool, max_msg_len,
+            max_buffered_msgs);
 
     new_ctx->interacting = (hvr_partition_t *)malloc(
             MAX_INTERACTING_PARTITIONS * sizeof(new_ctx->interacting[0]));
     assert(new_ctx->interacting);
+#ifdef HVR_MULTITHREADED
+    new_ctx->per_thread_interacting = (hvr_partition_t *)malloc(
+            new_ctx->nthreads * MAX_INTERACTING_PARTITIONS *
+            sizeof(new_ctx->per_thread_interacting[0]));
+    assert(new_ctx->per_thread_interacting);
+#endif
 
     size_t buffered_msgs_pool_size = 1024ULL * 1024ULL;
     if (getenv("HVR_BUFFERED_MSGS_POOL_SIZE")) {
@@ -1042,29 +1059,22 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
 
     if (existing_edge == new_edge) return;
 
-    // fprintf(stderr, "PE %d updating edge between (%f %f) and (%f %f). %u -> %u\n",
-    //         ctx->pe, hvr_vertex_get(0, &base->vert, ctx),
-    //         hvr_vertex_get(1, &base->vert, ctx),
-    //         hvr_vertex_get(0, &neighbor->vert, ctx),
-    //         hvr_vertex_get(1, &neighbor->vert, ctx),
-    //         existing_edge, new_edge);
-
     if (existing_edge == NO_EDGE) {
         // new edge != NO_EDGE (creating a completely new edge)
         hvr_irr_matrix_set(base_offset, neighbor_offset, new_edge, &ctx->edges);
         hvr_irr_matrix_set(neighbor_offset, base_offset,
                 flip_edge_direction(new_edge), &ctx->edges);
 
-        base->n_local_neighbors += (neighbor_is_local ? 1 : 0);
-        neighbor->n_local_neighbors += (base_is_local ? 1 : 0);
+        base->n_local_neighbors += neighbor_is_local;
+        neighbor->n_local_neighbors += base_is_local;
     } else if (new_edge == NO_EDGE) {
         // existing edge != NO_EDGE (deleting an existing edge)
         hvr_irr_matrix_set(base_offset, neighbor_offset, NO_EDGE, &ctx->edges);
         hvr_irr_matrix_set(neighbor_offset, base_offset, NO_EDGE, &ctx->edges);
 
         // Decrement if condition holds true
-        base->n_local_neighbors -= (neighbor_is_local ? 1 : 0);
-        neighbor->n_local_neighbors -= (base_is_local ? 1 : 0);
+        base->n_local_neighbors -= neighbor_is_local;
+        neighbor->n_local_neighbors -= base_is_local;
     } else {
         // Neither new or existing is NO_EDGE (updating existing edge)
         hvr_irr_matrix_set(base_offset, neighbor_offset, new_edge, &ctx->edges);
@@ -1101,16 +1111,12 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
      * to base (i.e. DIRECTED_IN means it is an inbound edge on base, and
      * outbound on neighbor).
      */
-    if (base_is_local && (new_edge == DIRECTED_IN ||
-                new_edge == BIDIRECTIONAL ||
-                new_edge == NO_EDGE)) {
+    if (base_is_local && new_edge != DIRECTED_OUT) {
         hvr_vertex_t *local = ctx->pool.pool + VERTEX_ID_OFFSET(base_id);
         local->needs_processing = 1;
     }
 
-    if (neighbor_is_local && (flip_edge_direction(new_edge) == DIRECTED_IN ||
-                flip_edge_direction(new_edge) == BIDIRECTIONAL ||
-                flip_edge_direction(new_edge) == NO_EDGE)) {
+    if (neighbor_is_local && flip_edge_direction(new_edge) != DIRECTED_OUT) {
         hvr_vertex_t *local = ctx->pool.pool + VERTEX_ID_OFFSET(neighbor_id);
         local->needs_processing = 1;
     }
@@ -1224,15 +1230,9 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
 }
 
 static void handle_new_vertex(hvr_vertex_t *new_vert,
-        int is_invalidation,
         process_perf_info_t *perf_info,
         hvr_internal_ctx_t *ctx) {
     unsigned local_count_new_should_have_edges = 0;
-
-    if (is_invalidation) {
-        handle_deleted_vertex(new_vert, ctx);
-        return;
-    }
 
     hvr_partition_t partition = wrap_actor_to_partition(new_vert, ctx);
     hvr_vertex_id_t updated_vert_id = new_vert->id;
@@ -1269,7 +1269,8 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
                     offsetof(hvr_vertex_t, next_in_partition));
             update_partition_list_membership(&updated->vert, updated->part,
                     ctx->mirror_partition_lists, ctx);
-            hvr_vertex_cache_update_partition(updated, partition, &ctx->vec_cache);
+            hvr_vertex_cache_update_partition(updated, partition,
+                    &ctx->vec_cache);
 
             /*
              * Look for existing edges and verify they should still exist with
@@ -1429,8 +1430,11 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         hvr_vertex_update_t *msg = (hvr_vertex_update_t *)msg_buf_node->ptr;
 
         for (unsigned i = 0; i < msg->len; i++) {
-            handle_new_vertex(&(msg->verts[i]), msg->is_invalidation[i],
-                    perf_info, ctx);
+            if (msg->is_invalidation[i]) {
+                handle_deleted_vertex(&(msg->verts[i]), ctx);
+            } else {
+                handle_new_vertex(&(msg->verts[i]), perf_info, ctx);
+            }
             n_updates++;
         }
         ctx->total_vertex_msgs_recvd += msg->len;
@@ -1587,14 +1591,6 @@ hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t in_ctx) {
     } else {
         hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(vert_id,
                 &ctx->vec_cache);
-        if (!cached) {
-            hvr_map_val_list_t vals_list;
-            int n = hvr_map_linearize(vert_id, &ctx->vec_cache.cache_map,
-                    &vals_list);
-            fprintf(stderr, "PE %d failed getting (%lu,%lu) n=%d\n", ctx->pe,
-                    VERTEX_ID_PE(vert_id), VERTEX_ID_OFFSET(vert_id), n);
-            abort();
-        }
         assert(cached);
 
         return &cached->vert;
@@ -2491,8 +2487,6 @@ static void save_profiling_info(
 
 #ifdef DETAILED_PRINTS
     size_t vertex_cache_capacity, vertex_cache_used;
-    double vertex_cache_val_capacity, vertex_cache_val_used;
-    unsigned vertex_cache_max_len;
 
     size_t edge_bytes_used, edge_bytes_allocated, edge_bytes_capacity,
            max_edges, max_edges_index;
@@ -2500,8 +2494,7 @@ static void save_profiling_info(
             &edge_bytes_allocated, &max_edges, &max_edges_index, &ctx->edges);
 
     hvr_map_size_in_bytes(&ctx->vec_cache.cache_map, &vertex_cache_capacity,
-            &vertex_cache_used, &vertex_cache_val_capacity,
-            &vertex_cache_val_used, &vertex_cache_max_len);
+            &vertex_cache_used);
 
     saved_profiling_info[n_profiled_iters].pool_size_in_bytes =
         hvr_pool_size_in_bytes(ctx);
@@ -2517,12 +2510,6 @@ static void save_profiling_info(
         vertex_cache_capacity;
     saved_profiling_info[n_profiled_iters].vertex_cache_used =
         vertex_cache_used;
-    saved_profiling_info[n_profiled_iters].vertex_cache_val_used =
-        vertex_cache_val_used;
-    saved_profiling_info[n_profiled_iters].vertex_cache_val_capacity =
-        vertex_cache_val_capacity;
-    saved_profiling_info[n_profiled_iters].vertex_cache_max_len =
-        vertex_cache_max_len;
     saved_profiling_info[n_profiled_iters].edge_bytes_used =
         edge_bytes_used;
     saved_profiling_info[n_profiled_iters].edge_bytes_allocated =
@@ -2632,9 +2619,6 @@ static void print_profiling_info(profiling_info_t *info) {
             "capacity=%llu max # edges=%lu max edges index=%llu\n",
             info->edge_bytes_used, info->edge_bytes_allocated,
             info->edge_bytes_capacity, info->max_edges, info->max_edges_index);
-    fprintf(profiling_fp, "    vert cache value mean len=%f capacity=%f max "
-            "len=%u\n", info->vertex_cache_val_used,
-            info->vertex_cache_val_capacity, info->vertex_cache_max_len);
 #endif
 }
 
@@ -2851,9 +2835,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         }
 
         const unsigned long long start_iter = hvr_current_time_us();
-
-        memset(&(ctx->vec_cache.cache_perf_info), 0x00,
-                sizeof(ctx->vec_cache.cache_perf_info));
 
         hvr_set_wipe(to_couple_with);
 

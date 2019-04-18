@@ -12,7 +12,6 @@ extern "C" {
 #include "hvr_vertex_pool.h"
 #include "hvr_vertex_cache.h"
 #include "hvr_common.h"
-#include "hvr_edge_set.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
 #include "hvr_set.h"
@@ -324,6 +323,10 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_t terminated_pes;
 
     hvr_partition_t *interacting;
+#ifdef HVR_MULTITHREADED
+    int nthreads;
+    hvr_partition_t *per_thread_interacting;
+#endif
 
     hvr_vertex_t *recently_created;
 

@@ -6,7 +6,6 @@
 
 #include "hvr_common.h"
 #include "hvr_dist_bitvec.h"
-#include "shmem_rw_lock.h"
 
 #define BITS_PER_ELE (sizeof(hvr_dist_bitvec_ele_t) * BITS_PER_BYTE)
 
@@ -120,12 +119,9 @@ void hvr_dist_bitvec_copy_locally(hvr_dist_bitvec_size_t coord0,
     out->seq_no = shmem_uint64_atomic_fetch(vec->seq_nos + coord0_offset,
             coord0_pe);
 
-    for (unsigned i = 0; i < vec->dim1_length_in_words; i++) {
-        out->subvec[i] =
-            shmem_uint64_atomic_fetch(
-                vec->symm_vec + (coord0_offset * vec->dim1_length_in_words + i),
-                coord0_pe);
-    }
+    shmem_getmem(out->subvec,
+            vec->symm_vec + (coord0_offset * vec->dim1_length_in_words),
+            vec->dim1_length_in_words * sizeof(out->subvec[0]), coord0_pe);
 }
 
 uint64_t hvr_dist_bitvec_get_seq_no(hvr_dist_bitvec_size_t coord0,

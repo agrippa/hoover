@@ -77,14 +77,6 @@ typedef struct _hvr_vertex_cache_t {
 
     // Keeps a count of mirrored vertices
     unsigned long long n_cached_vertices;
-
-    struct {
-        unsigned long long fetch_neighbors_time;
-        unsigned long long quiet_neighbors_time;
-        unsigned long long update_metadata_time;
-        unsigned long long nhits;
-        unsigned long long nmisses;
-    } cache_perf_info;
 } hvr_vertex_cache_t;
 
 static inline hvr_vertex_cache_node_t *CACHE_NODE_BY_OFFSET(

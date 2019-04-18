@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:06:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ###SBATCH --contiguous
@@ -100,7 +100,7 @@ else
 fi
 
 export PARTITIONS="100 100 100"
-export MIN_N_VERTICES_TO_ADD=500
+export MIN_N_VERTICES_TO_ADD=800
 export MAX_N_VERTICES_TO_ADD=1000
 if [[ $PE_PER_SOCKET -eq 1 ]]; then
     export MIN_N_VERTICES_TO_ADD=$(($MIN_N_VERTICES_TO_ADD * $CORES_PER_SOCKET))
@@ -117,6 +117,7 @@ export HVR_SYMM_POOL_SIZE=$((4 * 1024 * 1024))
 export HVR_VERT_CACHE_SEGS=40000
 export HVR_VERT_CACHE_PREALLOCS=$((8 * 1024 * 1024))
 export HVR_SPARSE_ARR_POOL=$((64 * 1024 * 1024))
+export HVR_SPARSE_ARR_SEGS=4096
 export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
 
 cd $SCRATCH

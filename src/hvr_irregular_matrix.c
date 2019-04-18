@@ -27,6 +27,19 @@ void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
     assert(m->allocator);
 }
 
+hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i,
+        hvr_vertex_id_t j, const hvr_irr_matrix_t *m) {
+    const unsigned curr_len = m->edges_len[i];
+    hvr_edge_info_t *curr_edges = m->edges[i];
+
+    for (unsigned iter = 0; iter < curr_len; iter++) {
+        if (EDGE_INFO_VERTEX(curr_edges[iter]) == j) {
+            return (hvr_edge_type_t)EDGE_INFO_EDGE(curr_edges[iter]);
+        }
+    }
+    return NO_EDGE;
+}
+
 void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
         hvr_irr_matrix_t *m) {
     const unsigned curr_len = m->edges_len[i];
@@ -77,19 +90,6 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
         (m->edges[i])[curr_len] = construct_edge_info(j, e);
         m->edges_len[i] += 1;
     }
-}
-
-hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i, hvr_vertex_id_t j,
-        hvr_irr_matrix_t *m) {
-    const unsigned curr_len = m->edges_len[i];
-    hvr_edge_info_t *curr_edges = m->edges[i];
-
-    for (unsigned iter = 0; iter < curr_len; iter++) {
-        if (EDGE_INFO_VERTEX(curr_edges[iter]) == j) {
-            return EDGE_INFO_EDGE(curr_edges[iter]);
-        }
-    }
-    return NO_EDGE;
 }
 
 unsigned hvr_irr_matrix_linearize_zero_copy(hvr_vertex_id_t i,

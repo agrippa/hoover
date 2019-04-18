@@ -41,24 +41,38 @@ hvr_set_t *hvr_create_full_set(const uint64_t nvals) {
     return empty_set;
 }
 
-static int hvr_set_insert_internal(uint64_t val,
-        bit_vec_element_type *bit_vector) {
+int hvr_set_insert(uint64_t val, hvr_set_t *set) {
+    bit_vec_element_type *bit_vector = set->bit_vector;
     const uint64_t element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);
     const uint64_t bit = val % (sizeof(*bit_vector) * BITS_PER_BYTE);
     const bit_vec_element_type old_val = bit_vector[element];
     const bit_vec_element_type new_val =
         (old_val | ((bit_vec_element_type)1 << bit));
     bit_vector[element] = new_val;
-    return old_val != new_val;
-}
 
-int hvr_set_insert(uint64_t val, hvr_set_t *set) {
-    const int changed = hvr_set_insert_internal(val, set->bit_vector);
-    if (changed) {
+    if (old_val != new_val) {
         set->n_contained++;
     }
-    return changed;
+    return (old_val != new_val);
 }
+
+#ifdef HVR_MULTITHREADED
+int hvr_set_insert_atomic(uint64_t val, hvr_set_t *set) {
+    bit_vec_element_type *bit_vector = set->bit_vector;
+    const uint64_t element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const uint64_t bit = val % (sizeof(*bit_vector) * BITS_PER_BYTE);
+    const bit_vec_element_type mask = ((bit_vec_element_type)1 << bit);
+    const bit_vec_element_type old_val = __sync_fetch_and_or(
+            &bit_vector[element], mask);
+    const bit_vec_element_type new_val = (old_val | mask);
+
+    if (old_val != new_val) {
+        __sync_fetch_and_add(&(set->n_contained), 1);
+    }
+    return (old_val != new_val);
+
+}
+#endif
 
 static int hvr_set_clear_internal(uint64_t val,
         bit_vec_element_type *bit_vector) {
