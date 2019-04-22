@@ -264,7 +264,7 @@ typedef struct _hvr_internal_ctx_t {
     char my_hostname[1024];
 
     // List of local vertices in each partition
-    hvr_vertex_t **local_partition_lists;
+    hvr_partition_list_t local_partition_lists;
 
     /*
      * List of locally mirrored vertices in each partition (actually points into

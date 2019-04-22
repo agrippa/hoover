@@ -233,21 +233,8 @@ hvr_graph_id_t hvr_graph_create(hvr_ctx_t in_ctx) {
     return (1 << next_graph);
 }
 
-static inline void prepend_to_partition_list(hvr_vertex_t *curr,
-        hvr_vertex_t **partition_lists, hvr_internal_ctx_t *ctx) {
-    hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
-
-    // Prepend to new partition list
-    curr->prev_in_partition = NULL;
-    curr->next_in_partition = partition_lists[partition];
-    if (partition_lists[partition]) {
-        partition_lists[partition]->prev_in_partition = curr;
-    }
-    partition_lists[partition] = curr;
-}
-
 static void insert_recently_created_in_partitions(hvr_internal_ctx_t *ctx) {
-    hvr_vertex_t **local_partition_lists = ctx->local_partition_lists;
+    hvr_partition_list_t *local_partition_lists = &ctx->local_partition_lists;
 
     while (ctx->recently_created) {
         hvr_vertex_t *curr = ctx->recently_created;
@@ -508,10 +495,6 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
         unsigned long long *out_time_updating_subscribers) {
     const unsigned long long start = hvr_current_time_us();
 
-#ifdef HVR_MULTITHREADED
-    assert(ctx->thread_safe);
-#endif
-
     hvr_set_t *new_subscribed_partitions = ctx->new_subscribed_partitions;
     hvr_set_t *new_produced_partitions = ctx->new_produced_partitions;
     hvr_set_wipe(new_subscribed_partitions);
@@ -527,7 +510,7 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
          * updates on (producer) and which partitions it subscribes to updates
          * from (subscriber).
          */
-        if (ctx->local_partition_lists[p]) {
+        if (ctx->local_partition_lists.lists[p]) {
             // Producer
 #ifdef HVR_MULTITHREADED
             hvr_set_insert_atomic(p, new_produced_partitions);
@@ -536,7 +519,8 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
 #endif
         }
 
-        if (ctx->local_partition_lists[p] || (ctx->mirror_partition_lists[p] &&
+        if (ctx->local_partition_lists.lists[p] ||
+                (ctx->mirror_partition_lists[p] &&
                 ctx->partition_min_dist_from_local_vert[p] <=
                     ctx->max_graph_traverse_depth - 1)) {
             // Subscriber to any interacting partitions with p
@@ -650,6 +634,8 @@ void hvr_init(const hvr_partition_t n_partitions,
 
     new_ctx->thread_safe = (shmemx_query_thread() == SHMEM_THREAD_MULTIPLE);
 #ifdef HVR_MULTITHREADED
+    assert(new_ctx->thread_safe);
+
 #pragma omp parallel
     {
         shmemx_thread_register();
@@ -812,11 +798,8 @@ void hvr_init(const hvr_partition_t n_partitions,
             sizeof(hvr_partition_t));
     assert(new_ctx->local_pes_per_partition_buffer);
 
-    new_ctx->local_partition_lists = (hvr_vertex_t **)malloc(
-            new_ctx->n_partitions * sizeof(new_ctx->local_partition_lists[0]));
-    assert(new_ctx->local_partition_lists);
-    memset(new_ctx->local_partition_lists, 0x00,
-            new_ctx->n_partitions * sizeof(new_ctx->local_partition_lists[0]));
+    hvr_partition_list_init(new_ctx->n_partitions,
+            &new_ctx->local_partition_lists);
 
     new_ctx->mirror_partition_lists = (hvr_vertex_t **)malloc(
             sizeof(hvr_vertex_t *) * new_ctx->n_partitions);
@@ -992,7 +975,7 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
                 msg.len = 0;
 
                 hvr_vertex_t *iter =
-                    ctx->local_partition_lists[change->partition];
+                    ctx->local_partition_lists.lists[change->partition];
                 while (iter) {
                     memcpy(&(msg.verts[msg.len]), iter, sizeof(*iter));
                     msg.is_invalidation[msg.len] = 0;
@@ -1613,7 +1596,7 @@ static int update_vertices(hvr_set_t *to_couple_with,
             hvr_partition_t old_part = wrap_actor_to_partition(curr, ctx);
             ctx->update_metadata(curr, to_couple_with, ctx);
             update_partition_list_membership(curr, old_part,
-                    ctx->local_partition_lists, ctx);
+                    &ctx->local_partition_lists, ctx);
 
             curr->needs_processing = 0;
             count++;
@@ -2979,7 +2962,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     }
 
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
-        if (ctx->local_partition_lists[p]) {
+        if (ctx->local_partition_lists.lists[p]) {
             hvr_dist_bitvec_set(p, ctx->pe, &ctx->terminated_pes, 0);
         }
     }
@@ -3028,7 +3011,7 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     free(ctx->coupled_pes_values);
     free(ctx->updates_on_this_iter);
     free(ctx->local_pes_per_partition_buffer);
-    free(ctx->local_partition_lists);
+    hvr_partition_list_destroy(&ctx->local_partition_lists);
     free(ctx->mirror_partition_lists);
     free(ctx->partition_min_dist_from_local_vert);
 

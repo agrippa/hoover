@@ -35,29 +35,7 @@ void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     hvr_partition_t part = wrap_actor_to_partition(vert, ctx);
     send_updates_to_all_subscribed_pes(vert, part, 0, 1, NULL, &unused, ctx);
 
-    // Remove from local partition lists
-    hvr_partition_t partition = ctx->actor_to_partition(vert, ctx);
-    assert(partition < ctx->n_partitions);
-    hvr_vertex_t **local_partition_lists = ctx->local_partition_lists;
-    if (vert->next_in_partition && vert->prev_in_partition) {
-        // Remove from current partition list
-        vert->prev_in_partition->next_in_partition =
-            vert->next_in_partition;
-        vert->next_in_partition->prev_in_partition =
-            vert->prev_in_partition;
-    } else if (vert->next_in_partition) {
-        // prev is NULL, at head of a non-empty list
-        assert(local_partition_lists[partition] == vert);
-        local_partition_lists[partition] = vert->next_in_partition;
-        local_partition_lists[partition]->prev_in_partition = NULL;
-    } else if (vert->prev_in_partition) {
-        // next is NULL, at tail of a non-empty list
-        vert->prev_in_partition->next_in_partition = NULL;
-    } else { // both NULL
-        assert(local_partition_lists[partition] == vert);
-        // Only entry in list
-        local_partition_lists[partition] = NULL;
-    }
+    remove_from_partition_list(vert, &ctx->local_partition_lists, ctx);
 
     hvr_free_vertices(vert, 1, ctx);
 }
