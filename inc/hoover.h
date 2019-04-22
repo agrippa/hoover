@@ -21,6 +21,7 @@ extern "C" {
 #include "hvr_msg_buf_pool.h"
 #include "hvr_irregular_matrix.h"
 #include "hvr_buffered_msgs.h"
+#include "hvr_partition_list.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -270,7 +271,7 @@ typedef struct _hvr_internal_ctx_t {
      * List of locally mirrored vertices in each partition (actually points into
      * vec_cache).
      */
-    hvr_vertex_t **mirror_partition_lists;
+    hvr_partition_list_t mirror_partition_lists;
 
     uint8_t *partition_min_dist_from_local_vert;
 

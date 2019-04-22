@@ -32,7 +32,7 @@ void prepend_to_partition_list(hvr_vertex_t *curr,
     prepend_to_partition_list_helper(curr, partition, l, ctx);
 }
 
-static void remove_from_partition_list_helper(hvr_vertex_t *curr,
+void remove_from_partition_list_helper(hvr_vertex_t *curr,
         hvr_partition_t partition, hvr_partition_list_t *l,
         hvr_internal_ctx_t *ctx) {
     if (vert->next_in_partition && vert->prev_in_partition) {
