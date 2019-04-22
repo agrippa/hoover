@@ -24,7 +24,6 @@ static void prepend_to_partition_list_helper(hvr_vertex_t *curr,
     l->lists[partition] = curr;
 }
 
-
 void prepend_to_partition_list(hvr_vertex_t *curr,
         hvr_partition_list_t *l, hvr_internal_ctx_t *ctx) {
     hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
@@ -32,7 +31,7 @@ void prepend_to_partition_list(hvr_vertex_t *curr,
     prepend_to_partition_list_helper(curr, partition, l, ctx);
 }
 
-void remove_from_partition_list_helper(hvr_vertex_t *curr,
+void remove_from_partition_list_helper(hvr_vertex_t *vert,
         hvr_partition_t partition, hvr_partition_list_t *l,
         hvr_internal_ctx_t *ctx) {
     if (vert->next_in_partition && vert->prev_in_partition) {

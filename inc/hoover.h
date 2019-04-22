@@ -146,6 +146,11 @@ typedef struct _inter_vert_msg_t {
     hvr_vertex_t payload;
 } inter_vert_msg_t;
 
+typedef struct _hvr_partition_list_t {
+    hvr_vertex_t **lists;
+    hvr_partition_t n_partitions;
+} hvr_partition_list_t;
+
 /*
  * Per-PE data structure for storing all information about the running problem
  * so we don't have file scope variables. Enables the possibility in the future
