@@ -2,7 +2,6 @@
 #define _HVR_PARTITION_LIST_H
 
 #include "hoover.h"
-#include "hvr_vertex.h"
 
 void hvr_partition_list_init(hvr_partition_t n_partitions,
         hvr_partition_list_t *l);

@@ -21,7 +21,6 @@ extern "C" {
 #include "hvr_msg_buf_pool.h"
 #include "hvr_irregular_matrix.h"
 #include "hvr_buffered_msgs.h"
-#include "hvr_partition_list.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -150,6 +149,8 @@ typedef struct _hvr_partition_list_t {
     hvr_vertex_t **lists;
     hvr_partition_t n_partitions;
 } hvr_partition_list_t;
+
+#include "hvr_partition_list.h"
 
 /*
  * Per-PE data structure for storing all information about the running problem
@@ -340,6 +341,8 @@ typedef struct _hvr_internal_ctx_t {
     uint64_t total_vertex_msgs_recvd;
 
     hvr_buffered_msgs_t buffered_msgs;
+
+    hvr_irr_matrix_t cached_partition_interactions;
 } hvr_internal_ctx_t;
 
 /*

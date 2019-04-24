@@ -40,6 +40,20 @@ hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i,
     return NO_EDGE;
 }
 
+void hvr_irr_matrix_resize(hvr_vertex_id_t i, unsigned new_capacity,
+        hvr_irr_matrix_t *m) {
+    const unsigned curr_len = m->edges_len[i];
+    const unsigned curr_capacity = m->edges_capacity[i];
+    assert(curr_len <= new_capacity);
+
+    if (new_capacity != curr_capacity) {
+        m->edges[i] = mspace_realloc(m->allocator, m->edges[i],
+                new_capacity * sizeof(m->edges[0][0]));
+        assert(m->edges[i]);
+        m->edges_capacity[i] = new_capacity;
+    }
+}
+
 void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
         hvr_irr_matrix_t *m) {
     const unsigned curr_len = m->edges_len[i];
@@ -93,11 +107,9 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
 }
 
 unsigned hvr_irr_matrix_linearize_zero_copy(hvr_vertex_id_t i,
-        hvr_edge_info_t **out_edges, size_t capacity, hvr_irr_matrix_t *m) {
+        hvr_edge_info_t **out_edges, hvr_irr_matrix_t *m) {
     const unsigned curr_len = m->edges_len[i];
     hvr_edge_info_t *curr_edges = m->edges[i];
-
-    assert(curr_len <= capacity);
 
     *out_edges = curr_edges;
 

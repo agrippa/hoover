@@ -28,7 +28,10 @@ unsigned hvr_irr_matrix_linearize(hvr_vertex_id_t i, hvr_edge_info_t *out_vals,
         size_t capacity, hvr_irr_matrix_t *m);
 
 unsigned hvr_irr_matrix_linearize_zero_copy(hvr_vertex_id_t i,
-        hvr_edge_info_t **out_vals, size_t capacity, hvr_irr_matrix_t *m);
+        hvr_edge_info_t **out_vals, hvr_irr_matrix_t *m);
+
+void hvr_irr_matrix_resize(hvr_vertex_id_t i, unsigned new_capacity,
+        hvr_irr_matrix_t *m);
 
 void hvr_irr_matrix_usage(size_t *bytes_used, size_t *bytes_capacity,
         size_t *bytes_allocated, size_t *out_max_edges,

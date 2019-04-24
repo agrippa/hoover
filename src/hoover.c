@@ -262,6 +262,35 @@ static inline void update_partition_info(hvr_partition_t p,
     }
 }
 
+static inline void might_interact_wrapper(const hvr_partition_t partition,
+        hvr_partition_t *interacting_partitions,
+        unsigned *n_interacting_partitions,
+        unsigned interacting_partitions_capacity, hvr_internal_ctx_t *ctx) {
+    hvr_irr_matrix_t *cache = &ctx->cached_partition_interactions;
+
+    hvr_edge_info_t *vals;
+    const unsigned nvals = hvr_irr_matrix_linearize_zero_copy(partition, &vals,
+            cache);
+    if (nvals > 0) {
+        // Have it cached
+        assert(nvals <= interacting_partitions_capacity);
+        for (unsigned i = 0; i < nvals; i++) {
+            assert(EDGE_INFO_EDGE(vals[i]) == BIDIRECTIONAL);
+            interacting_partitions[i] = EDGE_INFO_VERTEX(vals[i]);
+        }
+        *n_interacting_partitions = nvals;
+    } else {
+        // Have to compute and then insert in cache
+        ctx->might_interact(partition, interacting_partitions,
+                n_interacting_partitions, interacting_partitions_capacity, ctx);
+        hvr_irr_matrix_resize(partition, *n_interacting_partitions, cache);
+        for (unsigned i = 0; i < *n_interacting_partitions; i++) {
+            hvr_irr_matrix_set(partition, interacting_partitions[i],
+                    BIDIRECTIONAL, cache);
+        }
+    }
+}
+
 static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
         hvr_internal_ctx_t *ctx) {
     hvr_vertex_t tmp_vert;
@@ -493,7 +522,7 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
 #else
             hvr_partition_t *interacting = ctx->interacting;
 #endif
-            ctx->might_interact(p, interacting, &n_interacting,
+            might_interact_wrapper(p, interacting, &n_interacting,
                     MAX_INTERACTING_PARTITIONS, ctx);
 
             /*
@@ -1069,7 +1098,7 @@ static void mark_all_downstream_neighbors_for_processing(
     hvr_edge_info_t *edge_buffer;
     unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
             CACHE_NODE_OFFSET(modified, &ctx->vec_cache),
-            &edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
+            &edge_buffer, &ctx->edges);
 
     for (unsigned n = 0; n < n_neighbors; n++) {
         hvr_vertex_id_t offset = EDGE_INFO_VERTEX(edge_buffer[n]);
@@ -1162,7 +1191,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
     hvr_vertex_id_t updated_vert_id = new_vert->id;
 
     unsigned n_interacting;
-    ctx->might_interact(partition, ctx->interacting, &n_interacting,
+    might_interact_wrapper(partition, ctx->interacting, &n_interacting,
             MAX_INTERACTING_PARTITIONS, ctx);
 
     hvr_vertex_cache_node_t *updated = hvr_vertex_cache_lookup(
@@ -1386,7 +1415,7 @@ static hvr_vertex_cache_node_t *add_neighbors_to_q(
     hvr_edge_info_t *edge_buffer;
     unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
             CACHE_NODE_OFFSET(node, &ctx->vec_cache),
-            &edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
+            &edge_buffer, &ctx->edges);
 
     for (size_t n = 0; n < n_neighbors; n++) {
         hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
@@ -1412,22 +1441,23 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
     const unsigned max_graph_traverse_depth = ctx->max_graph_traverse_depth;
     hvr_vertex_cache_node_t *q = ctx->vec_cache.local_neighbors_head;
 
-    memset(ctx->partition_min_dist_from_local_vert, 0xff,
-            sizeof(ctx->partition_min_dist_from_local_vert[0]) *
-            ctx->n_partitions);
+    uint8_t *partition_min_dist_from_local_vert =
+        ctx->partition_min_dist_from_local_vert;
+    memset(partition_min_dist_from_local_vert, 0xff,
+            sizeof(*partition_min_dist_from_local_vert) * ctx->n_partitions);
 
     if (max_graph_traverse_depth == 1) {
         // Common case, allows us to avoid extra add_neighbors_to_q
         while (q) {
             set_dist_from_local_vert(q, 1, ctx->iter);
-            ctx->partition_min_dist_from_local_vert[q->part] = 1;
+            partition_min_dist_from_local_vert[q->part] = 1;
             q = q->local_neighbors_next;
         }
     } else {
         hvr_vertex_cache_node_t *newq = NULL;
         while (q) {
             set_dist_from_local_vert(q, 1, ctx->iter);
-            ctx->partition_min_dist_from_local_vert[q->part] = 1;
+            partition_min_dist_from_local_vert[q->part] = 1;
             newq = add_neighbors_to_q(q, newq, ctx);
             q = q->local_neighbors_next;
         }
@@ -1438,8 +1468,8 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
             while (q) {
                 hvr_vertex_cache_node_t *next_q = q->tmp;
                 set_dist_from_local_vert(q, l, ctx->iter);
-                if (ctx->partition_min_dist_from_local_vert[q->part] == UINT8_MAX) {
-                    ctx->partition_min_dist_from_local_vert[q->part] = l;
+                if (partition_min_dist_from_local_vert[q->part] == UINT8_MAX) {
+                    partition_min_dist_from_local_vert[q->part] = l;
                 }
                 newq = add_neighbors_to_q(q, newq, ctx);
                 q = next_q;
@@ -1492,7 +1522,7 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
     hvr_edge_info_t *edge_buffer;
     unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
             CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
-            &edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
+            &edge_buffer, &ctx->edges);
 
     for (size_t n = 0; n < n_neighbors; n++) {
         hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
@@ -2641,6 +2671,14 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         edges_pool_size = atoi(getenv("HVR_EDGES_POOL_SIZE"));
     }
     hvr_irr_matrix_init(ctx->vec_cache.pool_size, edges_pool_size, &ctx->edges);
+
+    size_t cached_interactions_pool_size = 16 * 1024 * 1024;
+    if (getenv("HVR_CACHED_INTERACTIONS_POOL_SIZE")) {
+        cached_interactions_pool_size =
+            atoi(getenv("HVR_CACHED_INTERACTIONS_POOL_SIZE"));
+    }
+    hvr_irr_matrix_init(ctx->n_partitions, cached_interactions_pool_size,
+            &ctx->cached_partition_interactions);
 
     const unsigned long long start_body = hvr_current_time_us();
 
