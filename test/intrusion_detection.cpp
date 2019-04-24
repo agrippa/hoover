@@ -85,8 +85,10 @@ static unsigned pe_chunk_size[3] = {0, 0, 0}; // Length of each chunk in each di
 static unsigned partitions_by_dim[3] = {0, 0, 0}; // # of partitions in each dim
 static unsigned partitions_size[3] = {0, 0, 0}; // Size of partition in each dim
 
-#define PE_COORD_0(my_pe) ((my_pe) / (pe_chunks_by_dim[1] * pe_chunks_by_dim[2]))
-#define PE_COORD_1(my_pe) (((my_pe) / pe_chunks_by_dim[2]) % pe_chunks_by_dim[1])
+#define PE_COORD_0(my_pe) ((my_pe) / (pe_chunks_by_dim[1] * \
+            pe_chunks_by_dim[2]))
+#define PE_COORD_1(my_pe) (((my_pe) / pe_chunks_by_dim[2]) % \
+        pe_chunks_by_dim[1])
 #define PE_COORD_2(my_pe) ((my_pe) % pe_chunks_by_dim[2])
 #define TOTAL_PARTITIONS (partitions_by_dim[0] * partitions_by_dim[1] * \
         partitions_by_dim[2])
@@ -381,9 +383,7 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
         new_set->clear();
         for (unsigned v = 0; v < curr_state->adjacency_matrix.n_vertices; v++) {
             int owning_pe = VERTEX_ID_PE(curr_state->vertices[v]);
-            if (owning_pe != pe) {
-                new_set->insert(owning_pe);
-            }
+            new_set->insert(owning_pe);
         }
 
         *n_known_patterns += 1;
@@ -582,7 +582,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
     const size_t n_local = hvr_n_allocated(ctx);
 
     hvr_conc_vertex_iter_t conc_iter;
-    hvr_conc_vertex_iter_init(&conc_iter, n_local / (nthreads * 4), ctx);
+    hvr_conc_vertex_iter_init(&conc_iter, n_local / (nthreads * 5), ctx);
 
 #pragma omp parallel shared(conc_iter, n_explores, accum_tracking_time)
     {
@@ -593,9 +593,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
             thread_known_local_patterns + (tid * MAX_LOCAL_PATTERNS);
         std::set<int> ** my_pes_sharing_local_patterns =
             thread_pes_sharing_local_patterns + (tid * MAX_LOCAL_PATTERNS);
-        unsigned *my_n_known_local_patterns = thread_n_known_local_patterns +
-            tid;
-        *my_n_known_local_patterns = 0;
+        unsigned private_known_local_patterns = 0;
 
         subgraph_t sub;
         memset(sub.adjacency_matrix.matrix, 0x00,
@@ -612,7 +610,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 unsigned n_this_explores = explore_subgraphs(vertex, &sub,
                         my_known_local_patterns,
                         my_pes_sharing_local_patterns,
-                        my_n_known_local_patterns, ctx
+                        &private_known_local_patterns, ctx
 #ifdef VERBOSE
                         , &accum_tracking_time
 #endif
@@ -622,6 +620,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 n_explores += n_this_explores;
             }
         }
+
+        thread_n_known_local_patterns[tid] = private_known_local_patterns;
     }
 
     /*
@@ -775,7 +775,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
 
 void might_interact(const hvr_partition_t partition,
         hvr_partition_t *interacting_partitions,
-        unsigned *n_interacting_partitions,
+        unsigned *out_n_interacting_partitions,
         unsigned interacting_partitions_capacity,
         hvr_ctx_t ctx) {
     /*
@@ -812,7 +812,7 @@ void might_interact(const hvr_partition_t partition,
     feat2_max = MIN(feat2_max, domain_dim[1] - 1);
     feat3_max = MIN(feat3_max, domain_dim[2] - 1);
 
-    *n_interacting_partitions = 0;
+    unsigned n_interacting_partitions = 0;
 
     for (unsigned other_feat1_partition = feat1_min / partitions_size[0];
             other_feat1_partition < feat1_max / partitions_size[0];
@@ -828,13 +828,13 @@ void might_interact(const hvr_partition_t partition,
                     partitions_by_dim[1] * partitions_by_dim[2] +
                     other_feat2_partition * partitions_by_dim[2] +
                     other_feat3_partition;
-                assert(*n_interacting_partitions + 1 <=
+                assert(n_interacting_partitions + 1 <=
                         interacting_partitions_capacity);
-                interacting_partitions[*n_interacting_partitions] = this_part;
-                *n_interacting_partitions += 1;
+                interacting_partitions[n_interacting_partitions++] = this_part;
             }
         }
     }
+    *out_n_interacting_partitions = n_interacting_partitions;
 }
 
 void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,

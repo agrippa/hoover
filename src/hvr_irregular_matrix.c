@@ -30,7 +30,7 @@ void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
 hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i,
         hvr_vertex_id_t j, const hvr_irr_matrix_t *m) {
     const unsigned curr_len = m->edges_len[i];
-    hvr_edge_info_t *curr_edges = m->edges[i];
+    const hvr_edge_info_t *curr_edges = m->edges[i];
 
     for (unsigned iter = 0; iter < curr_len; iter++) {
         if (EDGE_INFO_VERTEX(curr_edges[iter]) == j) {

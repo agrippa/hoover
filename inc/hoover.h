@@ -2,6 +2,7 @@
 
 #ifndef _HOOVER_H
 #define _HOOVER_H
+
 #include <stdint.h>
 #include <stdio.h>
 
@@ -79,7 +80,7 @@ typedef int (*hvr_should_terminate_func)(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 
 /*
  * API for checking if this PE might have any vertices that interact with
- * vertices on another PE.
+ * vertices on another PE. This callback function must be thread safe.
  */
 typedef void (*hvr_might_interact_func)(const hvr_partition_t partition,
         hvr_partition_t *interacting_partitions,

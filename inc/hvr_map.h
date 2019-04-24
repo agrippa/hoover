@@ -6,7 +6,7 @@
 #include "dlmalloc.h"
 
 #define HVR_MAP_SEG_SIZE 128
-#define HVR_MAP_BUCKETS 2048
+#define HVR_MAP_BUCKETS 8192
 
 typedef struct _hvr_map_val_t {
     hvr_vertex_id_t key;

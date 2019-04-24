@@ -207,8 +207,10 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
 
     hvr_vertex_pool_create(get_symm_pool_nelements(), pool_nodes,
             &new_ctx->pool);
-    new_ctx->vertex_partitions = (hvr_partition_t *)shmem_malloc_wrapper(
-            get_symm_pool_nelements() * sizeof(hvr_partition_t));
+    if (dead_pe_processing) {
+        new_ctx->vertex_partitions = (hvr_partition_t *)shmem_malloc_wrapper(
+                get_symm_pool_nelements() * sizeof(hvr_partition_t));
+    }
 
 #ifdef VERBOSE
     int err = gethostname(new_ctx->my_hostname, 1024);
@@ -258,35 +260,6 @@ static inline void update_partition_info(hvr_partition_t p,
         } else {
             // Went inactive
             hvr_dist_bitvec_clear(p, ctx->pe, registry, HVR_IS_MULTITHREADED);
-        }
-    }
-}
-
-static inline void might_interact_wrapper(const hvr_partition_t partition,
-        hvr_partition_t *interacting_partitions,
-        unsigned *n_interacting_partitions,
-        unsigned interacting_partitions_capacity, hvr_internal_ctx_t *ctx) {
-    hvr_irr_matrix_t *cache = &ctx->cached_partition_interactions;
-
-    hvr_edge_info_t *vals;
-    const unsigned nvals = hvr_irr_matrix_linearize_zero_copy(partition, &vals,
-            cache);
-    if (nvals > 0) {
-        // Have it cached
-        assert(nvals <= interacting_partitions_capacity);
-        for (unsigned i = 0; i < nvals; i++) {
-            assert(EDGE_INFO_EDGE(vals[i]) == BIDIRECTIONAL);
-            interacting_partitions[i] = EDGE_INFO_VERTEX(vals[i]);
-        }
-        *n_interacting_partitions = nvals;
-    } else {
-        // Have to compute and then insert in cache
-        ctx->might_interact(partition, interacting_partitions,
-                n_interacting_partitions, interacting_partitions_capacity, ctx);
-        hvr_irr_matrix_resize(partition, *n_interacting_partitions, cache);
-        for (unsigned i = 0; i < *n_interacting_partitions; i++) {
-            hvr_irr_matrix_set(partition, interacting_partitions[i],
-                    BIDIRECTIONAL, cache);
         }
     }
 }
@@ -522,7 +495,7 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
 #else
             hvr_partition_t *interacting = ctx->interacting;
 #endif
-            might_interact_wrapper(p, interacting, &n_interacting,
+            ctx->might_interact(p, interacting, &n_interacting,
                     MAX_INTERACTING_PARTITIONS, ctx);
 
             /*
@@ -1191,7 +1164,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
     hvr_vertex_id_t updated_vert_id = new_vert->id;
 
     unsigned n_interacting;
-    might_interact_wrapper(partition, ctx->interacting, &n_interacting,
+    ctx->might_interact(partition, ctx->interacting, &n_interacting,
             MAX_INTERACTING_PARTITIONS, ctx);
 
     hvr_vertex_cache_node_t *updated = hvr_vertex_cache_lookup(
@@ -2980,7 +2953,9 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     shmem_barrier_all();
 
     hvr_vertex_pool_destroy(&ctx->pool);
-    shmem_free(ctx->vertex_partitions);
+    if (dead_pe_processing) {
+        shmem_free(ctx->vertex_partitions);
+    }
 
     for (int p = 0; p < ctx->npes; p++) {
         hvr_set_destroy(ctx->finalized_sets[p]);

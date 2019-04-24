@@ -42,8 +42,8 @@ cd $SCRATCH
 
 export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
-# export PE_PER_SOCKET=1
-export PE_PER_SOCKET=0
+export PE_PER_SOCKET=1
+# export PE_PER_SOCKET=0
 
 if [[ $PE_PER_SOCKET -eq 1 ]]; then
     export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) --ntasks-per-socket=1 --cpus-per-task=$CORES_PER_SOCKET"
@@ -113,7 +113,7 @@ export DOMAIN_SIZE="12000 12000 10000"
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
 
-export HVR_SYMM_POOL_SIZE=$((4 * 1024 * 1024))
+export HVR_SYMM_POOL_SIZE=$((6 * 1024 * 1024))
 export HVR_VERT_CACHE_SEGS=40000
 export HVR_VERT_CACHE_PREALLOCS=$((8 * 1024 * 1024))
 export HVR_SPARSE_ARR_POOL=$((64 * 1024 * 1024))

@@ -269,8 +269,7 @@ size_t hvr_range_tracker_size_in_bytes(hvr_range_tracker_t *tracker) {
 
 void hvr_vertex_pool_create(size_t pool_size, size_t n_nodes,
         hvr_vertex_pool_t *pool) {
-    pool->pool = (hvr_vertex_t *)shmem_malloc_wrapper(
-            pool_size * sizeof(hvr_vertex_t));
+    pool->pool = (hvr_vertex_t *)malloc(pool_size * sizeof(hvr_vertex_t));
     if (pool->pool == NULL) {
         fprintf(stderr, "PE %d failed allocating sparse vec pool of size %lu "
                 "bytes\n", shmem_my_pe(), pool_size * sizeof(hvr_vertex_t));
@@ -329,6 +328,6 @@ size_t hvr_pool_size_in_bytes(hvr_ctx_t in_ctx) {
 }
 
 void hvr_vertex_pool_destroy(hvr_vertex_pool_t *pool) {
-    shmem_free(pool->pool);
+    free(pool->pool);
     hvr_range_tracker_destroy(&pool->tracker);
 }
