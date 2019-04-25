@@ -42,8 +42,8 @@ cd $SCRATCH
 
 export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 
-# export PE_PER_SOCKET=1
-export PE_PER_SOCKET=0
+export PE_PER_SOCKET=1
+# export PE_PER_SOCKET=0
 
 if [[ $PE_PER_SOCKET -eq 1 ]]; then
     export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) --ntasks-per-socket=1 --cpus-per-task=$CORES_PER_SOCKET"

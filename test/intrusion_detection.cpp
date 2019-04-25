@@ -65,12 +65,11 @@ static inline uint32_t m_clear(unsigned i, unsigned j, uint32_t matrix) {
 }
 
 typedef struct _adjacency_matrix_t {
-    unsigned n_vertices;
     uint32_t matrix;
-    // unsigned char matrix[MAX_SUBGRAPH_VERTICES][MAX_SUBGRAPH_VERTICES];
 } adjacency_matrix_t;
 
 typedef struct _subgraph_t {
+    unsigned n_vertices;
     hvr_vertex_id_t vertices[MAX_SUBGRAPH_VERTICES];
     adjacency_matrix_t adjacency_matrix;
 } subgraph_t;
@@ -127,18 +126,20 @@ static pattern_count_t *sorted_best_patterns = NULL;
 static unsigned n_sorted_best_patterns = 0;
 
 #define MAX_LOCAL_PATTERNS 1000
-static pattern_count_t *known_local_patterns = NULL;
+static pattern_count_t known_local_patterns[MAX_LOCAL_PATTERNS];
 static unsigned n_known_local_patterns = 0;
 
 #ifdef MULTITHREADED
-static pattern_count_t *thread_known_local_patterns = NULL;
-static unsigned *thread_n_known_local_patterns = NULL;
 static unsigned nthreads = 0;
 #endif
 
 static unsigned n_local_vertices = 0;
 
 static FILE *pe_anomalies_fp = NULL;
+
+static unsigned *pattern_counts = NULL;
+static unsigned possible_permutations = 0;
+static pattern_count_t my_best_patterns[N_PATTERNS_SHARED];
 
 #ifdef GAUSSIAN_DIST
 // Taken from https://phoxis.org/2013/05/04/generating-random-numbers-from-normal-distribution-in-c/
@@ -207,19 +208,13 @@ static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
 }
 
 static unsigned pattern_distance(adjacency_matrix_t *a, adjacency_matrix_t *b) {
-    unsigned max_vertices = MAX(a->n_vertices, b->n_vertices);
-
-    uint32_t delta = a->matrix ^ b->matrix;
-    unsigned count_differences = __builtin_popcount(delta);
-    return count_differences + abs((long int)(a->n_vertices - b->n_vertices));
+    const uint32_t delta = a->matrix ^ b->matrix;
+    const unsigned count_differences = __builtin_popcount(delta);
+    return count_differences;
 }
 
 static inline unsigned patterns_identical(adjacency_matrix_t *a,
         adjacency_matrix_t *b) {
-    if (a->n_vertices != b->n_vertices) {
-        return 0;
-    }
-
     return a->matrix == b->matrix;
 }
 
@@ -266,7 +261,7 @@ static unsigned adjacency_matrix_n_edges(adjacency_matrix_t *a) {
 }
 
 static int index_in_subgraph(hvr_vertex_id_t vertex, subgraph_t *graph) {
-    for (unsigned i = 0; i < graph->adjacency_matrix.n_vertices; i++) {
+    for (unsigned i = 0; i < graph->n_vertices; i++) {
         if (graph->vertices[i] == vertex) return i;
     }
     return -1;
@@ -300,8 +295,8 @@ static void subgraph_add_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
 }
 
 static inline void subgraph_add_vertex(hvr_vertex_id_t id, subgraph_t *graph) {
-    graph->vertices[graph->adjacency_matrix.n_vertices] = id;
-    graph->adjacency_matrix.n_vertices += 1;
+    graph->vertices[graph->n_vertices] = id;
+    graph->n_vertices += 1;
 }
 
 static inline void subgraph_remove_vertex(hvr_vertex_id_t id,
@@ -309,9 +304,8 @@ static inline void subgraph_remove_vertex(hvr_vertex_id_t id,
     int index = index_in_subgraph(id, graph);
     assert(index >= 0);
 
-    graph->vertices[index] =
-        graph->vertices[graph->adjacency_matrix.n_vertices - 1];
-    graph->adjacency_matrix.n_vertices -= 1;
+    graph->vertices[index] = graph->vertices[graph->n_vertices - 1];
+    graph->n_vertices -= 1;
 }
 
 static void subgraph_remove_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
@@ -338,10 +332,7 @@ static int find_matching_pattern(pattern_count_t *find, pattern_count_t *l,
 }
 
 static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
-        subgraph_t *curr_state,
-        pattern_count_t *known_patterns,
-        unsigned *n_known_patterns,
-        hvr_ctx_t ctx
+        subgraph_t *curr_state, hvr_ctx_t ctx
 #ifdef VERBOSE
         , unsigned long long *accum_tracking_time
 #endif
@@ -356,35 +347,16 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
     const unsigned long long start_tracking_time = hvr_current_time_us();
 #endif
 
-    int found = 0;
-    for (unsigned i = 0; i < *n_known_patterns && !found; i++) {
-        if (patterns_identical(&(curr_state->adjacency_matrix),
-                    &(known_patterns[i].matrix))) {
-            // Increment count for this pattern
-            known_patterns[i].count += 1;
-            found = 1;
-        }
-    }
+#ifdef HVR_MULTITHREADED
+#pragma omp atomic
+#endif
+    pattern_counts[curr_state->adjacency_matrix.matrix] += 1;
 
-    if (!found && curr_state->adjacency_matrix.n_vertices > 1) {
-        if (*n_known_patterns >= MAX_LOCAL_PATTERNS) {
-            fprintf(stderr, "ERROR: # patterns (%d) has exceeded maximum "
-                    "(%d)\n", *n_known_patterns, MAX_LOCAL_PATTERNS);
-            abort();
-        }
-
-        pattern_count_t *new_pattern = known_patterns + *n_known_patterns;
-        memcpy(&(new_pattern->matrix), &(curr_state->adjacency_matrix),
-                sizeof(new_pattern->matrix));
-        new_pattern->count = 1;
-
-        *n_known_patterns += 1;
-    }
 #ifdef VERBOSE
     *accum_tracking_time += (hvr_current_time_us() - start_tracking_time);
 #endif
 
-    if (curr_state->adjacency_matrix.n_vertices < MAX_SUBGRAPH_VERTICES) {
+    if (curr_state->n_vertices < MAX_SUBGRAPH_VERTICES) {
         /*
          * Find the neighbors (i.e. halo regions) of the current vertex in the
          * subgraph. Check if adding any of them results in a change in graph
@@ -409,8 +381,7 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
                             curr_state)) {
                     subgraph_add_edge(neighbor->id, last_added->id, curr_state);
 
-                    count_explores += explore_subgraphs(neighbor, curr_state,
-                            known_patterns, n_known_patterns, ctx
+                    count_explores += explore_subgraphs(neighbor, curr_state, ctx
 #ifdef VERBOSE
                             , accum_tracking_time
 #endif
@@ -424,8 +395,7 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
                 subgraph_add_vertex(neighbor->id, curr_state);
                 subgraph_add_edge(neighbor->id, last_added->id, curr_state);
 
-                count_explores += explore_subgraphs(neighbor, curr_state,
-                        known_patterns, n_known_patterns, ctx
+                count_explores += explore_subgraphs(neighbor, curr_state, ctx
 #ifdef VERBOSE
                         , accum_tracking_time
 #endif
@@ -486,6 +456,23 @@ static void update_patterns_from(timestamped_pattern_count_t *tmp_buffer,
                 tmp_buffer[i].iter) {
             memcpy(&tmp_buffer[i], &neighbor_patterns_buffer[i],
                     sizeof(timestamped_pattern_count_t));
+        }
+    }
+}
+
+static void copy_to_local_patterns() {
+    n_known_local_patterns = 0;
+
+    for (uint32_t pattern = 0; pattern < possible_permutations; pattern++) {
+        if (pattern_counts[pattern]) {
+            pattern_count_t p;
+            p.count = pattern_counts[pattern];
+            p.matrix.matrix = pattern;
+
+            unsigned my_index;
+            { my_index = n_known_local_patterns; n_known_local_patterns++; }
+
+            memcpy(&known_local_patterns[my_index], &p, sizeof(p));
         }
     }
 }
@@ -561,7 +548,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
      */
     const unsigned long long start_search = hvr_current_time_us();
 
-    n_known_local_patterns = 0;
+    memset(pattern_counts, 0x00,
+            possible_permutations * sizeof(*pattern_counts));
 
     unsigned n_explores = 0;
     unsigned long long accum_tracking_time = 0;
@@ -576,10 +564,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
     {
         hvr_conc_vertex_subiter_t chunk;
         const int tid = omp_get_thread_num();
-
-        pattern_count_t *my_known_local_patterns =
-            thread_known_local_patterns + (tid * MAX_LOCAL_PATTERNS);
-        unsigned private_known_local_patterns = 0;
+        unsigned thread_explores = 0;
 
         while (hvr_conc_vertex_iter_next_chunk(&conc_iter, &chunk)) {
             for (hvr_vertex_t *vertex = hvr_conc_vertex_iter_next(&chunk);
@@ -590,43 +575,17 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 memset(&sub, 0x00, sizeof(sub));
                 subgraph_add_vertex(vertex->id, &sub);
 
-                unsigned n_this_explores = explore_subgraphs(vertex, &sub,
-                        my_known_local_patterns,
-                        &private_known_local_patterns, ctx
+                thread_explores += explore_subgraphs(vertex, &sub, ctx
 #ifdef VERBOSE
                         , &accum_tracking_time
 #endif
                         );
 
+            }
+        }
+
 #pragma omp atomic
-                n_explores += n_this_explores;
-            }
-        }
-
-        thread_n_known_local_patterns[tid] = private_known_local_patterns;
-    }
-
-    /*
-     * Collapse results from each thread-private local patterns into a list of
-     * local patterns for this PE.
-     */
-    for (int t = 0; t < nthreads; t++) {
-        for (int p = 0; p < thread_n_known_local_patterns[t]; p++) {
-            pattern_count_t *pattern = thread_known_local_patterns +
-                (t * MAX_LOCAL_PATTERNS + p);
-            int index = find_matching_pattern(pattern, known_local_patterns,
-                    n_known_local_patterns);
-            if (index < 0) {
-                // Don't have it already
-                pattern_count_t *new_pattern = known_local_patterns +
-                    n_known_local_patterns;
-                memcpy(new_pattern, pattern, sizeof(*new_pattern));
-                n_known_local_patterns++;
-            } else {
-                // Already have this pattern
-                known_local_patterns[index].count += pattern->count;
-            }
-        }
+        n_explores += thread_explores;
     }
 #else
     /*
@@ -642,8 +601,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         memset(&sub, 0x00, sizeof(sub));
         subgraph_add_vertex(vertex->id, &sub);
 
-        unsigned n_this_explores = explore_subgraphs(vertex, &sub,
-                known_local_patterns, &n_known_local_patterns, ctx
+        unsigned n_this_explores = explore_subgraphs(vertex, &sub, ctx
 #ifdef VERBOSE
                 , &accum_tracking_time
 #endif
@@ -652,6 +610,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
     }
 #endif
 
+    copy_to_local_patterns();
     sort_patterns_by_score(known_local_patterns, n_known_local_patterns);
 
     const unsigned long long end_search = hvr_current_time_us();
@@ -719,7 +678,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         printf("PE %d found %u patterns on iter %d using %d "
                 "visits. %f ms inserting new vertices, %f ms to search (%f "
                 "counting patterns), %f ms to compute top scores. %u local "
-                "vertices in total. Best score = %u, vertex count = %u, edge "
+                "vertices in total. Best score = %u, edge "
                 "count = %u.\n",
                 pe, n_known_local_patterns, ctx->iter,
                 n_explores,
@@ -729,7 +688,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 (double)(end_callback - end_search) / 1000.0,
                 n_local_vertices,
                 score_pattern(known_local_patterns + 0),
-                known_local_patterns[0].matrix.n_vertices,
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix));
 #else
         double search_ms = (double)(end_search - start_search) / 1000.0;
@@ -932,6 +890,15 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     return 0;
 }
 
+unsigned factorial(unsigned n) {
+    unsigned f = 1;
+    while (n > 0) {
+        f = f * n;
+        n -= 1;
+    }
+    return f;
+}
+
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
@@ -969,6 +936,12 @@ int main(int argc, char **argv) {
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
         p_sync[i] = SHMEM_SYNC_VALUE;
     }
+
+    possible_permutations = (unsigned)pow(2,
+            MAX_SUBGRAPH_VERTICES * MAX_SUBGRAPH_VERTICES);
+    pattern_counts = (unsigned *)malloc(
+            possible_permutations * sizeof(*pattern_counts));
+    assert(pattern_counts);
 
 #ifdef MULTITHREADED
 #pragma omp parallel
@@ -1059,19 +1032,6 @@ int main(int argc, char **argv) {
     sorted_best_patterns = (pattern_count_t *)malloc(
             npes * N_PATTERNS_SHARED * sizeof(*sorted_best_patterns));
     assert(sorted_best_patterns);
-
-    known_local_patterns = (pattern_count_t *)malloc(
-            MAX_LOCAL_PATTERNS * sizeof(*known_local_patterns));
-    assert(known_local_patterns);
-
-#ifdef MULTITHREADED
-    thread_known_local_patterns = (pattern_count_t *)malloc(nthreads *
-            MAX_LOCAL_PATTERNS * sizeof(*thread_known_local_patterns));
-    assert(thread_known_local_patterns);
-    thread_n_known_local_patterns = (unsigned *)malloc(
-            nthreads * sizeof(*thread_n_known_local_patterns));
-    assert(thread_n_known_local_patterns);
-#endif
 
     *best_patterns_lock = 0;
     for (int i = 0; i < npes; i++) {
