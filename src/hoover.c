@@ -986,6 +986,7 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
         hvr_vertex_cache_node_t *base,
         hvr_vertex_cache_node_t *neighbor,
         hvr_edge_type_t new_edge,
+        const hvr_edge_type_t *known_existing_edge,
         hvr_internal_ctx_t *ctx) {
     assert(base && neighbor);
 
@@ -996,10 +997,9 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
             &ctx->vec_cache);
     hvr_vertex_id_t base_offset = CACHE_NODE_OFFSET(base, &ctx->vec_cache);
 
-    hvr_edge_type_t existing_edge = hvr_irr_matrix_get(
-            CACHE_NODE_OFFSET(base, &ctx->vec_cache),
-            CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache),
-            &ctx->edges);
+    hvr_edge_type_t existing_edge = (known_existing_edge ? *known_existing_edge :
+            hvr_irr_matrix_get(CACHE_NODE_OFFSET(base, &ctx->vec_cache),
+                CACHE_NODE_OFFSET(neighbor, &ctx->vec_cache), &ctx->edges));
 
     if (existing_edge == new_edge) return;
 
@@ -1099,13 +1099,10 @@ static void create_new_edges(hvr_vertex_cache_node_t *updated,
         hvr_internal_ctx_t *ctx,
         unsigned *count_new_should_have_edges) {
     unsigned local_count_new_should_have_edges = 0;
+    const hvr_edge_type_t existing_edge = NO_EDGE;
 
     for (unsigned i = 0; i < n_interacting; i++) {
         hvr_partition_t other_part = interacting[i];
-
-        // fprintf(stderr, "PE %d checking partition %u for (%f %f)\n", ctx->pe,
-        //         other_part, hvr_vertex_get(0, &updated->vert, ctx),
-        //         hvr_vertex_get(1, &updated->vert, ctx));
 
         hvr_vertex_cache_node_t *cache_iter =
             ctx->vec_cache.partitions[other_part];
@@ -1113,7 +1110,7 @@ static void create_new_edges(hvr_vertex_cache_node_t *updated,
             hvr_edge_type_t edge = ctx->should_have_edge(&cache_iter->vert,
                     &updated->vert, ctx);
             update_edge_info(cache_iter->vert.id, updated->vert.id, cache_iter,
-                    updated, edge, ctx);
+                    updated, edge, &existing_edge, ctx);
 
             cache_iter = cache_iter->part_next;
             local_count_new_should_have_edges++;
@@ -1142,8 +1139,9 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
         for (size_t n = 0; n < n_neighbors; n++) {
             hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
                     EDGE_INFO_VERTEX(ctx->edge_buffer[n]), &ctx->vec_cache);
+            hvr_edge_type_t edge = EDGE_INFO_EDGE(ctx->edge_buffer[n]);
             update_edge_info(dead_vert->id, cached_neighbor->vert.id, cached,
-                    cached_neighbor, NO_EDGE, ctx);
+                    cached_neighbor, NO_EDGE, &edge, ctx);
         }
 
         hvr_partition_t partition = cached->part;
@@ -1206,15 +1204,20 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
                     CACHE_NODE_OFFSET(updated, &ctx->vec_cache),
                     ctx->edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
 
+            // TODO Clear all edges of CACHE_NODE_OFFSET(updated, &ctx->vec_cache)
+            // insert new edges with existing edge of NO_EDGE
+            
+
             for (unsigned n = 0; n < n_neighbors; n++) {
                 hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
                         EDGE_INFO_VERTEX(ctx->edge_buffer[n]), &ctx->vec_cache);
+                hvr_edge_type_t edge = EDGE_INFO_EDGE(ctx->edge_buffer[n]);
 
                 // Check this edge should still exist
                 hvr_edge_type_t new_edge = ctx->should_have_edge(
                         &updated->vert, &(cached_neighbor->vert), ctx);
                 update_edge_info(updated->vert.id, cached_neighbor->vert.id,
-                        updated, cached_neighbor, new_edge, ctx);
+                        updated, cached_neighbor, new_edge, &edge, ctx);
             }
 
             const unsigned long long done_updating_edges = hvr_current_time_us();
@@ -1229,7 +1232,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
                             &cache_iter->vert, &updated->vert, ctx);
 
                     update_edge_info(cache_iter->vert.id, updated->vert.id,
-                            cache_iter, updated, new_edge, ctx);
+                            cache_iter, updated, new_edge, NULL, ctx);
 
                     cache_iter = cache_iter->part_next;
                     local_count_new_should_have_edges += 1;

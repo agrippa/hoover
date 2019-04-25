@@ -17,10 +17,10 @@ fp = open(sys.argv[1], 'r')
 line_no = 1
 for line in fp:
     try:
-        if line.find('local vertices in total') != -1:
+        if line.find(' local verts,') != -1:
             tokens = line.split()
             pe = int(tokens[1])
-            verts = int(tokens[30])
+            verts = int(tokens[12])
             if not pe in d:
                 d[pe] = []
             d[pe].append(verts)

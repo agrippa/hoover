@@ -108,12 +108,10 @@ static unsigned n_sorted_best_patterns = 0;
 
 #define MAX_LOCAL_PATTERNS 1000
 static pattern_count_t *known_local_patterns = NULL;
-static std::set<int> **pes_sharing_local_patterns = NULL;
 static unsigned n_known_local_patterns = 0;
 
 #ifdef MULTITHREADED
 static pattern_count_t *thread_known_local_patterns = NULL;
-static std::set<int> **thread_pes_sharing_local_patterns = NULL;
 static unsigned *thread_n_known_local_patterns = NULL;
 static unsigned nthreads = 0;
 #endif
@@ -201,7 +199,7 @@ static unsigned pattern_distance(adjacency_matrix_t *a, adjacency_matrix_t *b) {
     return count_differences + abs((long int)(a->n_vertices - b->n_vertices));
 }
 
-static unsigned patterns_identical(adjacency_matrix_t *a,
+static inline unsigned patterns_identical(adjacency_matrix_t *a,
         adjacency_matrix_t *b) {
     if (a->n_vertices != b->n_vertices) {
         return 0;
@@ -330,7 +328,6 @@ static int find_matching_pattern(pattern_count_t *find, pattern_count_t *l,
 static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
         subgraph_t *curr_state,
         pattern_count_t *known_patterns,
-        std::set<int> **pes_sharing_local_patterns,
         unsigned *n_known_patterns,
         hvr_ctx_t ctx
 #ifdef VERBOSE
@@ -352,17 +349,7 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
         if (patterns_identical(&(curr_state->adjacency_matrix),
                     &(known_patterns[i].matrix))) {
             // Increment count for this pattern
-            std::set<int> *other_pes = pes_sharing_local_patterns[i];
-            for (unsigned v = 0; v < curr_state->adjacency_matrix.n_vertices;
-                    v++) {
-                int owning_pe = VERTEX_ID_PE(curr_state->vertices[v]);
-                if (owning_pe != pe) {
-                    other_pes->insert(owning_pe);
-                }
-            }
-
             known_patterns[i].count += 1;
-
             found = 1;
         }
     }
@@ -378,13 +365,6 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
         memcpy(&(new_pattern->matrix), &(curr_state->adjacency_matrix),
                 sizeof(new_pattern->matrix));
         new_pattern->count = 1;
-
-        std::set<int> *new_set = pes_sharing_local_patterns[*n_known_patterns];
-        new_set->clear();
-        for (unsigned v = 0; v < curr_state->adjacency_matrix.n_vertices; v++) {
-            int owning_pe = VERTEX_ID_PE(curr_state->vertices[v]);
-            new_set->insert(owning_pe);
-        }
 
         *n_known_patterns += 1;
     }
@@ -418,8 +398,7 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
                     subgraph_add_edge(neighbor->id, last_added->id, curr_state);
 
                     count_explores += explore_subgraphs(neighbor, curr_state,
-                            known_patterns, pes_sharing_local_patterns,
-                            n_known_patterns, ctx
+                            known_patterns, n_known_patterns, ctx
 #ifdef VERBOSE
                             , accum_tracking_time
 #endif
@@ -434,8 +413,7 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
                 subgraph_add_edge(neighbor->id, last_added->id, curr_state);
 
                 count_explores += explore_subgraphs(neighbor, curr_state,
-                        known_patterns, pes_sharing_local_patterns,
-                        n_known_patterns, ctx
+                        known_patterns, n_known_patterns, ctx
 #ifdef VERBOSE
                         , accum_tracking_time
 #endif
@@ -569,9 +547,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
      * descriptive length of the subgraph and the overall graph when compressed
      * by the subgraph.
      */
-#ifdef VERBOSE
     const unsigned long long start_search = hvr_current_time_us();
-#endif
 
     n_known_local_patterns = 0;
 
@@ -591,8 +567,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
 
         pattern_count_t *my_known_local_patterns =
             thread_known_local_patterns + (tid * MAX_LOCAL_PATTERNS);
-        std::set<int> ** my_pes_sharing_local_patterns =
-            thread_pes_sharing_local_patterns + (tid * MAX_LOCAL_PATTERNS);
         unsigned private_known_local_patterns = 0;
 
         subgraph_t sub;
@@ -609,7 +583,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
 
                 unsigned n_this_explores = explore_subgraphs(vertex, &sub,
                         my_known_local_patterns,
-                        my_pes_sharing_local_patterns,
                         &private_known_local_patterns, ctx
 #ifdef VERBOSE
                         , &accum_tracking_time
@@ -632,8 +605,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         for (int p = 0; p < thread_n_known_local_patterns[t]; p++) {
             pattern_count_t *pattern = thread_known_local_patterns +
                 (t * MAX_LOCAL_PATTERNS + p);
-            std::set<int> *pes =
-                thread_pes_sharing_local_patterns[t * MAX_LOCAL_PATTERNS + p];
             int index = find_matching_pattern(pattern, known_local_patterns,
                     n_known_local_patterns);
             if (index < 0) {
@@ -641,15 +612,10 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 pattern_count_t *new_pattern = known_local_patterns +
                     n_known_local_patterns;
                 memcpy(new_pattern, pattern, sizeof(*new_pattern));
-                pes_sharing_local_patterns[n_known_local_patterns]->clear();
-                pes_sharing_local_patterns[n_known_local_patterns]->insert(
-                        pes->begin(), pes->end());
                 n_known_local_patterns++;
             } else {
                 // Already have this pattern
                 known_local_patterns[index].count += pattern->count;
-                pes_sharing_local_patterns[index]->insert(pes->begin(),
-                        pes->end());
             }
         }
     }
@@ -670,8 +636,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 MAX_SUBGRAPH_VERTICES * sizeof(unsigned char));
 
         unsigned n_this_explores = explore_subgraphs(vertex, &sub,
-                known_local_patterns, pes_sharing_local_patterns,
-                &n_known_local_patterns, ctx
+                known_local_patterns, &n_known_local_patterns, ctx
 #ifdef VERBOSE
                 , &accum_tracking_time
 #endif
@@ -682,9 +647,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
 
     sort_patterns_by_score(known_local_patterns, n_known_local_patterns);
 
-#ifdef VERBOSE
     const unsigned long long end_search = hvr_current_time_us();
-#endif
 
     /*
      * Update my remotely accessible best patterns from the patterns I just
@@ -762,13 +725,12 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 known_local_patterns[0].matrix.n_vertices,
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix));
 #else
+        double search_ms = (double)(end_search - start_search) / 1000.0;
         printf("PE %d found %u patterns on iter %d using %d "
-                "visits, %f ms to search (%f ms spent on local and %f ms on "
-                "remote neighbor fetching, %f "
-                "counting patterns), %u local vertices in total.\n",
+                "visits for %u local verts, %f ms to search (%f visits/ms).\n",
                 pe, n_known_local_patterns, ctx->iter,
-                n_explores, 0.0, 0.0, 0.0, 0.0,
-                n_local_vertices);
+                n_explores, n_local_vertices,
+                search_ms, (double)n_explores / search_ms);
 #endif
     }
 }
@@ -1094,24 +1056,11 @@ int main(int argc, char **argv) {
     known_local_patterns = (pattern_count_t *)malloc(
             MAX_LOCAL_PATTERNS * sizeof(*known_local_patterns));
     assert(known_local_patterns);
-    pes_sharing_local_patterns = (std::set<int> **)malloc(
-            MAX_LOCAL_PATTERNS * sizeof(*pes_sharing_local_patterns));
-    assert(pes_sharing_local_patterns);
-    for (int i = 0; i < MAX_LOCAL_PATTERNS; i++) {
-        pes_sharing_local_patterns[i] = new std::set<int>();
-    }
 
 #ifdef MULTITHREADED
     thread_known_local_patterns = (pattern_count_t *)malloc(nthreads *
             MAX_LOCAL_PATTERNS * sizeof(*thread_known_local_patterns));
     assert(thread_known_local_patterns);
-    thread_pes_sharing_local_patterns = (std::set<int> **)malloc(
-            nthreads * MAX_LOCAL_PATTERNS *
-            sizeof(*thread_pes_sharing_local_patterns));
-    assert(thread_pes_sharing_local_patterns);
-    for (int i = 0; i < nthreads * MAX_LOCAL_PATTERNS; i++) {
-        thread_pes_sharing_local_patterns[i] = new std::set<int>();
-    }
     thread_n_known_local_patterns = (unsigned *)malloc(
             nthreads * sizeof(*thread_n_known_local_patterns));
     assert(thread_n_known_local_patterns);

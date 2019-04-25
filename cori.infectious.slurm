@@ -35,8 +35,8 @@ export CORES_PER_SOCKET=16
 export SOCKETS_PER_NODE=2
 export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
-# export PE_PER_SOCKET=1
-export PE_PER_SOCKET=0
+export PE_PER_SOCKET=1
+# export PE_PER_SOCKET=0
 
 if [[ $PE_PER_SOCKET -eq 0 ]]; then
     if [[ $SLURM_NNODES -eq 1 ]]; then
