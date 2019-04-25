@@ -45,9 +45,29 @@
  */
 #define MAX_DISTANCE_FOR_ANOMALY 1
 
+static inline int m_get(unsigned i, unsigned j, uint32_t matrix) {
+    const unsigned bit = i * MAX_SUBGRAPH_VERTICES + j;
+    const uint32_t mask = ((uint32_t)1 << bit);
+    return (matrix & mask) > 0;
+}
+
+static inline uint32_t m_set(unsigned i, unsigned j, uint32_t matrix) {
+    const unsigned bit = i * MAX_SUBGRAPH_VERTICES + j;
+    const uint32_t mask = ((uint32_t)1 << bit);
+    return (matrix | mask);
+}
+
+static inline uint32_t m_clear(unsigned i, unsigned j, uint32_t matrix) {
+    const unsigned bit = i * MAX_SUBGRAPH_VERTICES + j;
+    const uint32_t mask = ((uint32_t)1 << bit);
+    const uint32_t inv_mask = ~mask;
+    return (matrix & inv_mask);
+}
+
 typedef struct _adjacency_matrix_t {
     unsigned n_vertices;
-    unsigned char matrix[MAX_SUBGRAPH_VERTICES][MAX_SUBGRAPH_VERTICES];
+    uint32_t matrix;
+    // unsigned char matrix[MAX_SUBGRAPH_VERTICES][MAX_SUBGRAPH_VERTICES];
 } adjacency_matrix_t;
 
 typedef struct _subgraph_t {
@@ -188,14 +208,9 @@ static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
 
 static unsigned pattern_distance(adjacency_matrix_t *a, adjacency_matrix_t *b) {
     unsigned max_vertices = MAX(a->n_vertices, b->n_vertices);
-    unsigned count_differences = 0;
-    for (unsigned i = 0; i < max_vertices; i++) {
-        for (unsigned j = 0; j <= i; j++) {
-            if (a->matrix[i][j] != b->matrix[i][j]) {
-                count_differences++;
-            }
-        }
-    }
+
+    uint32_t delta = a->matrix ^ b->matrix;
+    unsigned count_differences = __builtin_popcount(delta);
     return count_differences + abs((long int)(a->n_vertices - b->n_vertices));
 }
 
@@ -205,14 +220,7 @@ static inline unsigned patterns_identical(adjacency_matrix_t *a,
         return 0;
     }
 
-    for (unsigned i = 0; i < a->n_vertices; i++) {
-        for (unsigned j = 0; j <= i; j++) {
-            if (a->matrix[i][j] != b->matrix[i][j]) {
-                return 0;
-            }
-        }
-    }
-    return 1;
+    return a->matrix == b->matrix;
 }
 
 #if 0
@@ -233,7 +241,7 @@ static void adjacency_matrix_to_string(adjacency_matrix_t *a, char *buf,
 
         for (int j = 0; j < MAX_SUBGRAPH_VERTICES; j++) {
             int nwritten = snprintf(buf + buf_index, buf_size - buf_index,
-                    " %d", a->matrix[i][j]);
+                    " %d", m_get(i, j, a->matrix));
             assert(nwritten > 0 && (unsigned)nwritten < buf_size - buf_index);
             buf_index += nwritten;
         }
@@ -249,7 +257,7 @@ static unsigned adjacency_matrix_n_edges(adjacency_matrix_t *a) {
     unsigned count_edges = 0;
     for (unsigned i = 0; i < MAX_SUBGRAPH_VERTICES; i++) {
         for (unsigned j = 0; j <= i; j++) {
-            if (a->matrix[i][j]) {
+            if (m_get(i, j, a->matrix)) {
                 count_edges++;
             }
         }
@@ -274,8 +282,8 @@ static int subgraph_has_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
     int b_index = index_in_subgraph(b, graph);
     assert(a_index >= 0 && b_index >= 0);
 
-    return graph->adjacency_matrix.matrix[a_index][b_index] ||
-        graph->adjacency_matrix.matrix[b_index][a_index];
+    return m_get(a_index, b_index, graph->adjacency_matrix.matrix) ||
+        m_get(b_index, a_index, graph->adjacency_matrix.matrix);
 }
 
 static void subgraph_add_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
@@ -285,8 +293,10 @@ static void subgraph_add_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
     assert(a_index >= 0 && b_index >= 0);
 
     // Bi directional for now
-    graph->adjacency_matrix.matrix[a_index][b_index] = 1;
-    graph->adjacency_matrix.matrix[b_index][a_index] = 1;
+    graph->adjacency_matrix.matrix = m_set(a_index, b_index,
+            graph->adjacency_matrix.matrix);
+    graph->adjacency_matrix.matrix = m_set(b_index, a_index,
+            graph->adjacency_matrix.matrix);
 }
 
 static inline void subgraph_add_vertex(hvr_vertex_id_t id, subgraph_t *graph) {
@@ -311,8 +321,10 @@ static void subgraph_remove_edge(hvr_vertex_id_t a, hvr_vertex_id_t b,
     assert(a_index >= 0 && b_index >= 0);
 
     // Bi directional for now
-    graph->adjacency_matrix.matrix[a_index][b_index] = 0;
-    graph->adjacency_matrix.matrix[b_index][a_index] = 0;
+    graph->adjacency_matrix.matrix = m_clear(a_index, b_index,
+            graph->adjacency_matrix.matrix);
+    graph->adjacency_matrix.matrix = m_clear(b_index, a_index,
+            graph->adjacency_matrix.matrix);
 }
 
 static int find_matching_pattern(pattern_count_t *find, pattern_count_t *l,
@@ -569,17 +581,14 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
             thread_known_local_patterns + (tid * MAX_LOCAL_PATTERNS);
         unsigned private_known_local_patterns = 0;
 
-        subgraph_t sub;
-        memset(sub.adjacency_matrix.matrix, 0x00,
-                MAX_SUBGRAPH_VERTICES * MAX_SUBGRAPH_VERTICES *
-                sizeof(unsigned char));
         while (hvr_conc_vertex_iter_next_chunk(&conc_iter, &chunk)) {
             for (hvr_vertex_t *vertex = hvr_conc_vertex_iter_next(&chunk);
                     vertex; vertex = hvr_conc_vertex_iter_next(&chunk)) {
                 assert(vertex->id != HVR_INVALID_VERTEX_ID);
 
-                sub.adjacency_matrix.n_vertices = 1;
-                sub.vertices[0] = vertex->id;
+                subgraph_t sub;
+                memset(&sub, 0x00, sizeof(sub));
+                subgraph_add_vertex(vertex->id, &sub);
 
                 unsigned n_this_explores = explore_subgraphs(vertex, &sub,
                         my_known_local_patterns,
@@ -630,10 +639,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         assert(vertex->id != HVR_INVALID_VERTEX_ID);
 
         subgraph_t sub;
-        sub.adjacency_matrix.n_vertices = 1;
-        sub.vertices[0] = vertex->id;
-        memset(sub.adjacency_matrix.matrix, 0x00, MAX_SUBGRAPH_VERTICES *
-                MAX_SUBGRAPH_VERTICES * sizeof(unsigned char));
+        memset(&sub, 0x00, sizeof(sub));
+        subgraph_add_vertex(vertex->id, &sub);
 
         unsigned n_this_explores = explore_subgraphs(vertex, &sub,
                 known_local_patterns, &n_known_local_patterns, ctx
