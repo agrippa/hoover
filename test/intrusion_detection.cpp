@@ -890,15 +890,6 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     return 0;
 }
 
-unsigned factorial(unsigned n) {
-    unsigned f = 1;
-    while (n > 0) {
-        f = f * n;
-        n -= 1;
-    }
-    return f;
-}
-
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
