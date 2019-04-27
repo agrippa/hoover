@@ -45,6 +45,8 @@ typedef struct _hvr_vertex_cache_node_t {
     unsigned n_local_neighbors;
     uint8_t dist_from_local_vert;
     hvr_time_t dist_from_local_vert_iter;
+
+    int flag;
 } hvr_vertex_cache_node_t;
 
 /*

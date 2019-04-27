@@ -146,6 +146,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     memcpy(&new_node->vert, vert, sizeof(*vert));
     new_node->part = part;
     new_node->n_local_neighbors = 0;
+    new_node->flag = 0;
 
     // Insert into the appropriate partition list
     if (cache->partitions[part]) {

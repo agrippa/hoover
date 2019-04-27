@@ -1215,25 +1215,38 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
                         &updated->vert, &(cached_neighbor->vert), ctx);
                 update_edge_info(updated->vert.id, cached_neighbor->vert.id,
                         updated, cached_neighbor, new_edge, &edge, ctx);
+
+                // Mark that we've already handled it
+                cached_neighbor->flag = 1;
             }
 
             const unsigned long long done_updating_edges = hvr_current_time_us();
 
+            hvr_edge_type_t no_edge = NO_EDGE;
             for (unsigned i = 0; i < n_interacting; i++) {
                 hvr_partition_t other_part = ctx->interacting[i];
 
                 hvr_vertex_cache_node_t *cache_iter =
                     ctx->vec_cache.partitions[other_part];
                 while (cache_iter) {
-                    hvr_edge_type_t new_edge = ctx->should_have_edge(
-                            &cache_iter->vert, &updated->vert, ctx);
+                    if (!cache_iter->flag) {
+                        hvr_edge_type_t new_edge = ctx->should_have_edge(
+                                &cache_iter->vert, &updated->vert, ctx);
 
-                    update_edge_info(cache_iter->vert.id, updated->vert.id,
-                            cache_iter, updated, new_edge, NULL, ctx);
+                        update_edge_info(cache_iter->vert.id, updated->vert.id,
+                                cache_iter, updated, new_edge, &no_edge, ctx);
 
-                    cache_iter = cache_iter->part_next;
-                    local_count_new_should_have_edges += 1;
+                        cache_iter = cache_iter->part_next;
+                        local_count_new_should_have_edges += 1;
+                    }
                 }
+            }
+
+            // Clear the flag
+            for (unsigned n = 0; n < n_neighbors; n++) {
+                hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
+                        EDGE_INFO_VERTEX(ctx->edge_buffer[n]), &ctx->vec_cache);
+                cached_neighbor->flag = 0;
             }
 
             mark_all_downstream_neighbors_for_processing(updated, ctx);
