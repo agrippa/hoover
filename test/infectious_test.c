@@ -22,6 +22,10 @@
 #define DST_X 5
 #define DST_Y 6
 #define NEXT_CREATED 7
+#define NEXT_ID 8
+#define PREV_IS_INFECTED 9
+#define PREV_PX 10
+#define PREV_PY 11
 
 #define PORTAL_CAPTURE_RADIUS 5.0
 #define PE_ROW(this_pe) ((this_pe) / n_cells_x)
@@ -78,61 +82,26 @@ static double distance(double x1, double y1, double x2, double y2) {
 
 hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
         hvr_ctx_t ctx) {
-    /*
-     * Should always have an edge to the vertex that represents my state on the
-     * next step.
-     */
-    int base_id = (int)hvr_vertex_get(ACTOR_ID, base, ctx);
-    int neighbor_id = (int)hvr_vertex_get(ACTOR_ID, neighbor, ctx);
-
     int base_time = (int)hvr_vertex_get(TIME_STEP, base, ctx);
     int neighbor_time = (int)hvr_vertex_get(TIME_STEP, neighbor, ctx);
 
-    if (base_id == neighbor_id) {
-        if (base_time == neighbor_time + 1) {
-            // fprintf(stderr, "Computing edges %d @ %d and %d @ %d | "
-            //         "DIRECTED_IN\n", base_id, base_time, neighbor_id,
-            //         neighbor_time);
-            return DIRECTED_IN;
-        } else if (neighbor_time == base_time + 1) {
-            // fprintf(stderr, "Computing edges %d @ %d and %d @ %d | "
-            //         "DIRECTED_OUT\n", base_id, base_time, neighbor_id,
-            //         neighbor_time);
-            return DIRECTED_OUT;
+    if (abs(base_time - neighbor_time) == 1) {
+        double deltax = hvr_vertex_get(PREV_PX, neighbor, ctx) -
+            hvr_vertex_get(PREV_PX, base, ctx);
+        double deltay = hvr_vertex_get(PREV_PY, neighbor, ctx) -
+            hvr_vertex_get(PREV_PY, base, ctx);
+        if (sqrt(deltax * deltax + deltay * deltay) <= infection_radius) {
+            return (base_time < neighbor_time) ? DIRECTED_OUT : DIRECTED_IN;
         }
     }
 
-    int delta_time = abs(base_time - neighbor_time);
-    if (delta_time == 1) {
-        double deltax = hvr_vertex_get(PX, neighbor, ctx) -
-            hvr_vertex_get(PX, base, ctx);
-        double deltay = hvr_vertex_get(PY, neighbor, ctx) -
-            hvr_vertex_get(PY, base, ctx);
-        if (deltax * deltax + deltay * deltay <=
-                infection_radius * infection_radius) {
-            if (base_time < neighbor_time) {
-                // fprintf(stderr, "Computing edges %d @ %d and %d @ %d | "
-                //         "DIRECTED_OUT\n",
-                //         base_id, base_time, neighbor_id, neighbor_time);
-                return DIRECTED_OUT;
-            } else {
-                // fprintf(stderr, "Computing edges %d @ %d and %d @ %d | "
-                //         "DIRECTED_IN\n",
-                //         base_id, base_time, neighbor_id, neighbor_time);
-                return DIRECTED_IN;
-            }
-        }
-    }
-
-    // fprintf(stderr, "Computing edges %d @ %d and %d @ %d | NO_EDGE\n",
-    //         base_id, base_time, neighbor_id, neighbor_time);
     return NO_EDGE;
 }
 
 hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
     const double timestep = hvr_vertex_get(TIME_STEP, actor, ctx);
-    const double y = hvr_vertex_get(PY, actor, ctx);
-    const double x = hvr_vertex_get(PX, actor, ctx);
+    const double y = hvr_vertex_get(PREV_PY, actor, ctx);
+    const double x = hvr_vertex_get(PREV_PX, actor, ctx);
 
     const double global_y_dim = (double)n_cells_y * cell_dim_y;
     const double global_x_dim = (double)n_cells_x * cell_dim_x;
@@ -195,119 +164,85 @@ static void compute_next_pos(double p_x, double p_y,
     *next_p_y = new_y;
 }
 
-/*
- * Callback for the HOOVER runtime for updating positional or logical metadata
- * attached to each vertex based on the updated neighbors on each time step.
- */
-void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
+void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
-    /*
-     * If vertex is not already infected, update it to be infected if any of its
-     * neighbors are.
-     */
+    const unsigned actor_id = (unsigned)hvr_vertex_get(ACTOR_ID, vertex, ctx);
+    const unsigned timestep = (unsigned)hvr_vertex_get(TIME_STEP, vertex, ctx);
+
     hvr_vertex_t **verts;
     hvr_edge_type_t *dirs;
     int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
 
-    const unsigned actor_id = (unsigned)hvr_vertex_get(ACTOR_ID, vertex, ctx);
-    const unsigned timestep = (unsigned)hvr_vertex_get(TIME_STEP, vertex, ctx);
+    hvr_vertex_t prev;
+    int have_msg = hvr_poll_msg(vertex, &prev, ctx);
+    if (have_msg) {
+        // Messages are sorted most recent to least recent
+        assert((int)hvr_vertex_get(TIME_STEP, &prev, ctx) == timestep - 1);
+        assert((int)hvr_vertex_get(ACTOR_ID, &prev, ctx) == actor_id);
+        assert(hvr_vertex_get(PX, &prev, ctx) ==
+                hvr_vertex_get(PREV_PX, vertex, ctx));
+        assert(hvr_vertex_get(PY, &prev, ctx) ==
+                hvr_vertex_get(PREV_PY, vertex, ctx));
 
-    /*
-     * Scan over in edges to find the same actor on the previous timestep. Use
-     * its infection state as our baseline (i.e. if it is uninfected, start with
-     * the assumption that we are uninfected).
-     */
-    hvr_vertex_t *prev = NULL;
-    hvr_vertex_t *next = NULL;
-    for (int i = 0; i < n_neighbors; i++) {
-        hvr_vertex_t *neighbor = verts[i];
-        if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) == actor_id) {
-            if (dirs[i] == DIRECTED_IN) {
-                assert(prev == NULL);
-                assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
-                        timestep - 1);
-                prev = neighbor;
-            }
-            if (dirs[i] == DIRECTED_OUT) {
-                assert(next == NULL);
-                assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
-                        timestep + 1);
-                next = neighbor;
-            }
-        }
+        hvr_vertex_set(PREV_IS_INFECTED, hvr_vertex_get(INFECTED, &prev, ctx),
+                vertex, ctx);
+
+        // Flush less recent messages to this vertex
+        do {
+            have_msg = hvr_poll_msg(vertex, &prev, ctx);
+        } while (have_msg);
     }
 
-    if (prev && hvr_vertex_get(INFECTED, prev, ctx) > 0) {
-        hvr_vertex_set(INFECTED, 1, vertex, ctx);
-    }
-
-    /*
-     * If previous state was not infected, iterate over surroundings in previous
-     * time step and check if any of those should infect us.
-     */
-    if ((int)hvr_vertex_get(INFECTED, vertex, ctx) == 0) {
-        for (int i = 0; i < n_neighbors; i++) {
-            if (dirs[i] == DIRECTED_IN) {
-                hvr_vertex_t *neighbor = verts[i];
-                if ((int)hvr_vertex_get(ACTOR_ID, neighbor, ctx) != actor_id) {
-                    assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
-                            timestep - 1);
-                    int is_infected = hvr_vertex_get(INFECTED, neighbor, ctx);
-                    if (is_infected) {
-                        const int infected_by = hvr_vertex_get_owning_pe(neighbor);
-                        assert(infected_by < ctx->npes);
-                        hvr_set_insert(infected_by, couple_with);
-                        hvr_vertex_set(INFECTED, 1, vertex, ctx);
-                        break;
-                    }
-                }
+    int is_infected = (int)hvr_vertex_get(PREV_IS_INFECTED, vertex, ctx);
+    for (int i = 0; i < n_neighbors && !is_infected; i++) {
+        if (dirs[i] == DIRECTED_IN) {
+            hvr_vertex_t *neighbor = verts[i];
+            assert((int)hvr_vertex_get(TIME_STEP, neighbor, ctx) ==
+                    timestep - 1);
+            if (hvr_vertex_get(INFECTED, neighbor, ctx)) {
+                const int infected_by = hvr_vertex_get_owning_pe(neighbor);
+                hvr_set_insert(infected_by, couple_with);
+                is_infected = 1;
             }
         }
     }
+    hvr_vertex_set(INFECTED, is_infected, vertex, ctx);
 
-    // Update PX/PY, DST_X/DST_Y based on prev.
-    if (prev) {
-        double dst_x = hvr_vertex_get(DST_X, prev, ctx);
-        double dst_y = hvr_vertex_get(DST_Y, prev, ctx);
-        double p_x = hvr_vertex_get(PX, prev, ctx);
-        double p_y = hvr_vertex_get(PY, prev, ctx);
+    if (timestep < max_num_timesteps - 1) {
+        if (hvr_vertex_get(NEXT_CREATED, vertex, ctx) == 0) {
+            // Add a next
+            hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
 
-        double new_x, new_y;
-        compute_next_pos(p_x, p_y, dst_x, dst_y, &new_x, &new_y);
+            double x = hvr_vertex_get(PX, vertex, ctx);
+            double y = hvr_vertex_get(PY, vertex, ctx);
+            double dst_x = hvr_vertex_get(DST_X, vertex, ctx);
+            double dst_y = hvr_vertex_get(DST_Y, vertex, ctx);
+            int next_timestep = timestep + 1;
+            if (next_timestep > max_modeled_timestep) {
+                max_modeled_timestep = next_timestep;
+            }
 
-        hvr_vertex_set(PX, new_x, vertex, ctx);
-        hvr_vertex_set(PY, new_y, vertex, ctx);
-    }
+            double new_x, new_y;
+            compute_next_pos(x, y, dst_x, dst_y, &new_x, &new_y);
 
-    if (timestep < max_num_timesteps - 1 &&
-            hvr_vertex_get(NEXT_CREATED, vertex, ctx) == 0) {
-        // Add a next
-        hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
+            hvr_vertex_set(TIME_STEP, next_timestep, next, ctx);
+            hvr_vertex_set(ACTOR_ID, actor_id, next, ctx);
+            hvr_vertex_set(PX, new_x, next, ctx);
+            hvr_vertex_set(PY, new_y, next, ctx);
+            hvr_vertex_set(INFECTED, is_infected, next, ctx);
+            hvr_vertex_set(DST_X, dst_x, next, ctx);
+            hvr_vertex_set(DST_Y, dst_y, next, ctx);
+            hvr_vertex_set(NEXT_CREATED, 0, next, ctx);
+            hvr_vertex_set(NEXT_ID, 0, next, ctx);
+            hvr_vertex_set(PREV_IS_INFECTED, is_infected, next, ctx);
+            hvr_vertex_set(PREV_PX, x, next, ctx);
+            hvr_vertex_set(PREV_PY, y, next, ctx);
 
-        double x = hvr_vertex_get(PX, vertex, ctx);
-        double y = hvr_vertex_get(PY, vertex, ctx);
-        double dst_x = hvr_vertex_get(DST_X, vertex, ctx);
-        double dst_y = hvr_vertex_get(DST_Y, vertex, ctx);
-        int next_timestep = timestep + 1;
-        if (next_timestep > max_modeled_timestep) {
-            max_modeled_timestep = next_timestep;
+            hvr_vertex_set(NEXT_CREATED, 1, vertex, ctx);
+            hvr_vertex_set_uint64(NEXT_ID, next->id, vertex, ctx);
         }
 
-        hvr_vertex_set(INFECTED, hvr_vertex_get(INFECTED, vertex, ctx), next,
-                ctx);
-        hvr_vertex_set(DST_X, hvr_vertex_get(DST_X, vertex, ctx), next, ctx);
-        hvr_vertex_set(DST_Y, hvr_vertex_get(DST_Y, vertex, ctx), next, ctx);
-        hvr_vertex_set(TIME_STEP, next_timestep, next, ctx);
-        hvr_vertex_set(ACTOR_ID, actor_id, next, ctx);
-
-        double new_x, new_y;
-        compute_next_pos(x, y, dst_x, dst_y, &new_x, &new_y);
-
-        hvr_vertex_set(PX, new_x, next, ctx);
-        hvr_vertex_set(PY, new_y, next, ctx);
-        hvr_vertex_set(NEXT_CREATED, 0, next, ctx);
-
-        hvr_vertex_set(NEXT_CREATED, 1, vertex, ctx);
+        hvr_send_msg(hvr_vertex_get_uint64(NEXT_ID, vertex, ctx), vertex, ctx);
     }
 }
 
@@ -385,16 +320,10 @@ void might_interact(const hvr_partition_t partition,
     assert(min_partition_x <= max_partition_x);
     assert(min_partition_time <= max_partition_time);
 
-    // fprintf(stderr, "computing interacting for part = (%u, %u, %u)\n",
-    //         partition_time, partition_y, partition_x);
-
     unsigned count_interacting_partitions = 0;
     for (unsigned t = min_partition_time; t <= max_partition_time; t++) {
         for (unsigned r = min_partition_y; r <= max_partition_y; r++) {
             for (unsigned c = min_partition_x; c <= max_partition_x; c++) {
-                // fprintf(stderr, "part = (%u, %u, %u) interacts with (%u, %u, "
-                //         "%u)\n", partition_time, partition_y, partition_x,
-                //         t, r, c);
                 const unsigned part = t * n_y_partition * n_x_partition +
                     r * n_x_partition + c;
                 if (count_interacting_partitions >= interacting_partitions_capacity) {
@@ -522,8 +451,8 @@ int main(int argc, char **argv) {
     char *input_filename = argv[8];
 
     n_time_partition = max_num_timesteps;
-    n_y_partition = 200;
-    n_x_partition = 200;
+    n_y_partition = 400;
+    n_x_partition = 400;
     hvr_partition_t npartitions = n_time_partition * n_y_partition *
         n_x_partition;
 
@@ -607,14 +536,18 @@ int main(int argc, char **argv) {
                         (unsigned long)actor_id);
             }
 
+            hvr_vertex_set(TIME_STEP, 0, &actors[index], hvr_ctx);
+            hvr_vertex_set(ACTOR_ID, actor_id, &actors[index], hvr_ctx);
             hvr_vertex_set(PX, x, &actors[index], hvr_ctx);
             hvr_vertex_set(PY, y, &actors[index], hvr_ctx);
             hvr_vertex_set(INFECTED, infected, &actors[index], hvr_ctx);
             hvr_vertex_set(DST_X, dst_x, &actors[index], hvr_ctx);
             hvr_vertex_set(DST_Y, dst_y, &actors[index], hvr_ctx);
-            hvr_vertex_set(TIME_STEP, 0, &actors[index], hvr_ctx);
-            hvr_vertex_set(ACTOR_ID, actor_id, &actors[index], hvr_ctx);
             hvr_vertex_set(NEXT_CREATED, 0, &actors[index], hvr_ctx);
+            hvr_vertex_set(NEXT_ID, 0, &actors[index], hvr_ctx);
+            hvr_vertex_set(PREV_IS_INFECTED, infected, &actors[index], hvr_ctx);
+            hvr_vertex_set(PREV_PX, x, &actors[index], hvr_ctx);
+            hvr_vertex_set(PREV_PY, y, &actors[index], hvr_ctx);
 
             index++;
         }
@@ -657,7 +590,7 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     hvr_init(npartitions,
-            update_metadata,
+            update_vertex,
             might_interact,
             update_coupled_val,
             actor_to_partition,

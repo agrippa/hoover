@@ -342,8 +342,6 @@ typedef struct _hvr_internal_ctx_t {
     uint64_t total_vertex_msgs_recvd;
 
     hvr_buffered_msgs_t buffered_msgs;
-
-    hvr_irr_matrix_t cached_partition_interactions;
 } hvr_internal_ctx_t;
 
 /*
@@ -391,13 +389,14 @@ extern unsigned long long hvr_current_time_us();
 extern int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
         hvr_edge_type_t **out_dirs, hvr_ctx_t in_ctx);
 
+extern void hvr_create_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
+        hvr_edge_type_t edge, hvr_ctx_t in_ctx);
+
 extern void hvr_send_msg(hvr_vertex_id_t dst, hvr_vertex_t *msg,
         hvr_internal_ctx_t *ctx);
 
 extern int hvr_poll_msg(hvr_vertex_t *vert,
         hvr_vertex_t *out, hvr_internal_ctx_t *ctx);
-
-extern hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t ctx);
 
 // Not for application use
 extern void send_updates_to_all_subscribed_pes(

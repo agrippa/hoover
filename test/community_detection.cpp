@@ -10,6 +10,7 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include <map>
 #include <set>
 #include <vector>
 #include <algorithm>
@@ -29,6 +30,16 @@
  */
 
 // #define VERBOSE
+
+#define TYPE 0
+#define ATTR0 1
+#define ATTR1 2
+#define ATTR2 3
+
+typedef enum {
+    NODE_TYPE = 0,
+    SUPERNODE_TYPE
+} vertex_type_t;
 
 #define UNIFORM_DIST
 // #define POINT_DIST
@@ -51,11 +62,14 @@
  */
 #define MAX_DISTANCE_FOR_ANOMALY 1
 
-#define K 5
+#define K 4
 
 typedef struct _clique_t {
     hvr_vertex_id_t vertices[K];
 } clique_t;
+
+clique_t *local_cliques = NULL;
+unsigned n_local_cliques = 0;
 
 // Timing variables
 static unsigned long long start_time = 0;
@@ -89,14 +103,6 @@ static unsigned max_point[3] = {0, 0, 0};
 
 static unsigned min_n_vertices_to_add = 100;
 static unsigned max_n_vertices_to_add = 500;
-
-#define MAX_LOCAL_PATTERNS 1000
-static pattern_count_t known_local_patterns[MAX_LOCAL_PATTERNS];
-static unsigned n_known_local_patterns = 0;
-
-#ifdef MULTITHREADED
-static unsigned nthreads = 0;
-#endif
 
 static unsigned n_local_vertices = 0;
 
@@ -169,33 +175,69 @@ static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
 }
 
 hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
-    unsigned feat1_partition = (unsigned)hvr_vertex_get(0, actor, ctx) /
+    if (hvr_vertex_get_uint64(TYPE, actor, ctx) == SUPERNODE_TYPE) {
+        // Not in a partition, does not need implicit discovery
+        return HVR_INVALID_PARTITION;
+    }
+
+    unsigned feat1_partition = (unsigned)hvr_vertex_get(ATTR0, actor, ctx) /
         partitions_size[0];
-    unsigned feat2_partition = (unsigned)hvr_vertex_get(1, actor, ctx) /
+    unsigned feat2_partition = (unsigned)hvr_vertex_get(ATTR1, actor, ctx) /
         partitions_size[1];
-    unsigned feat3_partition = (unsigned)hvr_vertex_get(2, actor, ctx) /
+    unsigned feat3_partition = (unsigned)hvr_vertex_get(ATTR2, actor, ctx) /
         partitions_size[2];
     return feat1_partition * partitions_by_dim[1] * partitions_by_dim[2] +
         feat2_partition * partitions_by_dim[2] + feat3_partition;
 }
 
+static int supernodes_overlapping(hvr_vertex_t *a, hvr_vertex_t *b) {
+    int count_overlapping = 0;
+    for (unsigned i = 0; i < K; i++) {
+        hvr_vertex_id_t v = hvr_vertex_get_uint64(1 + i, a, ctx);
+
+        int found = 0;
+        for (unsigned j = 0; j < K && !found; j++) {
+            if (hvr_vertex_get_uint64(1 + j, b, ctx) == v) {
+                found = 1;
+            }
+        }
+
+        if (found) count_overlapping++;
+    }
+    return count_overlapping;
+}
+
 hvr_edge_type_t should_have_edge(hvr_vertex_t *a, hvr_vertex_t *b,
         hvr_ctx_t ctx) {
-    const double delta0 = hvr_vertex_get(0, b, ctx) -
-        hvr_vertex_get(0, a, ctx);
-    const double delta1 = hvr_vertex_get(1, b, ctx) -
-        hvr_vertex_get(1, a, ctx);
-    const double delta2 = hvr_vertex_get(2, b, ctx) -
-        hvr_vertex_get(2, a, ctx);
-    if (delta0 * delta0 + delta1 * delta1 + delta2 * delta2 <=
-            distance_threshold * distance_threshold) {
-        return BIDIRECTIONAL;
-    } else {
+    if (hvr_vertex_get_uint64(TYPE, a, ctx) == NODE_TYPE &&
+            hvr_vertex_get_uint64(TYPE, b, ctx) == NODE_TYPE) {
+        const double delta0 = hvr_vertex_get(ATTR0, b, ctx) -
+            hvr_vertex_get(ATTR0, a, ctx);
+        const double delta1 = hvr_vertex_get(ATTR1, b, ctx) -
+            hvr_vertex_get(ATTR1, a, ctx);
+        const double delta2 = hvr_vertex_get(ATTR2, b, ctx) -
+            hvr_vertex_get(ATTR2, a, ctx);
+        if (delta0 * delta0 + delta1 * delta1 + delta2 * delta2 <=
+                distance_threshold * distance_threshold) {
+            return BIDIRECTIONAL;
+        }
         return NO_EDGE;
+    } else if (hvr_vertex_get_uint64(TYPE, a, ctx) == SUPERNODE_TYPE &&
+            hvr_vertex_get_uint64(TYPE, b, ctx) == SUPERNODE_TYPE) {
+        int count_overlapping = supernodes_overlapping(a, b);
+
+        if (count_overlapping >= K - 1) {
+            return BIDIRECTIONAL;
+        }
+
+        return NO_EDGE;
+    } else {
+        abort();
     }
 }
 
-static inline int clique_contains(hvr_vertex_id_t v, clique_t *clique, unsigned n) {
+static inline int clique_contains(hvr_vertex_id_t v, clique_t *clique,
+        unsigned n) {
     for (unsigned i = 0; i < n; i++) {
         if (clique->vertices[i] == v) return 1;
     }
@@ -210,16 +252,35 @@ static inline int neighbors_contains(hvr_vertex_id_t v,
     return 0;
 }
 
+static inline int list_of_clique_contains(clique_t *clique, clique_t *cliques,
+        unsigned n) {
+    for (unsigned i = 0; i < n; i++) {
+
+        int match = 1;
+        for (unsigned j = 0; j < K && match; j++) {
+            if (!clique_contains(clique->vertices[j], &cliques[i], K)) {
+                match = 0;
+            }
+        }
+
+        if (match) return 1;
+    }
+    return 0;
+}
+
 static void find_cliques(clique_t *clique, unsigned n_inserted,
         clique_t **cliques, unsigned *ncliques, hvr_vertex_t **candidates,
-        unsigned ncandidates) {
+        unsigned ncandidates, hvr_ctx_t ctx) {
     if (n_inserted == K) {
         // If we get here, we have a clique
         unsigned current_n = *ncliques;
-        *cliques = (clique_t **)realloc(*cliques, (current_n + 1) * sizeof(clique_t));
-        assert(*cliques);
-        memcpy((*cliques) + current_n, clique, sizeof(*clique));
-        *ncliques = current_n + 1;
+        if (!list_of_clique_contains(clique, *cliques, current_n)) {
+            *cliques = (clique_t *)realloc(*cliques,
+                    (current_n + 1) * sizeof(clique_t));
+            assert(*cliques);
+            memcpy((*cliques) + current_n, clique, sizeof(*clique));
+            *ncliques = current_n + 1;
+        }
     } else {
         // Add another one
         for (unsigned i = 0; i < ncandidates; i++) {
@@ -228,7 +289,7 @@ static void find_cliques(clique_t *clique, unsigned n_inserted,
 
             hvr_vertex_t **neighbors;
             hvr_edge_type_t *neighbor_dirs;
-            int n_neighbors = hvr_get_neighbors(candidates, &neighbors,
+            int n_neighbors = hvr_get_neighbors(candidates[i], &neighbors,
                     &neighbor_dirs, ctx);
 
             int edges_with_all = 1;
@@ -242,9 +303,9 @@ static void find_cliques(clique_t *clique, unsigned n_inserted,
             }
 
             if (edges_with_all) {
-                clique.vertices[n_inserted] = id;
-                find_cliques(clique, n_inserted + 1, cliques, ncliques, candidates,
-                        ncandidates);
+                clique->vertices[n_inserted] = id;
+                find_cliques(clique, n_inserted + 1, cliques, ncliques,
+                        candidates, ncandidates, ctx);
             }
         }
     }
@@ -285,35 +346,103 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         feat2 = MIN(feat2, domain_dim[1] - 1);
         feat3 = MIN(feat3, domain_dim[2] - 1);
 
-        hvr_vertex_set(0, feat1, &new_vertices[i], ctx);
-        hvr_vertex_set(1, feat2, &new_vertices[i], ctx);
-        hvr_vertex_set(2, feat3, &new_vertices[i], ctx);
+        hvr_vertex_set(TYPE, NODE_TYPE, &new_vertices[i], ctx);
+        hvr_vertex_set(ATTR0, feat1, &new_vertices[i], ctx);
+        hvr_vertex_set(ATTR1, feat2, &new_vertices[i], ctx);
+        hvr_vertex_set(ATTR2, feat3, &new_vertices[i], ctx);
     }
 
     const unsigned long long start_search = hvr_current_time_us();
-
-    clique_t *cliques = NULL;
-    unsigned ncliques = 0;
 
     /*
      * For each local vertex, grab its neighbors. Recursively try all
      * permutations of them to see if any combination leads to a k-clique.
      */
+    unsigned previous_n_cliques = n_local_cliques;
     for (hvr_vertex_t *vertex = hvr_vertex_iter_next(iter); vertex;
             vertex = hvr_vertex_iter_next(iter)) {
         hvr_vertex_t **verts;
         hvr_edge_type_t *dirs;
-        int n_neighbors = hvr_get_neighbors(last_added, &verts, &dirs, ctx);
+        int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
 
         clique_t clique;
         clique.vertices[0] = vertex->id;
         unsigned n_inserted = 1;
 
-        find_cliques(&clique, n_inserted, &cliques, &ncliques);
+        find_cliques(&clique, n_inserted, &local_cliques, &n_local_cliques,
+                verts, n_neighbors, ctx);
     }
 
-    printf("PE %d found %d k-cliques on iter %d\n", ctx->pe, ncliques,
-            ctx->iter);
+    /*
+     * All cliques between (previous_n_cliques, n_local_cliques] are new. Need
+     * to insert a node in the super node graph for them.
+     */
+
+    hvr_vertex_t *new_supernodes = hvr_vertex_create_n(
+            n_local_cliques - previous_n_cliques, ctx);
+    for (unsigned i = previous_n_cliques; i < n_local_cliques; i++) {
+        clique_t *new_clique = &local_cliques[i];
+        hvr_vertex_t *new_supernode = &new_supernodes[i - previous_n_cliques];
+
+        hvr_vertex_set(TYPE, SUPERNODE_TYPE, new_supernode, ctx);
+        for (unsigned j = 0; j < K; j++) {
+            hvr_vertex_set_uint64(1 + j, new_clique->vertices[j], new_supernode,
+                    ctx);
+        }
+
+        for (unsigned j = 0; j < K; j++) {
+            hvr_send_msg(new_clique->vertices[j], new_supernode, ctx);
+        }
+    }
+
+    if (n_local_cliques > 0) {
+        printf("PE %d has %d k-cliques on iter %d\n", ctx->pe,
+                n_local_cliques, ctx->iter);
+    }
+}
+
+void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
+        hvr_ctx_t ctx) {
+    static std::map<hvr_vertex_id_t, std::set<hvr_vertex_id_t> > parents_map;
+
+    if (hvr_vertex_get_uint64(TYPE, vertex, ctx) == NODE_TYPE) {
+        if (parents_map.find(vertex->id) == parents_map.end()) {
+            parents_map.insert(
+                    std::pair<hvr_vertex_id_t, std::set<hvr_vertex_id_t> >(
+                        vertex->id, std::set<hvr_vertex_id_t>()));
+        }
+
+        std::set<hvr_vertex_id_t>& parents = parents_map.at(vertex->id);
+
+        hvr_vertex_t clique;
+        int have_msg = hvr_poll_msg(vertex, &clique, ctx);
+        while (have_msg) {
+            for (std::set<hvr_vertex_id_t>::iterator i = parents.begin(),
+                    e = parents.end(); i != e; i++) {
+                hvr_send_msg(*i, &clique, ctx);
+            }
+
+            parents.insert(clique.id);
+
+            have_msg = hvr_poll_msg(vertex, &clique, ctx);
+        }
+    } else {
+        assert(hvr_vertex_get_uint64(TYPE, vertex, ctx) == SUPERNODE_TYPE);
+
+        hvr_vertex_t clique;
+        int have_msg = hvr_poll_msg(vertex, &clique, ctx);
+        while (have_msg) {
+            // New potential neighbor supernode
+            int count_overlapping = supernodes_overlapping(vertex, &clique);
+
+            if (count_overlapping >= K - 1) {
+                hvr_create_edge(vertex, &clique, BIDIRECTIONAL, ctx);
+            }
+
+            have_msg = hvr_poll_msg(vertex, &clique, ctx);
+        }
+
+    }
 }
 
 void might_interact(const hvr_partition_t partition,
@@ -321,6 +450,8 @@ void might_interact(const hvr_partition_t partition,
         unsigned *out_n_interacting_partitions,
         unsigned interacting_partitions_capacity,
         hvr_ctx_t ctx) {
+    assert(partition != HVR_INVALID_PARTITION);
+
     /*
      * If a vertex in 'partition' may create an edge with any vertices in any
      * partition in 'partitions', they might interact (so return 1).
@@ -486,7 +617,7 @@ int main(int argc, char **argv) {
     fast_srand(123 + pe);
 
     hvr_init(TOTAL_PARTITIONS, // # partitions
-            NULL, // update_metadata
+            update_vertex,
             might_interact,
             update_coupled_val,
             actor_to_partition,
@@ -496,27 +627,6 @@ int main(int argc, char **argv) {
             time_limit_s,
             1,
             hvr_ctx);
-
-    best_patterns = (timestamped_pattern_count_t *)shmem_malloc(
-            npes * sizeof(*best_patterns));
-    assert(best_patterns);
-    best_patterns_buffer = (timestamped_pattern_count_t *)malloc(
-            npes * sizeof(*best_patterns_buffer));
-    assert(best_patterns_buffer);
-    neighbor_patterns_buffer = (timestamped_pattern_count_t *)malloc(
-            npes * sizeof(*neighbor_patterns_buffer));
-    assert(neighbor_patterns_buffer);
-    best_patterns_lock = (long *)hvr_rwlock_create_n(1);
-    assert(best_patterns_lock);
-
-    sorted_best_patterns = (pattern_count_t *)malloc(
-            npes * N_PATTERNS_SHARED * sizeof(*sorted_best_patterns));
-    assert(sorted_best_patterns);
-
-    *best_patterns_lock = 0;
-    for (int i = 0; i < npes; i++) {
-        best_patterns[i].iter = -1;
-    }
 
     shmem_barrier_all();
 

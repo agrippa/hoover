@@ -149,7 +149,7 @@ void hvr_irr_matrix_usage(size_t *out_bytes_used, size_t *out_bytes_capacity,
         bytes_used += m->edges_len[i] * sizeof(m->edges[0]);
         if (m->edges_len[i] > max_edges) {
             max_edges = m->edges_len[i];
-            max_edges_index = max_edges;
+            max_edges_index = i;
         }
     }
 

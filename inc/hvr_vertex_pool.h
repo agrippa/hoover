@@ -27,44 +27,44 @@ typedef struct _hvr_range_tracker_t {
 typedef struct _hvr_vertex_pool_t {
     hvr_vertex_t *pool;
     hvr_range_tracker_t tracker;
+    size_t pool_size;
 } hvr_vertex_pool_t;
 
 /*
  * Allocate a fixed size pool of 'pool_size' sparse vectors from which we can
  * dynamically allocate (and free) HOOVER sparse vectors.
  */
-extern void hvr_vertex_pool_create(size_t pool_size, size_t n_nodes,
+void hvr_vertex_pool_create(size_t pool_size, size_t n_nodes,
         hvr_vertex_pool_t *pool);
 
-extern void hvr_vertex_pool_destroy(hvr_vertex_pool_t *pool);
+void hvr_vertex_pool_destroy(hvr_vertex_pool_t *pool);
 
 /*
  * Allocate 'nvecs' sparse vectors from the specified memory pool.
  */
-extern hvr_vertex_t *hvr_alloc_vertices(unsigned nvecs, hvr_ctx_t ctx);
+hvr_vertex_t *hvr_alloc_vertices(unsigned nvecs, hvr_ctx_t ctx);
 
 /*
  * Release 'nvecs' sparse vectors starting at memory address vecs in the
  * specified memory pool.
  */
-extern void hvr_free_vertices(hvr_vertex_t *vecs, unsigned nvecs,
+void hvr_free_vertices(hvr_vertex_t *vecs, unsigned nvecs,
         hvr_ctx_t ctx);
 
 /*
  * Get the number of vertices that are allocated from this context's vertex
  * pool.
  */
-extern size_t hvr_n_allocated(hvr_ctx_t ctx);
+size_t hvr_n_allocated(hvr_ctx_t ctx);
 
-extern size_t hvr_pool_size_in_bytes(hvr_ctx_t in_ctx);
+void hvr_pool_size_in_bytes(size_t *used, size_t *allocated, hvr_ctx_t in_ctx);
 
-
-extern void hvr_range_tracker_init(size_t capacity, int n_nodes,
+void hvr_range_tracker_init(size_t capacity, int n_nodes,
         hvr_range_tracker_t *tracker);
-extern size_t hvr_range_tracker_reserve(size_t space,
+size_t hvr_range_tracker_reserve(size_t space,
         hvr_range_tracker_t *tracker);
-extern void hvr_range_tracker_release(size_t offset, size_t space,
+void hvr_range_tracker_release(size_t offset, size_t space,
         hvr_range_tracker_t *tracker);
-extern size_t hvr_range_tracker_size_in_bytes(hvr_range_tracker_t *tracker);
+size_t hvr_range_tracker_size_in_bytes(hvr_range_tracker_t *tracker);
 
 #endif // _HVR_SPARSE_VEC_POOL_H

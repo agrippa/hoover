@@ -86,7 +86,8 @@ typedef struct _profiling_info_t {
 #endif
 
 #ifdef DETAILED_PRINTS
-    size_t pool_size_in_bytes;
+    size_t pool_allocated_in_bytes;
+    size_t pool_used_in_bytes;
     size_t pe_subscription_info_bytes;
     size_t producer_info_bytes;
     size_t dead_info_bytes;
@@ -1204,10 +1205,6 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
                     CACHE_NODE_OFFSET(updated, &ctx->vec_cache),
                     ctx->edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
 
-            // TODO Clear all edges of CACHE_NODE_OFFSET(updated, &ctx->vec_cache)
-            // insert new edges with existing edge of NO_EDGE
-            
-
             for (unsigned n = 0; n < n_neighbors; n++) {
                 hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
                         EDGE_INFO_VERTEX(ctx->edge_buffer[n]), &ctx->vec_cache);
@@ -1512,19 +1509,19 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
     return n_neighbors;
 }
 
-hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t vert_id, hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+void hvr_create_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
+        hvr_edge_type_t edge, hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)ctx;
 
-    if (VERTEX_ID_PE(vert_id) == ctx->pe) {
-        // Get it from the pool
-        return ctx->pool.pool + VERTEX_ID_OFFSET(vert_id);
-    } else {
-        hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(vert_id,
-                &ctx->vec_cache);
-        assert(cached);
+    // TODO cached_neighbor could be NULL
+    hvr_vertex_cache_node_t *cached_base = hvr_vertex_cache_lookup(base->id,
+            &ctx->vec_cache);
+    hvr_vertex_cache_node_t *cached_neighbor = hvr_vertex_cache_lookup(
+            neighbor->id, &ctx->vec_cache);
+    assert(cached_base && cached_neighbor);
 
-        return &cached->vert;
-    }
+    update_edge_info(base->id, neighbor->id, cached_base, cached_neighbor, edge,
+            NULL, ctx);
 }
 
 static int update_vertices(hvr_set_t *to_couple_with,
@@ -1540,7 +1537,7 @@ static int update_vertices(hvr_set_t *to_couple_with,
             curr = hvr_vertex_iter_next(&iter)) {
 
         if (curr->needs_processing) {
-            hvr_partition_t old_part = wrap_actor_to_partition(curr, ctx);
+            const hvr_partition_t old_part = wrap_actor_to_partition(curr, ctx);
             ctx->update_metadata(curr, to_couple_with, ctx);
             update_partition_list_membership(curr, old_part,
                     &ctx->local_partition_lists, ctx);
@@ -1561,6 +1558,7 @@ void send_updates_to_all_subscribed_pes(
         process_perf_info_t *perf_info,
         unsigned long long *time_sending,
         hvr_internal_ctx_t *ctx) {
+    assert(part != HVR_INVALID_PARTITION);
     assert(VERTEX_ID_PE(vert->id) == ctx->pe);
     unsigned long long start = hvr_current_time_us();
     hvr_mailbox_t *mbox = (is_delete ? &ctx->vertex_delete_mailbox :
@@ -2061,7 +2059,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                         assert(ack->pe == expected_root_pe);
                         expected_root_pe = ack->root_pe;
                     }
-                } while (ack->root_pe != ack->pe && !ack->abort && !is_dead);
+                } while (!is_dead && !ack->abort && ack->root_pe != ack->pe);
 
                 // fprintf(stderr, "PE %d finally coupling with %d (abort? %d)\n",
                 //         ctx->pe, ack->root_pe, ack->abort);
@@ -2119,7 +2117,8 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         } while (!hvr_set_equal(ctx->already_coupled_with, ctx->to_couple_with));
 
 #ifdef COUPLING_PRINTS
-        fprintf(stderr, "PE %d completed couplings, current root = %d\n", ctx->pe, ctx->coupled_pes_root);
+        fprintf(stderr, "PE %d completed couplings, current root = %d\n",
+                ctx->pe, ctx->coupled_pes_root);
 #endif
 
         // fprintf(stderr, "AA PE %d finished coupling on iter %d with root=%d, %u coupled PEs, %u to couple with, %u already coupled with, equal %d\n", ctx->pe,
@@ -2167,7 +2166,8 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         }
 
 #ifdef COUPLING_PRINTS
-        fprintf(stderr, "PE %d now waiting for finalized couplings on iter %u, root=%d\n", ctx->pe, ctx->iter, ctx->coupled_pes_root);
+        fprintf(stderr, "PE %d now waiting for finalized couplings on iter %u, "
+                "root=%d\n", ctx->pe, ctx->iter, ctx->coupled_pes_root);
 #endif
 
         unsigned long long start_waiting = hvr_current_time_us();
@@ -2180,7 +2180,9 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         *time_sharing_info = start_waiting - start_sharing;
         *time_waiting_for_info = done_waiting - start_waiting;
 #ifdef COUPLING_PRINTS
-        fprintf(stderr, "PE %d done waiting for finalized couplings on iter %u, root=%d, terminating=%d\n", ctx->pe, ctx->iter, ctx->coupled_pes_root, terminating);
+        fprintf(stderr, "PE %d done waiting for finalized couplings on iter "
+                "%u, root=%d, terminating=%d\n", ctx->pe, ctx->iter,
+                ctx->coupled_pes_root, terminating);
 #endif
     } else {
         // fprintf(stderr, "PE %d waiting on root terminating? %d\n", ctx->pe, terminating);
@@ -2265,17 +2267,6 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                 ctx->all_terminated_cluster_pes);
     }
 
-    // if (ncoupled > 1) {
-    //     char buf[1024];
-    //     hvr_vertex_dump(coupled_metric, buf, 1024, ctx);
-
-    //     char coupled_pes_str[2048];
-    //     hvr_set_to_string(ctx->coupled_pes, coupled_pes_str, 2048, NULL);
-
-    //     printf("PE %d - computed coupled value {%s} from %d coupled PEs "
-    //             "(%s)\n", ctx->pe, buf, ncoupled, coupled_pes_str);
-    // }
-    
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
 
     const unsigned long long end_func = hvr_current_time_us();
@@ -2426,8 +2417,12 @@ static void save_profiling_info(
     hvr_map_size_in_bytes(&ctx->vec_cache.cache_map, &vertex_cache_capacity,
             &vertex_cache_used);
 
-    saved_profiling_info[n_profiled_iters].pool_size_in_bytes =
-        hvr_pool_size_in_bytes(ctx);
+    size_t pool_allocated, pool_used;
+    hvr_pool_size_in_bytes(&pool_used, &pool_allocated, ctx);
+    saved_profiling_info[n_profiled_iters].pool_used_in_bytes =
+        pool_used;
+    saved_profiling_info[n_profiled_iters].pool_allocated_in_bytes =
+        pool_allocated;
     saved_profiling_info[n_profiled_iters].pe_subscription_info_bytes =
         hvr_sparse_arr_used_bytes(&ctx->pe_subscription_info);
     saved_profiling_info[n_profiled_iters].producer_info_bytes =
@@ -2535,20 +2530,23 @@ static void print_profiling_info(profiling_info_t *info) {
 #endif
 
 #ifdef DETAILED_PRINTS
-    fprintf(profiling_fp, "  management data structure: vertex pool = %llu "
-            "bytes, PE sub info = %llu bytes, producer info = %llu bytes, dead "
-            "info = %llu bytes, vertex cache = %f MB (%f%% efficiency)\n",
-            info->pool_size_in_bytes,
-            info->pe_subscription_info_bytes,
-            info->producer_info_bytes,
-            info->dead_info_bytes,
+    fprintf(profiling_fp, "  management data structure: vertex pool = %llu / "
+            "%llu bytes (%f%%), PE sub info = %f MB, producer info = %f MB, "
+            "dead info = %f MB, vertex cache = %f MB (%f%% efficiency)\n",
+            info->pool_used_in_bytes, info->pool_allocated_in_bytes,
+            100.0 * (double)info->pool_used_in_bytes / (double)info->pool_allocated_in_bytes,
+            (double)info->pe_subscription_info_bytes / (1024.0 * 1024.0),
+            (double)info->producer_info_bytes / (1024.0 * 1024.0),
+            (double)info->dead_info_bytes / (1024.0 * 1024.0),
             (double)info->vertex_cache_capacity / (1024.0 * 1024.0),
             100.0 * (double)info->vertex_cache_used /
                 (double)info->vertex_cache_capacity);
-    fprintf(profiling_fp, "    edge set: used=%llu allocated=%llu "
-            "capacity=%llu max # edges=%lu max edges index=%llu\n",
-            info->edge_bytes_used, info->edge_bytes_allocated,
-            info->edge_bytes_capacity, info->max_edges, info->max_edges_index);
+    fprintf(profiling_fp, "    edge set: used=%f MB, allocated=%f MB, "
+            "capacity=%f MB, max # edges=%lu, max edges index=%llu\n",
+            (double)info->edge_bytes_used / (1024.0 * 1024.0),
+            (double)info->edge_bytes_allocated / (1024.0 * 1024.0),
+            (double)info->edge_bytes_capacity / (1024.0 * 1024.0),
+            info->max_edges, info->max_edges_index);
 #endif
 }
 
@@ -2647,14 +2645,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         edges_pool_size = atoi(getenv("HVR_EDGES_POOL_SIZE"));
     }
     hvr_irr_matrix_init(ctx->vec_cache.pool_size, edges_pool_size, &ctx->edges);
-
-    size_t cached_interactions_pool_size = 16 * 1024 * 1024;
-    if (getenv("HVR_CACHED_INTERACTIONS_POOL_SIZE")) {
-        cached_interactions_pool_size =
-            atoi(getenv("HVR_CACHED_INTERACTIONS_POOL_SIZE"));
-    }
-    hvr_irr_matrix_init(ctx->n_partitions, cached_interactions_pool_size,
-            &ctx->cached_partition_interactions);
 
     const unsigned long long start_body = hvr_current_time_us();
 

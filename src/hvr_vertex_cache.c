@@ -98,6 +98,8 @@ void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *node,
 
 void hvr_vertex_cache_update_partition(hvr_vertex_cache_node_t *existing,
         hvr_partition_t new_partition, hvr_vertex_cache_t *cache) {
+    assert(new_partition != HVR_INVALID_PARTITION);
+
     hvr_partition_t old_partition = existing->part;
 
     if (old_partition != new_partition) {
@@ -123,6 +125,8 @@ void hvr_vertex_cache_update_partition(hvr_vertex_cache_node_t *existing,
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         hvr_partition_t part, hvr_vertex_cache_t *cache) {
+    assert(part != HVR_INVALID_PARTITION);
+
     // Assume that vec is not already in the cache, but don't enforce this
     hvr_vertex_cache_node_t *new_node = NULL;
     if (cache->pool_head) {

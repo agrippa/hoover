@@ -15,6 +15,8 @@ void hvr_partition_list_destroy(hvr_partition_list_t *l) {
 static void prepend_to_partition_list_helper(hvr_vertex_t *curr,
         hvr_partition_t partition, hvr_partition_list_t *l,
         hvr_internal_ctx_t *ctx) {
+    assert(partition != HVR_INVALID_PARTITION);
+
     // Prepend to new partition list
     curr->prev_in_partition = NULL;
     curr->next_in_partition = l->lists[partition];
@@ -34,6 +36,8 @@ void prepend_to_partition_list(hvr_vertex_t *curr,
 void remove_from_partition_list_helper(hvr_vertex_t *vert,
         hvr_partition_t partition, hvr_partition_list_t *l,
         hvr_internal_ctx_t *ctx) {
+    assert(partition != HVR_INVALID_PARTITION);
+
     if (vert->next_in_partition && vert->prev_in_partition) {
         // Remove from current partition list
         vert->prev_in_partition->next_in_partition =

@@ -88,6 +88,10 @@ bin/test_sparse_arr: test/test_sparse_arr.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/test_sparse_arr.c -o bin/test_sparse_arr.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/test_sparse_arr.o -o $@ -lhoover -lm -lpthread
 
+bin/community_detection: test/community_detection.cpp bin/libhoover.a
+	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/community_detection.cpp -o bin/community_detection.o
+	$(CXX) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/community_detection.o -o $@ -lhoover -lm -lpthread -lstdc++
+
 bin/infectious_test: test/infectious_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/infectious_test.c -o bin/infectious_test.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/infectious_test.o -o $@ -lhoover -lm -lpthread

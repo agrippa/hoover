@@ -244,6 +244,18 @@ void hvr_range_tracker_release(size_t offset, size_t space,
     tracker->used -= space;
 }
 
+static size_t hvr_range_tracker_used(hvr_range_tracker_t *tracker) {
+    size_t neles = 0;
+
+    hvr_range_node_t *iter = tracker->used_list;
+    while (iter) {
+        neles += iter->length;
+        iter = iter->next;
+    }
+
+    return neles;
+}
+
 size_t hvr_range_tracker_size_in_bytes(hvr_range_tracker_t *tracker) {
     size_t nbytes = 0;
     hvr_range_node_t *iter = tracker->free_list;
@@ -281,6 +293,7 @@ void hvr_vertex_pool_create(size_t pool_size, size_t n_nodes,
     }
 
     hvr_range_tracker_init(pool_size, n_nodes, &pool->tracker);
+    pool->pool_size = pool_size;
 }
 
 hvr_vertex_t *hvr_alloc_vertices(unsigned nvecs, hvr_ctx_t in_ctx) {
@@ -320,11 +333,15 @@ size_t hvr_n_allocated(hvr_ctx_t in_ctx) {
     return ctx->pool.tracker.used;
 }
 
-size_t hvr_pool_size_in_bytes(hvr_ctx_t in_ctx) {
+void hvr_pool_size_in_bytes(size_t *used, size_t *allocated, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     hvr_vertex_pool_t *pool = &ctx->pool;
 
-    return hvr_range_tracker_size_in_bytes(&pool->tracker);
+    size_t tracker_size = hvr_range_tracker_size_in_bytes(&pool->tracker);
+
+    *used = tracker_size + hvr_range_tracker_used(&pool->tracker) *
+        sizeof(hvr_vertex_t);
+    *allocated = tracker_size + pool->pool_size * sizeof(hvr_vertex_t);
 }
 
 void hvr_vertex_pool_destroy(hvr_vertex_pool_t *pool) {
