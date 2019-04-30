@@ -3,7 +3,8 @@
 void hvr_partition_list_init(hvr_partition_t n_partitions,
         hvr_partition_list_t *l) {
     l->n_partitions = n_partitions;
-    l->lists = (hvr_vertex_t **)malloc(n_partitions * sizeof(l->lists[0]));
+    l->lists = (hvr_vertex_t **)malloc(
+            n_partitions * sizeof(l->lists[0]));
     assert(l->lists);
     memset(l->lists, 0x00, n_partitions * sizeof(l->lists[0]));
 }
@@ -78,5 +79,9 @@ void update_partition_list_membership(hvr_vertex_t *curr,
         // Prepend to new partition list
         prepend_to_partition_list_helper(curr, new_partition, l, ctx);
     }
+}
+
+size_t hvr_partition_list_mem_used(hvr_partition_list_t *l) {
+    return l->n_partitions * sizeof(l->lists[0]);
 }
 

@@ -26,7 +26,7 @@
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
 
-// #define DETAILED_PRINTS
+#define DETAILED_PRINTS
 // #define COUPLING_PRINTS
 
 // #define PRINT_PARTITIONS
@@ -100,11 +100,59 @@ typedef struct _profiling_info_t {
     size_t edge_bytes_capacity;
     size_t max_edges;
     size_t max_edges_index;
+
+    size_t mailbox_bytes_used;
+
+    size_t msg_buf_pool_bytes_used;
+
+    size_t buffered_msgs_bytes_used;
+
+    size_t partition_producers_bytes_used;
+    size_t terminated_pes_bytes_used;
+
+    size_t mirror_partition_lists_bytes;
+    size_t local_partition_lists_bytes;
 #endif
 } profiling_info_t;
 
 profiling_info_t saved_profiling_info[MAX_PROFILED_ITERS];
 static volatile unsigned n_profiled_iters = 0;
+
+// From https://stackoverflow.com/questions/1558402/memory-usage-of-current-process-in-c
+typedef struct {
+    unsigned long size,resident,share,text,lib,data,dt;
+} statm_t;
+
+void read_off_memory_status(statm_t *result) {
+    unsigned long dummy;
+    const char* statm_path = "/proc/self/statm";
+
+    FILE *f = fopen(statm_path,"r");
+    if(!f){
+        perror(statm_path);
+        abort();
+    }
+    if (7 != fscanf(f,"%ld %ld %ld %ld %ld %ld %ld",
+                &result->size, &result->resident, &result->share, &result->text,
+                &result->lib, &result->data, &result->dt)) {
+        perror(statm_path);
+        abort();
+    }
+    fclose(f);
+}
+
+static void print_memory_metrics(hvr_internal_ctx_t *ctx) {
+    int pagesize = getpagesize();
+    statm_t mem;
+    read_off_memory_status(&mem);
+    fprintf(stderr, "PE %d iter %u VM=%f MB resident=%f MB share=%f MB text=%f MB "
+            "data=%f MB\n", ctx->pe, ctx->iter,
+            (double)(mem.size * pagesize) / (1024.0 * 1024.0),
+            (double)(mem.resident * pagesize) / (1024.0 * 1024.0),
+            (double)(mem.share * pagesize) / (1024.0 * 1024.0),
+            (double)(mem.text * pagesize) / (1024.0 * 1024.0),
+            (double)(mem.data * pagesize) / (1024.0 * 1024.0));
+}
 
 typedef enum {
     CREATE, DELETE, UPDATE
@@ -137,9 +185,9 @@ void *shmem_malloc_wrapper(size_t nbytes) {
     }
 
     if (nbytes == 0) {
-        fprintf(stderr, "PE %d allocated %lu bytes. Exiting...\n",
+        fprintf(stderr, "PE %d allocated %lu bytes in the symmetric heap.\n",
                 shmem_my_pe(), total_nbytes);
-        exit(0);
+        return NULL;
     } else {
         void *ptr = shmem_malloc(nbytes);
         total_nbytes += nbytes;
@@ -589,6 +637,11 @@ void hvr_init(const hvr_partition_t n_partitions,
         unsigned max_graph_traverse_depth,
         hvr_ctx_t in_ctx) {
     assert(max_graph_traverse_depth < UINT8_MAX);
+    /*
+     * For casting from hvr_vertex_t* in mirror_partition_lists to
+     * hvr_vertex_cache_node_t*
+     */
+    assert(offsetof(hvr_vertex_cache_node_t, vert) == 0);
 
     hvr_internal_ctx_t *new_ctx = (hvr_internal_ctx_t *)in_ctx;
 
@@ -621,13 +674,13 @@ void hvr_init(const hvr_partition_t n_partitions,
         (new_ctx->p_sync)[i] = SHMEM_SYNC_VALUE;
     }
 
+    assert(n_partitions < HVR_INVALID_PARTITION);
+    new_ctx->n_partitions = n_partitions;
+
     new_ctx->subscribed_partitions = hvr_create_empty_set(n_partitions);
     new_ctx->produced_partitions = hvr_create_empty_set(n_partitions);
     new_ctx->new_subscribed_partitions = hvr_create_empty_set(n_partitions);
     new_ctx->new_produced_partitions = hvr_create_empty_set(n_partitions);
-
-    assert(n_partitions < HVR_INVALID_PARTITION);
-    new_ctx->n_partitions = n_partitions;
 
     new_ctx->update_metadata = update_metadata;
     new_ctx->might_interact = might_interact;
@@ -727,13 +780,6 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_set_msg_init(new_ctx->new_all_terminated_cluster_pes,
             &new_ctx->new_all_terminated_cluster_pes_msg);
 
-    new_ctx->finalized_sets = (hvr_set_t **)malloc(
-            new_ctx->npes * sizeof(hvr_set_t *));
-    assert(new_ctx->finalized_sets);
-    for (int p = 0; p < new_ctx->npes; p++) {
-        new_ctx->finalized_sets[p] = hvr_create_empty_set(new_ctx->npes);
-    }
-
     new_ctx->coupled_pes_values = (hvr_vertex_t *)malloc(
             new_ctx->npes * sizeof(hvr_vertex_t));
     assert(new_ctx->coupled_pes_values);
@@ -743,25 +789,6 @@ void hvr_init(const hvr_partition_t n_partitions,
     new_ctx->updates_on_this_iter = (int *)malloc(
             new_ctx->npes * sizeof(new_ctx->updates_on_this_iter[0]));
     assert(new_ctx->updates_on_this_iter);
-
-    new_ctx->partitions_per_pe = (new_ctx->n_partitions + new_ctx->npes - 1) /
-        new_ctx->npes;
-    new_ctx->partitions_per_pe_vec_length_in_words =
-        (new_ctx->npes + BITS_PER_WORD - 1) / BITS_PER_WORD;
-    new_ctx->pes_per_partition = (hvr_partition_t *)shmem_malloc_wrapper(
-            new_ctx->partitions_per_pe *
-            new_ctx->partitions_per_pe_vec_length_in_words *
-            sizeof(hvr_partition_t));
-    assert(new_ctx->pes_per_partition);
-    memset(new_ctx->pes_per_partition, 0x00,
-            new_ctx->partitions_per_pe *
-            new_ctx->partitions_per_pe_vec_length_in_words *
-            sizeof(hvr_partition_t));
-
-    new_ctx->local_pes_per_partition_buffer = (hvr_partition_t *)malloc(
-            new_ctx->partitions_per_pe_vec_length_in_words *
-            sizeof(hvr_partition_t));
-    assert(new_ctx->local_pes_per_partition_buffer);
 
     hvr_partition_list_init(new_ctx->n_partitions,
             &new_ctx->local_partition_lists);
@@ -774,13 +801,12 @@ void hvr_init(const hvr_partition_t n_partitions,
             new_ctx->n_partitions);
     assert(new_ctx->partition_min_dist_from_local_vert);
 
-    hvr_vertex_cache_init(&new_ctx->vec_cache, new_ctx->n_partitions);
+    hvr_vertex_cache_init(&new_ctx->vec_cache);
 
     hvr_mailbox_init(&new_ctx->vertex_update_mailbox,        128 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_delete_mailbox,        128 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->forward_mailbox,              128 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_msg_mailbox,            32 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->coupling_mailbox,              16 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->coupling_mailbox,              16 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->coupling_ack_and_dead_mailbox, 32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->coupling_val_mailbox,          16 * 1024 * 1024);
@@ -792,11 +818,9 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_dist_bitvec_init(new_ctx->n_partitions, new_ctx->npes,
             &new_ctx->terminated_pes);
 
-    hvr_dist_bitvec_local_subcopy_init(
-            &new_ctx->partition_producers,
+    hvr_dist_bitvec_local_subcopy_init(&new_ctx->partition_producers,
             &new_ctx->local_partition_producers);
-    hvr_dist_bitvec_local_subcopy_init(
-            &new_ctx->terminated_pes,
+    hvr_dist_bitvec_local_subcopy_init(&new_ctx->terminated_pes,
             &new_ctx->local_terminated_pes);
 
     hvr_sparse_arr_init(&new_ctx->pe_subscription_info, new_ctx->n_partitions);
@@ -852,6 +876,8 @@ void hvr_init(const hvr_partition_t n_partitions,
     max_msg_len = MAX_MACRO(sizeof(hvr_dead_pe_msg_t), max_msg_len);
     max_msg_len = MAX_MACRO(sizeof(hvr_coupling_msg_t), max_msg_len);
     max_msg_len = MAX_MACRO(sizeof(new_coupling_msg_t), max_msg_len);
+    max_msg_len = MAX_MACRO(sizeof(new_coupling_msg_ack_t), max_msg_len);
+    max_msg_len = MAX_MACRO(sizeof(inter_vert_msg_t), max_msg_len);
     max_msg_len = MAX_MACRO(new_ctx->coupled_pes_msg.msg_buf_len, max_msg_len);
 
     unsigned max_buffered_msgs = 1000;
@@ -878,8 +904,20 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_buffered_msgs_init(new_ctx->vec_cache.pool_size,
             buffered_msgs_pool_size, &new_ctx->buffered_msgs);
 
+    // Initialize edges
+    size_t edges_pool_size = 1024ULL * 1024ULL * 1024ULL;
+    if (getenv("HVR_EDGES_POOL_SIZE")) {
+        edges_pool_size = atoi(getenv("HVR_EDGES_POOL_SIZE"));
+    }
+    hvr_irr_matrix_init(new_ctx->vec_cache.pool_size, edges_pool_size,
+            &new_ctx->edges);
+
     // Print the number of bytes allocated
-    // shmem_malloc_wrapper(0);
+#ifdef DETAILED_PRINTS
+    shmem_malloc_wrapper(0);
+    print_memory_metrics(new_ctx);
+#endif
+
     shmem_barrier_all();
 }
 
@@ -1105,15 +1143,21 @@ static void create_new_edges(hvr_vertex_cache_node_t *updated,
     for (unsigned i = 0; i < n_interacting; i++) {
         hvr_partition_t other_part = interacting[i];
 
-        hvr_vertex_cache_node_t *cache_iter =
-            ctx->vec_cache.partitions[other_part];
+        hvr_vertex_t *cache_iter =
+            ctx->mirror_partition_lists.lists[other_part];
         while (cache_iter) {
-            hvr_edge_type_t edge = ctx->should_have_edge(&cache_iter->vert,
+            hvr_vertex_cache_node_t *cache_node =
+                (hvr_vertex_cache_node_t *)cache_iter;
+            hvr_edge_type_t edge = ctx->should_have_edge(cache_iter,
                     &updated->vert, ctx);
-            update_edge_info(cache_iter->vert.id, updated->vert.id, cache_iter,
+            /*
+             * Each vertex in mirror_partition_lists is a field at the start of
+             * a vertex cache node, so we can just cast to the wrapping node.
+             */
+            update_edge_info(cache_iter->id, updated->vert.id, cache_node,
                     updated, edge, &existing_edge, ctx);
 
-            cache_iter = cache_iter->part_next;
+            cache_iter = cache_iter->next_in_partition;
             local_count_new_should_have_edges++;
         }
     }
@@ -1226,19 +1270,21 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
             for (unsigned i = 0; i < n_interacting; i++) {
                 hvr_partition_t other_part = ctx->interacting[i];
 
-                hvr_vertex_cache_node_t *cache_iter =
-                    ctx->vec_cache.partitions[other_part];
+                hvr_vertex_t *cache_iter =
+                    ctx->mirror_partition_lists.lists[other_part];
                 while (cache_iter) {
-                    if (!cache_iter->flag) {
+                    hvr_vertex_cache_node_t *cache_node =
+                        (hvr_vertex_cache_node_t *)cache_iter;
+                    if (!cache_node->flag) {
                         hvr_edge_type_t new_edge = ctx->should_have_edge(
-                                &cache_iter->vert, &updated->vert, ctx);
+                                cache_iter, &updated->vert, ctx);
 
-                        update_edge_info(cache_iter->vert.id, updated->vert.id,
-                                cache_iter, updated, new_edge, &no_edge, ctx);
+                        update_edge_info(cache_iter->id, updated->vert.id,
+                                cache_node, updated, new_edge, &no_edge, ctx);
 
-                        cache_iter = cache_iter->part_next;
                         local_count_new_should_have_edges += 1;
                     }
+                    cache_iter = cache_iter->next_in_partition;
                 }
             }
 
@@ -1277,7 +1323,8 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
             const unsigned long long start_new = hvr_current_time_us();
 
             // A brand new vertex, or at least this is our first update on it
-            updated = hvr_vertex_cache_add(new_vert, partition, &ctx->vec_cache);
+            updated = hvr_vertex_cache_add(new_vert, partition,
+                    &ctx->vec_cache);
             prepend_to_partition_list(&updated->vert,
                     &ctx->mirror_partition_lists, ctx);
             create_new_edges(updated, ctx->interacting, n_interacting, ctx,
@@ -2427,8 +2474,8 @@ static void save_profiling_info(
     hvr_irr_matrix_usage(&edge_bytes_used, &edge_bytes_capacity,
             &edge_bytes_allocated, &max_edges, &max_edges_index, &ctx->edges);
 
-    hvr_map_size_in_bytes(&ctx->vec_cache.cache_map, &vertex_cache_capacity,
-            &vertex_cache_used);
+    hvr_vertex_cache_mem_used(&vertex_cache_used, &vertex_cache_capacity,
+            &ctx->vec_cache);
 
     size_t pool_allocated, pool_used;
     hvr_pool_size_in_bytes(&pool_used, &pool_allocated, ctx);
@@ -2456,6 +2503,34 @@ static void save_profiling_info(
         edge_bytes_capacity;
     saved_profiling_info[n_profiled_iters].max_edges = max_edges;
     saved_profiling_info[n_profiled_iters].max_edges_index = max_edges_index;
+
+    // Mailboxes
+    saved_profiling_info[n_profiled_iters].mailbox_bytes_used = 
+        hvr_mailbox_mem_used(&ctx->vertex_update_mailbox) +
+        hvr_mailbox_mem_used(&ctx->vertex_delete_mailbox) +
+        hvr_mailbox_mem_used(&ctx->forward_mailbox) +
+        hvr_mailbox_mem_used(&ctx->vertex_msg_mailbox) +
+        hvr_mailbox_mem_used(&ctx->coupling_mailbox) +
+        hvr_mailbox_mem_used(&ctx->coupling_ack_and_dead_mailbox) +
+        hvr_mailbox_mem_used(&ctx->coupling_val_mailbox) +
+        hvr_mailbox_mem_used(&ctx->to_couple_with_mailbox) +
+        hvr_mailbox_mem_used(&ctx->root_info_mailbox);
+
+    saved_profiling_info[n_profiled_iters].msg_buf_pool_bytes_used =
+        hvr_msg_buf_pool_mem_used(&ctx->msg_buf_pool);
+
+    saved_profiling_info[n_profiled_iters].buffered_msgs_bytes_used =
+        hvr_buffered_msgs_mem_used(&ctx->buffered_msgs);
+
+    saved_profiling_info[n_profiled_iters].partition_producers_bytes_used =
+        hvr_dist_bitvec_mem_used(&ctx->partition_producers);
+    saved_profiling_info[n_profiled_iters].terminated_pes_bytes_used =
+        hvr_dist_bitvec_mem_used(&ctx->terminated_pes);
+
+    saved_profiling_info[n_profiled_iters].mirror_partition_lists_bytes =
+        hvr_partition_list_mem_used(&ctx->mirror_partition_lists);
+    saved_profiling_info[n_profiled_iters].local_partition_lists_bytes =
+        hvr_partition_list_mem_used(&ctx->local_partition_lists);
 #endif
 
     n_profiled_iters++;
@@ -2524,9 +2599,9 @@ static void print_profiling_info(profiling_info_t *info) {
             (double)info->coupling_negotiating /1000.0,
             (double)info->coupling_sharing_info / 1000.0,
             (double)info->coupling_waiting_for_info / 1000.0);
-    fprintf(profiling_fp, "  %d / %d producer "
-            "partitions and %d / %d subscriber partitions for %lu "
-            "local vertices, %llu mirrored vertices\n",
+    fprintf(profiling_fp, "  %d / %d producer partitions and %d / %d "
+            "subscriber partitions for %lu local vertices, %llu mirrored "
+            "vertices\n",
             info->n_producer_partitions,
             info->n_partitions,
             info->n_subscriber_partitions,
@@ -2543,23 +2618,41 @@ static void print_profiling_info(profiling_info_t *info) {
 #endif
 
 #ifdef DETAILED_PRINTS
-    fprintf(profiling_fp, "  management data structure: vertex pool = %llu / "
-            "%llu bytes (%f%%), PE sub info = %f MB, producer info = %f MB, "
-            "dead info = %f MB, vertex cache = %f MB (%f%% efficiency)\n",
-            info->pool_used_in_bytes, info->pool_allocated_in_bytes,
-            100.0 * (double)info->pool_used_in_bytes / (double)info->pool_allocated_in_bytes,
-            (double)info->pe_subscription_info_bytes / (1024.0 * 1024.0),
+    fprintf(profiling_fp, "  mem usage info:\n");
+    fprintf(profiling_fp, "    vertex pool = %f / %f MB (%f%%)\n",
+            (double)info->pool_used_in_bytes / (1024.0 * 1024.0),
+            (double)info->pool_allocated_in_bytes / (1024.0 * 1024.0),
+            100.0 * (double)info->pool_used_in_bytes /
+                (double)info->pool_allocated_in_bytes);
+    fprintf(profiling_fp, "    PE sub info = %f MB\n",
+            (double)info->pe_subscription_info_bytes / (1024.0 * 1024.0));
+    fprintf(profiling_fp, "    producer info = %f MB, dead info = %f MB\n",
             (double)info->producer_info_bytes / (1024.0 * 1024.0),
-            (double)info->dead_info_bytes / (1024.0 * 1024.0),
+            (double)info->dead_info_bytes / (1024.0 * 1024.0));
+    fprintf(profiling_fp, "    vertex cache = %f MB / %f MB (%f%%)\n",
+            (double)info->vertex_cache_used / (1024.0 * 1024.0),
             (double)info->vertex_cache_capacity / (1024.0 * 1024.0),
             100.0 * (double)info->vertex_cache_used /
-                (double)info->vertex_cache_capacity);
+            (double)info->vertex_cache_capacity);
     fprintf(profiling_fp, "    edge set: used=%f MB, allocated=%f MB, "
             "capacity=%f MB, max # edges=%lu, max edges index=%llu\n",
             (double)info->edge_bytes_used / (1024.0 * 1024.0),
             (double)info->edge_bytes_allocated / (1024.0 * 1024.0),
             (double)info->edge_bytes_capacity / (1024.0 * 1024.0),
             info->max_edges, info->max_edges_index);
+    fprintf(profiling_fp, "    total bytes for all mailboxes = %f MB\n",
+            (double)info->mailbox_bytes_used / (1024.0 * 1024.0));
+    fprintf(profiling_fp, "    msg buf pool = %f MB\n",
+            (double)info->msg_buf_pool_bytes_used / (1024.0 * 1024.0));
+    fprintf(profiling_fp, "    buffered msgs = %f MB\n",
+            (double)info->buffered_msgs_bytes_used / (1024.0 * 1024.0));
+    fprintf(profiling_fp, "    partition producers dist. bitvec = %f MB\n",
+            (double)info->partition_producers_bytes_used / (1024.0 * 1024.0));
+    fprintf(profiling_fp, "    terminated PEs dist. bitvec = %f MB\n",
+            (double)info->terminated_pes_bytes_used / (1024.0 * 1024.0));
+    fprintf(profiling_fp, "    local part list = %f MB, mirror = %f MB\n",
+            (double)info->local_partition_lists_bytes / (1024.0 * 1024.0),
+            (double)info->mirror_partition_lists_bytes / (1024.0 * 1024.0));
 #endif
 }
 
@@ -2576,11 +2669,11 @@ static void write_vertex_to_file(FILE *fp, hvr_vertex_t *curr,
 
 static void save_cached_state_to_dump_file(hvr_internal_ctx_t *ctx) {
     hvr_vertex_cache_t *c = &ctx->vec_cache;
-    for (hvr_partition_t p = 0; p < c->npartitions; p++) {
-        hvr_vertex_cache_node_t *iter = c->partitions[p];
+    for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
+        hvr_vertex_t *iter = ctx->mirror_partition_lists.lists[p];
         while (iter) {
-            write_vertex_to_file(ctx->cache_dump_file, &iter->vert, ctx);
-            iter = iter->part_next;
+            write_vertex_to_file(ctx->cache_dump_file, iter, ctx);
+            iter = iter->next_in_partition;
         }
     }
 }
@@ -2649,15 +2742,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         abort();
     }
 
-
     shmem_barrier_all();
 
-    // Initialize edges
-    size_t edges_pool_size = 1024ULL * 1024ULL * 1024ULL;
-    if (getenv("HVR_EDGES_POOL_SIZE")) {
-        edges_pool_size = atoi(getenv("HVR_EDGES_POOL_SIZE"));
-    }
-    hvr_irr_matrix_init(ctx->vec_cache.pool_size, edges_pool_size, &ctx->edges);
 
     const unsigned long long start_body = hvr_current_time_us();
 
@@ -2769,6 +2855,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     while (!should_abort && hvr_current_time_us() - start_body <
             ctx->max_elapsed_seconds * 1000000ULL) {
+
+        print_memory_metrics(ctx);
 
         if (ctx->dump_mode && ctx->pool.tracker.used_list &&
                 !ctx->only_last_iter_dump) {
@@ -2963,14 +3051,8 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
         shmem_free(ctx->vertex_partitions);
     }
 
-    for (int p = 0; p < ctx->npes; p++) {
-        hvr_set_destroy(ctx->finalized_sets[p]);
-    }
-    free(ctx->finalized_sets);
-
     free(ctx->coupled_pes_values);
     free(ctx->updates_on_this_iter);
-    free(ctx->local_pes_per_partition_buffer);
     hvr_partition_list_destroy(&ctx->local_partition_lists);
     hvr_partition_list_destroy(&ctx->mirror_partition_lists);
     free(ctx->partition_min_dist_from_local_vert);

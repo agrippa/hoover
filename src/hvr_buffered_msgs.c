@@ -10,6 +10,7 @@ void hvr_buffered_msgs_init(size_t nvertices, size_t pool_size,
 
     b->pool = malloc(pool_size);
     assert(b->pool);
+    memset(b->pool, 0x00, pool_size);
     b->pool_size = pool_size;
     b->allocator = create_mspace_with_base(b->pool, pool_size, 0);
     assert(b->allocator);
@@ -44,3 +45,6 @@ int hvr_buffered_msgs_poll(size_t i, hvr_vertex_t *out,
     }
 }
 
+size_t hvr_buffered_msgs_mem_used(hvr_buffered_msgs_t *b) {
+    return b->nvertices * sizeof(b->buffered[0]) + b->pool_size;
+}

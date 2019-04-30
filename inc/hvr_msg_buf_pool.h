@@ -29,4 +29,6 @@ void hvr_msg_buf_pool_release(hvr_msg_buf_node_t *node,
 
 void hvr_msg_buf_pool_destroy(hvr_msg_buf_pool_t *pool);
 
+size_t hvr_msg_buf_pool_mem_used(hvr_msg_buf_pool_t *pool);
+
 #endif

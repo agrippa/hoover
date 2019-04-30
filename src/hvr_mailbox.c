@@ -250,3 +250,8 @@ void hvr_mailbox_destroy(hvr_mailbox_t *mailbox) {
     shmem_free(mailbox->indices);
     shmem_free(mailbox->buf);
 }
+
+size_t hvr_mailbox_mem_used(hvr_mailbox_t *mailbox) {
+    return sizeof(*mailbox) + sizeof(mailbox->indices[0]) +
+        mailbox->capacity_in_bytes;
+}

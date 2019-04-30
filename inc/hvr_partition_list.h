@@ -22,4 +22,6 @@ void update_partition_list_membership(hvr_vertex_t *curr,
 
 void hvr_partition_list_destroy(hvr_partition_list_t *l);
 
+size_t hvr_partition_list_mem_used(hvr_partition_list_t *l);
+
 #endif

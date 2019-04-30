@@ -16,12 +16,12 @@ static int comp(const void *_a, const void *_b) {
 }
 
 // Add a new key with one initial value
-static void hvr_map_seg_add(hvr_vertex_id_t key, void *cached_vert,
+static void hvr_map_seg_add(hvr_vertex_id_t key, void *data,
         hvr_map_seg_t *s, unsigned init_val_capacity) {
     const unsigned insert_index = s->nkeys;
     assert(insert_index < HVR_MAP_SEG_SIZE);
     s->data[insert_index].key = key;
-    s->data[insert_index].cached_vert = cached_vert;
+    s->data[insert_index].data = data;
 
     s->nkeys++;
 
@@ -130,7 +130,7 @@ void hvr_map_add(hvr_vertex_id_t key, void *to_insert, hvr_map_t *m) {
 
     if (success) {
         // Key already exists
-        assert(seg->data[seg_index].cached_vert == to_insert);
+        assert(seg->data[seg_index].data == to_insert);
     } else {
         const unsigned bucket = HVR_MAP_BUCKET(key);
 
@@ -177,7 +177,7 @@ void hvr_map_remove(hvr_vertex_id_t key, void *val, hvr_map_t *m) {
     const int success = hvr_map_find(key, m, &seg, &seg_index);
 
     if (success) {
-        assert(seg->data[seg_index].cached_vert == val);
+        assert(seg->data[seg_index].data == val);
 
         unsigned copy_to = seg_index;
         unsigned copy_from = seg->nkeys - 1;
@@ -195,7 +195,7 @@ void *hvr_map_get(hvr_vertex_id_t key, hvr_map_t *m) {
     const int success = hvr_map_find(key, m, &seg, &seg_index);
 
     if (success) {
-        return seg->data[seg_index].cached_vert;
+        return seg->data[seg_index].data;
     } else {
         return NULL;
     }
@@ -224,7 +224,7 @@ void hvr_map_size_in_bytes(hvr_map_t *m, size_t *out_capacity,
         while (bucket) {
             unsigned n_unused_keys = HVR_MAP_SEG_SIZE - bucket->nkeys;
             used += sizeof(hvr_map_seg_t) - (n_unused_keys *
-                    (sizeof(hvr_map_val_t) + sizeof(hvr_vertex_id_t)));
+                    sizeof(hvr_map_val_t));
             bucket = bucket->next;
         }
     }

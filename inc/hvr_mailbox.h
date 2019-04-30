@@ -34,4 +34,6 @@ int hvr_mailbox_recv(void *msg, size_t msg_capacity, size_t *msg_len,
 
 void hvr_mailbox_destroy(hvr_mailbox_t *mailbox);
 
+size_t hvr_mailbox_mem_used(hvr_mailbox_t *mailbox);
+
 #endif // _HVR_MAILBOX

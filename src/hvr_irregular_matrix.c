@@ -8,10 +8,10 @@ void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
         hvr_irr_matrix_t *m) {
     m->edges = (hvr_edge_info_t **)malloc(nvertices * sizeof(m->edges[0]));
     assert(m->edges);
-    m->edges_capacity = (unsigned *)malloc(
+    m->edges_capacity = (uint16_t *)malloc(
             nvertices * sizeof(m->edges_capacity[0]));
     assert(m->edges_capacity);
-    m->edges_len = (unsigned *)malloc(nvertices * sizeof(m->edges_len[0]));
+    m->edges_len = (uint16_t *)malloc(nvertices * sizeof(m->edges_len[0]));
     assert(m->edges_len);
 
     memset(m->edges, 0x00, sizeof(m->edges[0]) * nvertices);
@@ -22,6 +22,7 @@ void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
 
     m->pool = malloc(pool_size);
     assert(m->pool);
+    memset(m->pool, 0xff, pool_size);
     m->pool_size = pool_size;
     m->allocator = create_mspace_with_base(m->pool, pool_size, 0);
     assert(m->allocator);
@@ -29,7 +30,7 @@ void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
 
 hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i,
         hvr_vertex_id_t j, const hvr_irr_matrix_t *m) {
-    const unsigned curr_len = m->edges_len[i];
+    const uint16_t curr_len = m->edges_len[i];
     const hvr_edge_info_t *curr_edges = m->edges[i];
 
     for (unsigned iter = 0; iter < curr_len; iter++) {
@@ -42,8 +43,8 @@ hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i,
 
 void hvr_irr_matrix_resize(hvr_vertex_id_t i, unsigned new_capacity,
         hvr_irr_matrix_t *m) {
-    const unsigned curr_len = m->edges_len[i];
-    const unsigned curr_capacity = m->edges_capacity[i];
+    const uint16_t curr_len = m->edges_len[i];
+    const uint16_t curr_capacity = m->edges_capacity[i];
     assert(curr_len <= new_capacity);
 
     if (new_capacity != curr_capacity) {
@@ -56,8 +57,8 @@ void hvr_irr_matrix_resize(hvr_vertex_id_t i, unsigned new_capacity,
 
 void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
         hvr_irr_matrix_t *m) {
-    const unsigned curr_len = m->edges_len[i];
-    const unsigned curr_capacity = m->edges_capacity[i];
+    const uint16_t curr_len = m->edges_len[i];
+    const uint16_t curr_capacity = m->edges_capacity[i];
     hvr_edge_info_t *curr_edges = m->edges[i];
 
     int found = -1;

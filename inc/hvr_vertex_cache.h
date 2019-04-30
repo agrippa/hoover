@@ -24,12 +24,6 @@ typedef struct _hvr_vertex_cache_node_t {
     // Contents of the vec itself
     hvr_vertex_t vert;
 
-    /*
-     * Maintain lists of mirrored vertices in each partition to enable quick
-     * iteration over a subset of mirrored vertices based on partition.
-     */
-    struct _hvr_vertex_cache_node_t *part_next;
-    struct _hvr_vertex_cache_node_t *part_prev;
     struct _hvr_vertex_cache_node_t *tmp;
 
     /*
@@ -53,13 +47,6 @@ typedef struct _hvr_vertex_cache_node_t {
  * Data structure used to store all fetched and cached vertices.
  */
 typedef struct _hvr_vertex_cache_t {
-    /*
-     * Array of linked lists, allowing quick iteration over all mirrored
-     * vertices in a given partition.
-     */
-    hvr_vertex_cache_node_t **partitions;
-    hvr_partition_t npartitions;
-
     hvr_vertex_cache_node_t *local_neighbors_head;
 
     /*
@@ -167,8 +154,7 @@ static inline void hvr_vertex_cache_add_to_local_neighbor_list(
  * cache is assumed to point to a block of memory of at least
  * sizeof(hvr_vertex_cache_t) bytes.
  */
-extern void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
-        hvr_partition_t npartitions);
+extern void hvr_vertex_cache_init(hvr_vertex_cache_t *cache);
 
 extern void hvr_vertex_cache_destroy(hvr_vertex_cache_t *cache);
 
@@ -191,6 +177,9 @@ extern void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *vert,
 
 extern void hvr_vertex_cache_update_partition(hvr_vertex_cache_node_t *existing,
         hvr_partition_t new_partition, hvr_vertex_cache_t *cache);
+
+void hvr_vertex_cache_mem_used(size_t *used, size_t *allocated,
+        hvr_vertex_cache_t *cache);
 
 #ifdef __cplusplus
 }

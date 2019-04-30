@@ -6,8 +6,7 @@
 
 #include "hvr_vertex_cache.h"
 
-void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
-        hvr_partition_t npartitions) {
+void hvr_vertex_cache_init(hvr_vertex_cache_t *cache) {
     memset(cache, 0x00, sizeof(*cache));
 
     unsigned prealloc_segs = 768;
@@ -16,13 +15,6 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
     }
 
     hvr_map_init(&cache->cache_map, prealloc_segs, 0, 0, 1);
-
-    cache->partitions = (hvr_vertex_cache_node_t **)malloc(
-            npartitions * sizeof(hvr_vertex_cache_node_t *));
-    assert(cache->partitions);
-    memset(cache->partitions, 0x00,
-            npartitions * sizeof(hvr_vertex_cache_node_t *));
-    cache->npartitions = npartitions;
 
     unsigned n_preallocs = 1024;
     if (getenv("HVR_VERT_CACHE_PREALLOCS")) {
@@ -34,13 +26,14 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache,
     assert(prealloc);
     memset(prealloc, 0x00, n_preallocs * sizeof(*prealloc));
 
-    prealloc[0].part_next = prealloc + 1;
-    prealloc[0].part_prev = NULL;
-    prealloc[n_preallocs - 1].part_next = NULL;
-    prealloc[n_preallocs - 1].part_prev = prealloc + (n_preallocs - 2);
+    prealloc[0].local_neighbors_next = prealloc + 1;
+    prealloc[0].local_neighbors_prev = NULL;
+    prealloc[n_preallocs - 1].local_neighbors_next = NULL;
+    prealloc[n_preallocs - 1].local_neighbors_prev = prealloc +
+        (n_preallocs - 2);
     for (unsigned i = 1; i < n_preallocs - 1; i++) {
-        prealloc[i].part_next = prealloc + (i + 1);
-        prealloc[i].part_prev = prealloc + (i - 1);
+        prealloc[i].local_neighbors_next = prealloc + (i + 1);
+        prealloc[i].local_neighbors_prev = prealloc + (i - 1);
     }
     cache->pool_head = prealloc + 0;
     cache->pool_mem = prealloc;
@@ -68,12 +61,6 @@ void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *node,
 
     hvr_map_remove(node->vert.id, node, &cache->cache_map);
 
-    // Remove from partitions list
-    linked_list_remove_helper(node, node->part_prev, node->part_next,
-            node->part_prev ? &(node->part_prev->part_next) : NULL,
-            node->part_next ? &(node->part_next->part_prev) : NULL,
-            &(cache->partitions[node->part]));
-
     // Remove from local neighbors list if it is present
     if (local_neighbor_list_contains(node, cache)) {
         linked_list_remove_helper(node, node->local_neighbors_prev,
@@ -87,10 +74,10 @@ void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *node,
 
     // Insert into pool using bucket pointers
     if (cache->pool_head) {
-        cache->pool_head->part_prev = node;
+        cache->pool_head->local_neighbors_prev = node;
     }
-    node->part_next = cache->pool_head;
-    node->part_prev = NULL;
+    node->local_neighbors_next = cache->pool_head;
+    node->local_neighbors_prev = NULL;
     cache->pool_head = node;
 
     cache->n_cached_vertices--;
@@ -100,27 +87,7 @@ void hvr_vertex_cache_update_partition(hvr_vertex_cache_node_t *existing,
         hvr_partition_t new_partition, hvr_vertex_cache_t *cache) {
     assert(new_partition != HVR_INVALID_PARTITION);
 
-    hvr_partition_t old_partition = existing->part;
-
-    if (old_partition != new_partition) {
-        // Remove from current partition list
-        linked_list_remove_helper(existing,
-                existing->part_prev,
-                existing->part_next,
-                existing->part_prev ? &(existing->part_prev->part_next) : NULL,
-                existing->part_next ? &(existing->part_next->part_prev) : NULL,
-                &(cache->partitions[old_partition]));
-
-        // Insert into the appropriate partition list
-        if (cache->partitions[new_partition]) {
-            cache->partitions[new_partition]->part_prev = existing;
-        }
-        existing->part_next = cache->partitions[new_partition];
-        existing->part_prev = NULL;
-        cache->partitions[new_partition] = existing;
-
-        existing->part = new_partition;
-    }
+    existing->part = new_partition;
 }
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
@@ -132,9 +99,9 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     if (cache->pool_head) {
         // Look for an already free node
         new_node = cache->pool_head;
-        cache->pool_head = new_node->part_next;
+        cache->pool_head = new_node->local_neighbors_next;
         if (cache->pool_head) {
-            cache->pool_head->part_prev = NULL;
+            cache->pool_head->local_neighbors_prev = NULL;
         }
     } else {
         // No valid node found, print an error
@@ -148,14 +115,6 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     new_node->n_local_neighbors = 0;
     new_node->flag = 0;
 
-    // Insert into the appropriate partition list
-    if (cache->partitions[part]) {
-        cache->partitions[part]->part_prev = new_node;
-    }
-    new_node->part_next = cache->partitions[part];
-    new_node->part_prev = NULL;
-    cache->partitions[part] = new_node;
-
     hvr_map_add(vert->id, new_node, &cache->cache_map);
 
     cache->n_cached_vertices++;
@@ -165,6 +124,18 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
 void hvr_vertex_cache_destroy(hvr_vertex_cache_t *cache) {
     hvr_map_destroy(&cache->cache_map);
-    free(cache->partitions);
     free(cache->pool_mem);
+}
+
+void hvr_vertex_cache_mem_used(size_t *out_used, size_t *out_allocated,
+        hvr_vertex_cache_t *cache) {
+    size_t used, allocated;
+    hvr_map_size_in_bytes(&cache->cache_map, &allocated, &used);
+
+    allocated += cache->pool_size * sizeof(hvr_vertex_cache_node_t);
+
+    used += cache->n_cached_vertices * sizeof(hvr_vertex_cache_node_t);
+
+    *out_used = used;
+    *out_allocated = allocated;
 }

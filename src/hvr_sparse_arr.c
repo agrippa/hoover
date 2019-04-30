@@ -38,6 +38,8 @@ void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity) {
         pool_size = atoi(getenv("HVR_SPARSE_ARR_POOL"));
     }
     arr->pool = malloc(pool_size);
+    assert(arr->pool);
+    memset(arr->pool, 0xff, pool_size);
     arr->tracker = create_mspace_with_base(arr->pool, pool_size, 0);
     assert(arr->tracker);
 }

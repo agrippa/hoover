@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:15:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover-infectious
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -26,7 +26,6 @@ export LD_LIBRARY_PATH=$OFI_HOME/lib:$LD_LIBRARY_PATH
 
 export SHMEM_ABORT_ON_ERROR=1
 export SMA_OFI_PROVIDER=gni
-export SHMEM_SYMMETRIC_SIZE=$((1024 * 1024 * 1024))
 export SHMEM_OPTIMIZED_MEMCPY=1
 
 # 2 sockets x 16 cores per socket for Cori Haswell
@@ -94,27 +93,32 @@ else
     fi
 
     export EXE=infectious_test.multi
-    export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) --ntasks-per-socket=1 --cpus-per-task=$CORES_PER_SOCKET"
+    export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) --ntasks-per-socket=1 --cpus-per-task=$CORES_PER_SOCKET --mem-bind=local"
     export SHMEM_SYMMETRIC_SIZE=$((2 * 1024 * 1024 * 1024))
     export OMP_NUM_THREADS=$CORES_PER_SOCKET
     export SHMEM_MAX_NUM_THREADS=$OMP_NUM_THREADS
 fi
 
+# Small problem setup
 # export MAX_NUM_TIMESTEPS=270
 # export INPUT_FILE=$SCRATCH/491520-vert.16000-y.32000-x.1-infected.bin
-export MAX_NUM_TIMESTEPS=100
-export INPUT_FILE=$SCRATCH/4915200-vert.16000-y.32000-x.1-infected.bin
-export INFECTION_RADIUS=100
-export MAX_WALLTIME_SECONDS=600
+# export INFECTION_RADIUS=100
 
-export HVR_SYMM_POOL_SIZE=1563000
+# Larger problem setup
+export MAX_NUM_TIMESTEPS=50
+export INPUT_FILE=$SCRATCH/4915200-vert.16000-y.32000-x.1-infected.bin
+export INFECTION_RADIUS=10
+
+export MAX_WALLTIME_SECONDS=240
+
+export HVR_SYMM_POOL_SIZE=3500000
 export HVR_SYMM_POOL_NNODES=1024
-export HVR_VERT_CACHE_PREALLOCS=1000000
+export HVR_VERT_CACHE_PREALLOCS=5000000
 export HVR_VERT_CACHE_SEGS=40000
-export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
+export HVR_DIST_BITVEC_POOL_SIZE=$((128 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=8192
 export HVR_SPARSE_ARR_POOL=$((192 * 1024 * 1024));
-export HVR_EDGES_POOL_SIZE=$((1024 * 1024 * 1024 + 128 * 1024 * 1024))
+export HVR_EDGES_POOL_SIZE=$((512 * 1024 * 1024))
 export HVR_CACHED_INTERACTIONS_POOL_SIZE=$((128 * 1024 * 1024))
 export HVR_BUFFERED_MSGS_POOL_SIZE=$((64 * 1024 * 1024))
 
@@ -123,7 +127,7 @@ export HVR_BUFFERED_MSGS_POOL_SIZE=$((64 * 1024 * 1024))
 # export HVR_CACHE_TRACE_DUMP=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-# export HVR_HANG_ABORT=300
+# export HVR_HANG_ABORT=360
 # export HVR_HANG_ABORT_PE=17
 
 cd $SCRATCH
@@ -133,4 +137,4 @@ cd job.$SLURM_JOB_ID
 export EXE_ARGS="$CELL_DIM $CELL_DIM $PE_ROWS $PE_COLS $MAX_NUM_TIMESTEPS \
     $INFECTION_RADIUS $MAX_WALLTIME_SECONDS $INPUT_FILE"
 
-srun $SLURM_ARGS $HOME/hoover/$EXE+pat $EXE_ARGS
+srun $SLURM_ARGS $HOME/hoover/bin/$EXE $EXE_ARGS

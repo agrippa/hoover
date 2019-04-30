@@ -246,7 +246,6 @@ typedef struct _hvr_internal_ctx_t {
     hvr_set_t *new_all_terminated_cluster_pes;
     hvr_set_t *terminating_pes;
     hvr_set_t *other_terminating_pes;
-    hvr_set_t **finalized_sets;
     hvr_set_t *other_to_couple_with;
     hvr_set_t *other_coupled_pes;
     hvr_set_t *already_coupled_with;
@@ -254,19 +253,6 @@ typedef struct _hvr_internal_ctx_t {
     // Values retrieved from each coupled PE
     hvr_vertex_t *coupled_pes_values;
     int *updates_on_this_iter;
-
-    /*
-     * An array of bit vectors, each of npes bits.
-     *
-     * Each bit vector is associated with a single partition, and signals the
-     * PEs that have that partition active.
-     *
-     * These per-partition bit vectors are spread across all PEs.
-     */
-    hvr_partition_t *pes_per_partition;
-    hvr_partition_t partitions_per_pe_vec_length_in_words;
-    hvr_partition_t partitions_per_pe;
-    hvr_partition_t *local_pes_per_partition_buffer;
 
     // For debug printing
     char my_hostname[1024];

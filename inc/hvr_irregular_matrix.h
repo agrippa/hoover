@@ -6,8 +6,8 @@
 
 typedef struct _hvr_irr_matrix_t {
     hvr_edge_info_t **edges;
-    unsigned *edges_capacity;
-    unsigned *edges_len;
+    uint16_t *edges_capacity;
+    uint16_t *edges_len;
     size_t nvertices;
 
     void *pool;

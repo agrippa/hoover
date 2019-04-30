@@ -5,7 +5,6 @@
 
 #include "shmem_rw_lock.h"
 
-
 /*
  * In the long, the topmost bit is used to indicate a write lock request, the
  * remainder of the bits are used to count readers.

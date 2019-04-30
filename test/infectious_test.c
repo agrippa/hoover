@@ -115,9 +115,10 @@ hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
     const double partition_y_dim = global_y_dim / (double)n_y_partition;
     const double partition_x_dim = global_x_dim / (double)n_x_partition;
 
-    const int time_step_partition = (int)(timestep / partition_time_step);
-    const int y_partition = (int)(y / partition_y_dim);
-    const int x_partition = (int)(x / partition_x_dim);
+    const hvr_partition_t time_step_partition = (hvr_partition_t)(timestep /
+            partition_time_step);
+    const hvr_partition_t y_partition = (hvr_partition_t)(y / partition_y_dim);
+    const hvr_partition_t x_partition = (hvr_partition_t)(x / partition_x_dim);
 
     assert(time_step_partition < n_time_partition);
     assert(x_partition < n_x_partition);
@@ -451,8 +452,8 @@ int main(int argc, char **argv) {
     char *input_filename = argv[8];
 
     n_time_partition = max_num_timesteps;
-    n_y_partition = 400;
-    n_x_partition = 400;
+    n_y_partition = 320;
+    n_x_partition = 320;
     hvr_partition_t npartitions = n_time_partition * n_y_partition *
         n_x_partition;
 

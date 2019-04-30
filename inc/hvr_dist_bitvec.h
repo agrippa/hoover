@@ -37,6 +37,7 @@ typedef struct _hvr_dist_bitvec_t {
 
     void *pool;
     mspace tracker;
+    size_t pool_size;
 } hvr_dist_bitvec_t;
 
 // A local (not symmetric) copy of the values for a single row of the bitvector.
@@ -62,6 +63,8 @@ void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
 void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
         hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec,
         int multithreaded);
+
+size_t hvr_dist_bitvec_mem_used(hvr_dist_bitvec_t *vec);
 
 int hvr_dist_bitvec_owning_pe(hvr_dist_bitvec_size_t coord0,
         hvr_dist_bitvec_t *vec);

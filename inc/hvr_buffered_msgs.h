@@ -26,4 +26,6 @@ void hvr_buffered_msgs_insert(size_t i, hvr_vertex_t *payload,
 
 int hvr_buffered_msgs_poll(size_t i, hvr_vertex_t *out, hvr_buffered_msgs_t *b);
 
+size_t hvr_buffered_msgs_mem_used(hvr_buffered_msgs_t *b);
+
 #endif

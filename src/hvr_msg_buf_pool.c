@@ -46,3 +46,8 @@ void hvr_msg_buf_pool_destroy(hvr_msg_buf_pool_t *pool) {
     free(pool->buf_mem);
     free(pool->node_mem);
 }
+
+size_t hvr_msg_buf_pool_mem_used(hvr_msg_buf_pool_t *pool) {
+    return pool->pool_size * pool->buf_size +
+        pool->pool_size * sizeof(pool->node_mem[0]);
+}

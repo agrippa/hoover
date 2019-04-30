@@ -10,7 +10,7 @@
 
 typedef struct _hvr_map_val_t {
     hvr_vertex_id_t key;
-    void *cached_vert;
+    void *data;
 } hvr_map_val_t;
 
 typedef struct _hvr_map_seg_t {
