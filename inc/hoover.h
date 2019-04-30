@@ -287,8 +287,9 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t to_couple_with_mailbox;
     hvr_mailbox_t root_info_mailbox;
 
-    hvr_dist_bitvec_local_subcopy_t *producer_info;
-    hvr_dist_bitvec_local_subcopy_t *dead_info;
+    hvr_map_t producer_info;
+    hvr_map_t dead_info;
+
     hvr_time_t *next_producer_info_check;
     hvr_time_t *curr_producer_info_interval;
 

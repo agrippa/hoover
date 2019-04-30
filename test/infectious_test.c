@@ -452,8 +452,8 @@ int main(int argc, char **argv) {
     char *input_filename = argv[8];
 
     n_time_partition = max_num_timesteps;
-    n_y_partition = 320;
-    n_x_partition = 320;
+    n_y_partition = 400;
+    n_x_partition = 400;
     hvr_partition_t npartitions = n_time_partition * n_y_partition *
         n_x_partition;
 

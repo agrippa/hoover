@@ -345,14 +345,23 @@ static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
 
 static void handle_new_subscription(hvr_partition_t p,
         hvr_internal_ctx_t *ctx) {
+    hvr_dist_bitvec_local_subcopy_t *p_dead_info =
+        (hvr_dist_bitvec_local_subcopy_t *)malloc(sizeof(*p_dead_info));
+    assert(p_dead_info);
     hvr_dist_bitvec_local_subcopy_init(&ctx->terminated_pes,
-            ctx->dead_info + p);
+            p_dead_info);
+    hvr_map_add(p, p_dead_info, &ctx->dead_info);
+
+    hvr_dist_bitvec_local_subcopy_t *p_producer_info =
+        (hvr_dist_bitvec_local_subcopy_t *)malloc(sizeof(*p_producer_info));
+    assert(p_producer_info);
     hvr_dist_bitvec_local_subcopy_init(&ctx->partition_producers,
-            ctx->producer_info + p);
+            p_producer_info);
+    hvr_map_add(p, p_producer_info, &ctx->producer_info);
+
 
     // Download the list of producers for partition p.
-    hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers,
-            ctx->producer_info + p);
+    hvr_dist_bitvec_copy_locally(p, &ctx->partition_producers, p_producer_info);
 
     /*
      * notify all producers of this partition of our subscription
@@ -363,8 +372,7 @@ static void handle_new_subscription(hvr_partition_t p,
     change.partition = p; // The partition (un)subscribed to
     change.entered = 1;   // new subscription
     for (int pe = 0; pe < ctx->npes; pe++) {
-        if (hvr_dist_bitvec_local_subcopy_contains(pe,
-                    ctx->producer_info + p)) {
+        if (hvr_dist_bitvec_local_subcopy_contains(pe, p_producer_info)) {
             hvr_mailbox_send(&change, sizeof(change), pe,
                     -1, &ctx->forward_mailbox, HVR_IS_MULTITHREADED);
         }
@@ -373,10 +381,10 @@ static void handle_new_subscription(hvr_partition_t p,
     if (dead_pe_processing) {
         const unsigned long long start = hvr_current_time_us();
         hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
-                ctx->dead_info + p);
+                p_dead_info);
         for (int pe = 0; pe < ctx->npes; pe++) {
             if (hvr_dist_bitvec_local_subcopy_contains(pe,
-                        ctx->dead_info + p)) {
+                        p_dead_info)) {
 #ifdef HVR_MULTITHREADED
 #pragma omp critical
 #endif
@@ -394,7 +402,12 @@ static void handle_existing_subscription(hvr_partition_t p,
 
     uint64_t curr_seq_no = hvr_dist_bitvec_get_seq_no(p,
             &ctx->partition_producers);
-    if (curr_seq_no <= ctx->producer_info[p].seq_no) {
+
+    hvr_dist_bitvec_local_subcopy_t *p_producer_info = hvr_map_get(p,
+            &ctx->producer_info);
+    assert(p_producer_info);
+
+    if (curr_seq_no <= p_producer_info->seq_no) {
         // No change yet again, back off further
         hvr_time_t new_backoff = 2 * ctx->curr_producer_info_interval[p];
         if (new_backoff > max_producer_info_interval) {
@@ -422,8 +435,7 @@ static void handle_existing_subscription(hvr_partition_t p,
      * interested in their updates.
      */
     for (int pe = 0; pe < ctx->npes; pe++) {
-        if (!hvr_dist_bitvec_local_subcopy_contains(pe,
-                    ctx->producer_info + p) &&
+        if (!hvr_dist_bitvec_local_subcopy_contains(pe, p_producer_info) &&
                 hvr_dist_bitvec_local_subcopy_contains(pe,
                     &ctx->local_partition_producers)) {
             // New producer
@@ -433,7 +445,7 @@ static void handle_existing_subscription(hvr_partition_t p,
     }
 
     // Save for later
-    hvr_dist_bitvec_local_subcopy_copy(ctx->producer_info + p,
+    hvr_dist_bitvec_local_subcopy_copy(p_producer_info,
             &ctx->local_partition_producers);
 
     /*
@@ -445,9 +457,12 @@ static void handle_existing_subscription(hvr_partition_t p,
         hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
                 &ctx->local_terminated_pes);
 
+        hvr_dist_bitvec_local_subcopy_t *p_dead_info = hvr_map_get(p,
+                &ctx->dead_info);
+        assert(p_dead_info);
+
         for (int pe = 0; pe < ctx->npes; pe++) {
-            if (!hvr_dist_bitvec_local_subcopy_contains(pe,
-                        ctx->dead_info + p) &&
+            if (!hvr_dist_bitvec_local_subcopy_contains(pe, p_dead_info) &&
                     hvr_dist_bitvec_local_subcopy_contains(pe,
                         &ctx->local_terminated_pes)) {
                 // New dead PE
@@ -458,20 +473,23 @@ static void handle_existing_subscription(hvr_partition_t p,
             }
         }
 
-        hvr_dist_bitvec_local_subcopy_copy(ctx->dead_info + p,
+        hvr_dist_bitvec_local_subcopy_copy(p_dead_info,
                 &ctx->local_terminated_pes);
     }
 }
 
 static void handle_new_unsubscription(hvr_partition_t p,
         hvr_internal_ctx_t *ctx) {
+    hvr_dist_bitvec_local_subcopy_t *p_producer_info = hvr_map_get(p,
+            &ctx->producer_info);
+    assert(p_producer_info);
+
     hvr_partition_member_change_t change;
     change.pe = ctx->pe;  // The subscriber/unsubscriber
     change.partition = p; // The partition (un)subscribed to
     change.entered = 0;   // unsubscription
     for (int pe = 0; pe < ctx->npes; pe++) {
-        if (hvr_dist_bitvec_local_subcopy_contains(pe,
-                    ctx->producer_info + p)) {
+        if (hvr_dist_bitvec_local_subcopy_contains(pe, p_producer_info)) {
             hvr_mailbox_send(&change, sizeof(change), pe,
                     -1, &ctx->forward_mailbox, HVR_IS_MULTITHREADED);
         }
@@ -497,10 +515,15 @@ static void handle_new_unsubscription(hvr_partition_t p,
     }
 #endif
 
+    hvr_map_remove(p, p_producer_info, &ctx->producer_info);
     hvr_dist_bitvec_local_subcopy_destroy(&ctx->partition_producers,
-            ctx->producer_info + p);
-    hvr_dist_bitvec_local_subcopy_destroy(&ctx->terminated_pes,
-            ctx->dead_info + p);
+            p_producer_info);
+
+    hvr_dist_bitvec_local_subcopy_t *p_dead_info = hvr_map_get(p,
+            &ctx->dead_info);
+    assert(p_dead_info);
+    hvr_map_remove(p, p_dead_info, &ctx->dead_info);
+    hvr_dist_bitvec_local_subcopy_destroy(&ctx->terminated_pes, p_dead_info);
 }
 
 static void update_partition_window(hvr_internal_ctx_t *ctx,
@@ -805,10 +828,10 @@ void hvr_init(const hvr_partition_t n_partitions,
 
     hvr_mailbox_init(&new_ctx->vertex_update_mailbox,        128 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_delete_mailbox,        128 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->forward_mailbox,              128 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->forward_mailbox,               32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_msg_mailbox,            32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->coupling_mailbox,              16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->coupling_ack_and_dead_mailbox, 32 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->coupling_ack_and_dead_mailbox, 16 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->coupling_val_mailbox,          16 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->to_couple_with_mailbox,        16 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->root_info_mailbox,             16 * 1024 * 1024);
@@ -827,17 +850,12 @@ void hvr_init(const hvr_partition_t n_partitions,
 
     new_ctx->max_graph_traverse_depth = max_graph_traverse_depth;
 
-    new_ctx->producer_info = (hvr_dist_bitvec_local_subcopy_t *)malloc(
-            new_ctx->n_partitions * sizeof(hvr_dist_bitvec_local_subcopy_t));
-    assert(new_ctx->producer_info);
-    memset(new_ctx->producer_info, 0x00,
-            new_ctx->n_partitions * sizeof(hvr_dist_bitvec_local_subcopy_t));
-
-    new_ctx->dead_info = (hvr_dist_bitvec_local_subcopy_t *)malloc(
-            new_ctx->n_partitions * sizeof(hvr_dist_bitvec_local_subcopy_t));
-    assert(new_ctx->dead_info);
-    memset(new_ctx->dead_info, 0x00,
-            new_ctx->n_partitions * sizeof(hvr_dist_bitvec_local_subcopy_t));
+    unsigned prealloc_segs = 768;
+    if (getenv("HVR_PRODUCER_INFO_SEGS")) {
+        prealloc_segs = atoi(getenv("HVR_PRODUCER_INFO_SEGS"));
+    }
+    hvr_map_init(&new_ctx->producer_info, prealloc_segs);
+    hvr_map_init(&new_ctx->dead_info, prealloc_segs);
 
     new_ctx->next_producer_info_check = (hvr_time_t *)malloc(
             new_ctx->n_partitions *
@@ -2485,12 +2503,19 @@ static void save_profiling_info(
         pool_allocated;
     saved_profiling_info[n_profiled_iters].pe_subscription_info_bytes =
         hvr_sparse_arr_used_bytes(&ctx->pe_subscription_info);
+
+    size_t producer_info_capacity, producer_info_used;
+    hvr_map_size_in_bytes(&ctx->producer_info, &producer_info_capacity,
+            &producer_info_used, sizeof(hvr_dist_bitvec_local_subcopy_t));
     saved_profiling_info[n_profiled_iters].producer_info_bytes =
-        bytes_used_by_subcopy_arr(ctx->producer_info, ctx->n_partitions,
-                ctx->subscribed_partitions);
+        producer_info_capacity;
+
+    size_t dead_info_capacity, dead_info_used;
+    hvr_map_size_in_bytes(&ctx->dead_info, &dead_info_capacity,
+            &dead_info_used, sizeof(hvr_dist_bitvec_local_subcopy_t));
     saved_profiling_info[n_profiled_iters].dead_info_bytes =
-        bytes_used_by_subcopy_arr(ctx->dead_info, ctx->n_partitions,
-                ctx->subscribed_partitions),
+        dead_info_capacity;
+
     saved_profiling_info[n_profiled_iters].vertex_cache_capacity =
         vertex_cache_capacity;
     saved_profiling_info[n_profiled_iters].vertex_cache_used =
@@ -3069,8 +3094,8 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
 
     hvr_sparse_arr_destroy(&ctx->pe_subscription_info);
 
-    free(ctx->producer_info);
-    free(ctx->dead_info);
+    hvr_map_destroy(&ctx->producer_info);
+    hvr_map_destroy(&ctx->dead_info);
 
     free(ctx->buffered_updates);
     free(ctx->buffered_deletes);

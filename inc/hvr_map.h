@@ -26,19 +26,13 @@ typedef struct _hvr_map_seg_t {
 typedef struct _hvr_map_t {
     hvr_map_seg_t *buckets[HVR_MAP_BUCKETS];
     hvr_map_seg_t *bucket_tails[HVR_MAP_BUCKETS];
-    unsigned init_val_capacity;
 
     hvr_map_seg_t *seg_pool;
     hvr_map_seg_t *prealloc_seg_pool;
     unsigned n_prealloc;
-
-    void *val_pool;
-    mspace tracker;
 } hvr_map_t;
 
-extern void hvr_map_init(hvr_map_t *m, unsigned n_segs,
-        size_t vals_pool_size, unsigned vals_pool_nodes,
-        unsigned init_val_capacity);
+extern void hvr_map_init(hvr_map_t *m, unsigned n_segs);
 
 extern void hvr_map_destroy(hvr_map_t *m);
 
@@ -52,6 +46,7 @@ extern void *hvr_map_get(hvr_vertex_id_t key, hvr_map_t *m);
 
 extern void hvr_map_clear(hvr_map_t *m);
 
-extern void hvr_map_size_in_bytes(hvr_map_t *m, size_t *capacity, size_t *used);
+extern void hvr_map_size_in_bytes(hvr_map_t *m, size_t *capacity, size_t *used,
+        size_t bytes_per_value);
 
 #endif

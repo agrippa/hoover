@@ -14,7 +14,7 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache) {
         prealloc_segs = atoi(getenv("HVR_VERT_CACHE_SEGS"));
     }
 
-    hvr_map_init(&cache->cache_map, prealloc_segs, 0, 0, 1);
+    hvr_map_init(&cache->cache_map, prealloc_segs);
 
     unsigned n_preallocs = 1024;
     if (getenv("HVR_VERT_CACHE_PREALLOCS")) {
@@ -130,7 +130,7 @@ void hvr_vertex_cache_destroy(hvr_vertex_cache_t *cache) {
 void hvr_vertex_cache_mem_used(size_t *out_used, size_t *out_allocated,
         hvr_vertex_cache_t *cache) {
     size_t used, allocated;
-    hvr_map_size_in_bytes(&cache->cache_map, &allocated, &used);
+    hvr_map_size_in_bytes(&cache->cache_map, &allocated, &used, 0);
 
     allocated += cache->pool_size * sizeof(hvr_vertex_cache_node_t);
 

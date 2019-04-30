@@ -17,7 +17,7 @@ static int comp(const void *_a, const void *_b) {
 
 // Add a new key with one initial value
 static void hvr_map_seg_add(hvr_vertex_id_t key, void *data,
-        hvr_map_seg_t *s, unsigned init_val_capacity) {
+        hvr_map_seg_t *s) {
     const unsigned insert_index = s->nkeys;
     assert(insert_index < HVR_MAP_SEG_SIZE);
     s->data[insert_index].key = key;
@@ -82,10 +82,8 @@ static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
     return 0;
 }
 
-void hvr_map_init(hvr_map_t *m, unsigned n_segs, size_t vals_pool_size,
-        unsigned vals_pool_nodes, unsigned init_val_capacity) {
+void hvr_map_init(hvr_map_t *m, unsigned n_segs) {
     memset(m, 0x00, sizeof(*m));
-    m->init_val_capacity = init_val_capacity;
 
     hvr_map_seg_t *prealloc = (hvr_map_seg_t *)malloc(
             n_segs * sizeof(*prealloc));
@@ -97,30 +95,10 @@ void hvr_map_init(hvr_map_t *m, unsigned n_segs, size_t vals_pool_size,
     m->seg_pool = prealloc;
     m->prealloc_seg_pool = prealloc;
     m->n_prealloc = n_segs;
-
-    /*
-     * vals_pool_size may be zero if we know we will never need dynamically
-     * allocated values from this map (i.e. all entries are guaranteed to have a
-     * small enough number of values that they fit in the statically allocated
-     * portion of the value space.
-     */
-    m->val_pool = malloc(vals_pool_size * sizeof(hvr_map_val_t));
-    assert(m->val_pool || vals_pool_size == 0);
-    if (vals_pool_size > 0) {
-        m->tracker = create_mspace_with_base(m->val_pool,
-                vals_pool_size * sizeof(hvr_map_val_t), 0);
-        assert(m->tracker);
-    } else {
-        m->tracker = 0;
-    }
 }
 
 void hvr_map_destroy(hvr_map_t *m) {
     free(m->prealloc_seg_pool);
-    if (m->tracker) {
-        destroy_mspace(m->tracker);
-    }
-    free(m->val_pool);
 }
 
 void hvr_map_add(hvr_vertex_id_t key, void *to_insert, hvr_map_t *m) {
@@ -142,7 +120,7 @@ void hvr_map_add(hvr_vertex_id_t key, void *to_insert, hvr_map_t *m) {
             m->seg_pool = new_seg->next;
             memset(new_seg, 0x00, sizeof(*new_seg));
 
-            hvr_map_seg_add(key, to_insert, new_seg, m->init_val_capacity);
+            hvr_map_seg_add(key, to_insert, new_seg);
             assert(m->buckets[bucket] == NULL);
             m->buckets[bucket] = new_seg;
             m->bucket_tails[bucket] = new_seg;
@@ -156,14 +134,13 @@ void hvr_map_add(hvr_vertex_id_t key, void *to_insert, hvr_map_t *m) {
                 m->seg_pool = new_seg->next;
                 memset(new_seg, 0x00, sizeof(*new_seg));
 
-                hvr_map_seg_add(key, to_insert, new_seg, m->init_val_capacity);
+                hvr_map_seg_add(key, to_insert, new_seg);
                 assert(last_seg_in_bucket->next == NULL);
                 last_seg_in_bucket->next = new_seg;
                 m->bucket_tails[bucket] = new_seg;
             } else {
                 // Insert in existing segment
-                hvr_map_seg_add(key, to_insert, last_seg_in_bucket,
-                        m->init_val_capacity);
+                hvr_map_seg_add(key, to_insert, last_seg_in_bucket);
             }
         }
     }
@@ -215,7 +192,7 @@ void hvr_map_clear(hvr_map_t *m) {
 }
 
 void hvr_map_size_in_bytes(hvr_map_t *m, size_t *out_capacity,
-        size_t *out_used) {
+        size_t *out_used, size_t bytes_per_value) {
     size_t allocated = sizeof(*m) + m->n_prealloc * sizeof(hvr_map_seg_t);
 
     size_t used = sizeof(*m);
@@ -225,6 +202,10 @@ void hvr_map_size_in_bytes(hvr_map_t *m, size_t *out_capacity,
             unsigned n_unused_keys = HVR_MAP_SEG_SIZE - bucket->nkeys;
             used += sizeof(hvr_map_seg_t) - (n_unused_keys *
                     sizeof(hvr_map_val_t));
+
+            used += bucket->nkeys * bytes_per_value;
+            allocated += bucket->nkeys * bytes_per_value;
+
             bucket = bucket->next;
         }
     }
