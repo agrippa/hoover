@@ -115,7 +115,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     new_node->n_local_neighbors = 0;
     new_node->flag = 0;
 
-    hvr_map_add(vert->id, new_node, &cache->cache_map);
+    hvr_map_add(vert->id, new_node, 0, &cache->cache_map);
 
     cache->n_cached_vertices++;
 

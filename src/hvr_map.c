@@ -101,14 +101,19 @@ void hvr_map_destroy(hvr_map_t *m) {
     free(m->prealloc_seg_pool);
 }
 
-void hvr_map_add(hvr_vertex_id_t key, void *to_insert, hvr_map_t *m) {
+void hvr_map_add(hvr_vertex_id_t key, void *to_insert, int replace,
+        hvr_map_t *m) {
     hvr_map_seg_t *seg;
     unsigned seg_index;
     int success = hvr_map_find(key, m, &seg, &seg_index);
 
     if (success) {
         // Key already exists
-        assert(seg->data[seg_index].data == to_insert);
+        if (replace) {
+            seg->data[seg_index].data = to_insert;
+        } else {
+            assert(seg->data[seg_index].data == to_insert);
+        }
     } else {
         const unsigned bucket = HVR_MAP_BUCKET(key);
 
@@ -125,7 +130,7 @@ void hvr_map_add(hvr_vertex_id_t key, void *to_insert, hvr_map_t *m) {
             m->buckets[bucket] = new_seg;
             m->bucket_tails[bucket] = new_seg;
         } else {
-            hvr_map_seg_t *last_seg_in_bucket= m->bucket_tails[bucket];
+            hvr_map_seg_t *last_seg_in_bucket = m->bucket_tails[bucket];
 
             if (last_seg_in_bucket->nkeys == HVR_MAP_SEG_SIZE) {
                 // Have to append new segment

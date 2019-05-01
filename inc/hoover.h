@@ -147,7 +147,7 @@ typedef struct _inter_vert_msg_t {
 } inter_vert_msg_t;
 
 typedef struct _hvr_partition_list_t {
-    hvr_vertex_t **lists;
+    hvr_map_t map;
     hvr_partition_t n_partitions;
 } hvr_partition_list_t;
 
@@ -329,6 +329,16 @@ typedef struct _hvr_internal_ctx_t {
     uint64_t total_vertex_msgs_recvd;
 
     hvr_buffered_msgs_t buffered_msgs;
+
+    hvr_partition_t *new_producer_partitions_list;
+    hvr_partition_t *new_subscriber_partitions_list;
+
+    hvr_partition_t *prev_producer_partitions_list;
+    size_t n_prev_producer_partitions;
+    hvr_partition_t *prev_subscriber_partitions_list;
+    size_t n_prev_subscriber_partitions;
+
+    size_t max_active_partitions;
 } hvr_internal_ctx_t;
 
 /*

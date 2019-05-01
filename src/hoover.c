@@ -112,6 +112,8 @@ typedef struct _profiling_info_t {
 
     size_t mirror_partition_lists_bytes;
     size_t local_partition_lists_bytes;
+
+    size_t active_partition_lists_bytes;
 #endif
 } profiling_info_t;
 
@@ -350,14 +352,14 @@ static void handle_new_subscription(hvr_partition_t p,
     assert(p_dead_info);
     hvr_dist_bitvec_local_subcopy_init(&ctx->terminated_pes,
             p_dead_info);
-    hvr_map_add(p, p_dead_info, &ctx->dead_info);
+    hvr_map_add(p, p_dead_info, 0, &ctx->dead_info);
 
     hvr_dist_bitvec_local_subcopy_t *p_producer_info =
         (hvr_dist_bitvec_local_subcopy_t *)malloc(sizeof(*p_producer_info));
     assert(p_producer_info);
     hvr_dist_bitvec_local_subcopy_init(&ctx->partition_producers,
             p_producer_info);
-    hvr_map_add(p, p_producer_info, &ctx->producer_info);
+    hvr_map_add(p, p_producer_info, 0, &ctx->producer_info);
 
 
     // Download the list of producers for partition p.
@@ -503,7 +505,8 @@ static void handle_new_unsubscription(hvr_partition_t p,
 #pragma omp critical
     {
 #endif
-    hvr_vertex_t *iter = ctx->mirror_partition_lists.lists[p];
+    hvr_vertex_t *iter = hvr_partition_list_head(p,
+            &ctx->mirror_partition_lists);
     while (iter) {
         hvr_vertex_t *next = iter->next_in_partition;
         if (hvr_vertex_get_owning_pe(iter) != ctx->pe) {
@@ -526,6 +529,29 @@ static void handle_new_unsubscription(hvr_partition_t p,
     hvr_dist_bitvec_local_subcopy_destroy(&ctx->terminated_pes, p_dead_info);
 }
 
+static inline void add_interacting_partitions(hvr_vertex_id_t p, hvr_set_t *s,
+        hvr_internal_ctx_t *ctx, size_t *n_subscriber_partitions) {
+    unsigned n_interacting;
+    hvr_partition_t *interacting = ctx->interacting;
+    ctx->might_interact(p, interacting, &n_interacting,
+            MAX_INTERACTING_PARTITIONS, ctx);
+
+    /*
+     * Mark any partitions which this locally active partition might
+     * interact with.
+     */
+    for (unsigned i = 0; i < n_interacting; i++) {
+        if (!hvr_set_contains(interacting[i], s)) {
+            assert(*n_subscriber_partitions < ctx->max_active_partitions);
+            ctx->new_subscriber_partitions_list[*n_subscriber_partitions] =
+                interacting[i];
+            *n_subscriber_partitions += 1;
+
+            hvr_set_insert(interacting[i], s);
+        }
+    }
+}
+
 static void update_partition_window(hvr_internal_ctx_t *ctx,
         unsigned long long *out_time_updating_partitions,
         unsigned long long *out_time_updating_subscribers) {
@@ -536,101 +562,115 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
     hvr_set_wipe(new_subscribed_partitions);
     hvr_set_wipe(new_produced_partitions);
 
-    // Update the set of partitions in a temporary buffer
-#ifdef HVR_MULTITHREADED
-#pragma omp parallel for
-#endif
-    for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
-        /*
-         * Update the global registry with which partitions this PE provides
-         * updates on (producer) and which partitions it subscribes to updates
-         * from (subscriber).
-         */
-        if (ctx->local_partition_lists.lists[p]) {
-            // Producer
-#ifdef HVR_MULTITHREADED
-            hvr_set_insert_atomic(p, new_produced_partitions);
-#else
-            hvr_set_insert(p, new_produced_partitions);
-#endif
-        }
+    size_t n_producer_partitions = 0;
+    size_t n_subscriber_partitions = 0;
 
-        if (ctx->local_partition_lists.lists[p] ||
-                (ctx->mirror_partition_lists.lists[p] &&
-                ctx->partition_min_dist_from_local_vert[p] <=
-                    ctx->max_graph_traverse_depth - 1)) {
-            // Subscriber to any interacting partitions with p
-            unsigned n_interacting;
-#ifdef HVR_MULTITHREADED
-            hvr_partition_t *interacting = ctx->per_thread_interacting +
-                (omp_get_thread_num() * MAX_INTERACTING_PARTITIONS);
-#else
-            hvr_partition_t *interacting = ctx->interacting;
-#endif
-            ctx->might_interact(p, interacting, &n_interacting,
-                    MAX_INTERACTING_PARTITIONS, ctx);
+    for (int b = 0; b < HVR_MAP_BUCKETS; b++) {
+        hvr_map_seg_t *iter = ctx->local_partition_lists.map.buckets[b];
+        while (iter) {
+            for (int i = 0; i < iter->nkeys; i++) {
+                hvr_vertex_id_t p = iter->data[i].key;
 
-            /*
-             * Mark any partitions which this locally active partition might
-             * interact with.
-             */
-            for (unsigned i = 0; i < n_interacting; i++) {
-#ifdef HVR_MULTITHREADED
-                hvr_set_insert_atomic(interacting[i],
-                        new_subscribed_partitions);
-#else
-                hvr_set_insert(interacting[i], new_subscribed_partitions);
-#endif
+                // Producer
+                if (!hvr_set_contains(p, new_produced_partitions)) {
+                    assert(n_producer_partitions < ctx->max_active_partitions);
+                    ctx->new_producer_partitions_list[n_producer_partitions++] =
+                        p;
+
+                    hvr_set_insert(p, new_produced_partitions);
+                }
+
+                // Subscriber to any interacting partitions with p
+                add_interacting_partitions(p, new_subscribed_partitions, ctx,
+                        &n_subscriber_partitions);
             }
+            iter = iter->next;
+        }
+    }
+
+    for (int b = 0; b < HVR_MAP_BUCKETS; b++) {
+        hvr_map_seg_t *iter = ctx->mirror_partition_lists.map.buckets[b];
+        while (iter) {
+            for (int i = 0; i < iter->nkeys; i++) {
+                hvr_vertex_id_t p = iter->data[i].key;
+                if (ctx->partition_min_dist_from_local_vert[p] <=
+                        ctx->max_graph_traverse_depth - 1) {
+                    // Subscriber to any interacting partitions with p
+                    add_interacting_partitions(p,
+                            new_subscribed_partitions, ctx,
+                            &n_subscriber_partitions);
+                }
+            }
+            iter = iter->next;
         }
     }
 
     const unsigned long long after_part_updates = hvr_current_time_us();
 
-#ifdef HVR_MULTITHREADED
-#pragma omp parallel for
-#endif
-    for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
-        /*
-         * For all partitions, check if our producer relationship to any of them
-         * has changed on this iteration. If it has, notify the global registry
-         * of that.
-         */
-        update_partition_info(p, new_produced_partitions,
-                ctx->produced_partitions,
-                &ctx->partition_producers, ctx);
+    /*
+     * There is work to do in the following five cases:
+     *
+     *   1. A partition we stopped being a producer for.
+     *   2. A partition we are now a producer for.
+     *   3. A new subscription.
+     *   4. A continuing subscription (from the previous iteration).
+     *   5. A new unsubscription (that was a subscription on the previous
+     *      iteration).
+     */
 
+    // ***** #1 (stopped producing) *****
+    for (size_t i = 0; i < ctx->n_prev_producer_partitions; i++) {
+        hvr_partition_t p = ctx->prev_producer_partitions_list[i];
+        if (!hvr_set_contains(p, new_produced_partitions)) {
+            hvr_dist_bitvec_clear(p, ctx->pe, &ctx->partition_producers,
+                    HVR_IS_MULTITHREADED);
+        }
+    }
+
+    // ***** #2 (new producer) *****
+    for (size_t i = 0; i < n_producer_partitions; i++) {
+        hvr_partition_t p = ctx->new_producer_partitions_list[i];
+        if (!hvr_set_contains(p, ctx->produced_partitions)) {
+            hvr_dist_bitvec_set(p, ctx->pe, &ctx->partition_producers,
+                    HVR_IS_MULTITHREADED);
+        }
+    }
+
+    // ***** #3 (new sub) and #4 (existing sub) *****
+    for (size_t i = 0; i < n_subscriber_partitions; i++) {
+        hvr_partition_t p = ctx->new_subscriber_partitions_list[i];
         const int old_sub = hvr_set_contains(p, ctx->subscribed_partitions);
-        if (hvr_set_contains(p, new_subscribed_partitions)) {
-            if (!old_sub) {
-                /*
-                 * New subscription on this iteration. Copy down the set of
-                 * producers for this partition and send each a notification
-                 * that I'm now subscribed to that partition. Also copy down
-                 * the set of dead PEs that were producers of this partition,
-                 * and pull vertices from those PEs.
-                 */
-                handle_new_subscription(p, ctx);
-                ctx->next_producer_info_check[p] = ctx->iter + 1;
-                ctx->curr_producer_info_interval[p] = 1;
-            } else {
-                /*
-                 * If this is an existing subscription, copy down the current
-                 * list of producers and check for changes. If a change is
-                 * found, notify the new producer that we're subscribed.
-                 */
-                handle_existing_subscription(p, ctx);
-            }
+        if (!old_sub) {
+            /*
+             * New subscription on this iteration. Copy down the set of
+             * producers for this partition and send each a notification
+             * that I'm now subscribed to that partition. Also copy down
+             * the set of dead PEs that were producers of this partition,
+             * and pull vertices from those PEs.
+             */
+            handle_new_subscription(p, ctx);
+            ctx->next_producer_info_check[p] = ctx->iter + 1;
+            ctx->curr_producer_info_interval[p] = 1;
         } else {
-            // If we are not subscribed to partition p
-            if (old_sub) {
-                /*
-                 * If this is a new unsubscription notify all producers that we
-                 * are no longer subscribed. They will remove us from the list
-                 * of people they send msgs to.
-                 */
-                handle_new_unsubscription(p, ctx);
-            }
+            /*
+             * If this is an existing subscription, copy down the current
+             * list of producers and check for changes. If a change is
+             * found, notify the new producer that we're subscribed.
+             */
+            handle_existing_subscription(p, ctx);
+        }
+    }
+
+    // ***** #5 (unsubscription) *****
+    for (size_t i = 0; i < ctx->n_prev_subscriber_partitions; i++) {
+        hvr_partition_t p = ctx->prev_subscriber_partitions_list[i];
+        if (!hvr_set_contains(p, new_subscribed_partitions)) {
+            /*
+             * If this is a new unsubscription notify all producers that we
+             * are no longer subscribed. They will remove us from the list
+             * of people they send msgs to.
+             */
+            handle_new_unsubscription(p, ctx);
         }
     }
 
@@ -641,6 +681,17 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
     hvr_set_copy(ctx->subscribed_partitions, new_subscribed_partitions);
 
     hvr_set_copy(ctx->produced_partitions, new_produced_partitions);
+
+    hvr_partition_t *tmp_p = ctx->prev_producer_partitions_list;
+    hvr_partition_t *tmp_s = ctx->prev_subscriber_partitions_list;
+
+    ctx->prev_producer_partitions_list = ctx->new_producer_partitions_list;
+    ctx->prev_subscriber_partitions_list = ctx->new_subscriber_partitions_list;
+    ctx->n_prev_producer_partitions = n_producer_partitions;
+    ctx->n_prev_subscriber_partitions = n_subscriber_partitions;
+
+    ctx->new_producer_partitions_list = tmp_p;
+    ctx->new_subscriber_partitions_list = tmp_s;
 
     const unsigned long long end = hvr_current_time_us();
 
@@ -930,6 +981,31 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_irr_matrix_init(new_ctx->vec_cache.pool_size, edges_pool_size,
             &new_ctx->edges);
 
+    size_t max_active_partitions = 100000;
+    if (getenv("HVR_MAX_ACTIVE_PARTITIONS")) {
+        max_active_partitions = atoi(getenv("HVR_MAX_ACTIVE_PARTITIONS"));
+    }
+    new_ctx->new_producer_partitions_list = (hvr_partition_t *)malloc(
+            max_active_partitions *
+            sizeof(new_ctx->new_producer_partitions_list[0]));
+    new_ctx->new_subscriber_partitions_list = (hvr_partition_t *)malloc(
+            max_active_partitions *
+            sizeof(new_ctx->new_subscriber_partitions_list[0]));
+    new_ctx->prev_producer_partitions_list = (hvr_partition_t *)malloc(
+            max_active_partitions *
+            sizeof(new_ctx->prev_producer_partitions_list[0]));
+    new_ctx->prev_subscriber_partitions_list = (hvr_partition_t *)malloc(
+            max_active_partitions *
+            sizeof(new_ctx->prev_subscriber_partitions_list[0]));
+    assert(new_ctx->new_producer_partitions_list &&
+            new_ctx->new_subscriber_partitions_list &&
+            new_ctx->prev_producer_partitions_list &&
+            new_ctx->prev_subscriber_partitions_list);
+    new_ctx->max_active_partitions = max_active_partitions;
+
+    new_ctx->n_prev_producer_partitions = 0;
+    new_ctx->n_prev_subscriber_partitions = 0;
+
     // Print the number of bytes allocated
 #ifdef DETAILED_PRINTS
     shmem_malloc_wrapper(0);
@@ -992,8 +1068,8 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
                 hvr_vertex_update_t msg;
                 msg.len = 0;
 
-                hvr_vertex_t *iter =
-                    ctx->local_partition_lists.lists[change->partition];
+                hvr_vertex_t *iter = hvr_partition_list_head(change->partition,
+                        &ctx->local_partition_lists);
                 while (iter) {
                     memcpy(&(msg.verts[msg.len]), iter, sizeof(*iter));
                     msg.is_invalidation[msg.len] = 0;
@@ -1161,8 +1237,8 @@ static void create_new_edges(hvr_vertex_cache_node_t *updated,
     for (unsigned i = 0; i < n_interacting; i++) {
         hvr_partition_t other_part = interacting[i];
 
-        hvr_vertex_t *cache_iter =
-            ctx->mirror_partition_lists.lists[other_part];
+        hvr_vertex_t *cache_iter = hvr_partition_list_head(other_part,
+            &ctx->mirror_partition_lists);
         while (cache_iter) {
             hvr_vertex_cache_node_t *cache_node =
                 (hvr_vertex_cache_node_t *)cache_iter;
@@ -1288,8 +1364,8 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
             for (unsigned i = 0; i < n_interacting; i++) {
                 hvr_partition_t other_part = ctx->interacting[i];
 
-                hvr_vertex_t *cache_iter =
-                    ctx->mirror_partition_lists.lists[other_part];
+                hvr_vertex_t *cache_iter = hvr_partition_list_head(other_part,
+                        &ctx->mirror_partition_lists);
                 while (cache_iter) {
                     hvr_vertex_cache_node_t *cache_node =
                         (hvr_vertex_cache_node_t *)cache_iter;
@@ -2547,15 +2623,21 @@ static void save_profiling_info(
     saved_profiling_info[n_profiled_iters].buffered_msgs_bytes_used =
         hvr_buffered_msgs_mem_used(&ctx->buffered_msgs);
 
+    // Space used by my portion of the distributed bit vectors
     saved_profiling_info[n_profiled_iters].partition_producers_bytes_used =
         hvr_dist_bitvec_mem_used(&ctx->partition_producers);
     saved_profiling_info[n_profiled_iters].terminated_pes_bytes_used =
         hvr_dist_bitvec_mem_used(&ctx->terminated_pes);
 
+    // Lists of vertices per partition
     saved_profiling_info[n_profiled_iters].mirror_partition_lists_bytes =
         hvr_partition_list_mem_used(&ctx->mirror_partition_lists);
     saved_profiling_info[n_profiled_iters].local_partition_lists_bytes =
         hvr_partition_list_mem_used(&ctx->local_partition_lists);
+
+    // Active partition lists
+    saved_profiling_info[n_profiled_iters].active_partition_lists_bytes =
+        4 * ctx->max_active_partitions * sizeof(hvr_partition_t);
 #endif
 
     n_profiled_iters++;
@@ -2678,6 +2760,8 @@ static void print_profiling_info(profiling_info_t *info) {
     fprintf(profiling_fp, "    local part list = %f MB, mirror = %f MB\n",
             (double)info->local_partition_lists_bytes / (1024.0 * 1024.0),
             (double)info->mirror_partition_lists_bytes / (1024.0 * 1024.0));
+    fprintf(profiling_fp, "    active partition lists bytes = %f MB\n",
+            (double)info->active_partition_lists_bytes / (1024.0 * 1024.0));
 #endif
 }
 
@@ -2695,7 +2779,8 @@ static void write_vertex_to_file(FILE *fp, hvr_vertex_t *curr,
 static void save_cached_state_to_dump_file(hvr_internal_ctx_t *ctx) {
     hvr_vertex_cache_t *c = &ctx->vec_cache;
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
-        hvr_vertex_t *iter = ctx->mirror_partition_lists.lists[p];
+        hvr_vertex_t *iter = hvr_partition_list_head(p,
+                &ctx->mirror_partition_lists);
         while (iter) {
             write_vertex_to_file(ctx->cache_dump_file, iter, ctx);
             iter = iter->next_in_partition;
@@ -3033,7 +3118,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     }
 
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
-        if (ctx->local_partition_lists.lists[p]) {
+        if (hvr_partition_list_head(p, &ctx->local_partition_lists)) {
             hvr_dist_bitvec_set(p, ctx->pe, &ctx->terminated_pes, 0);
         }
     }

@@ -37,7 +37,7 @@ extern void hvr_map_init(hvr_map_t *m, unsigned n_segs);
 extern void hvr_map_destroy(hvr_map_t *m);
 
 extern void hvr_map_add(hvr_vertex_id_t key, void *to_insert,
-        hvr_map_t *m);
+        int replace, hvr_map_t *m);
 
 extern void hvr_map_remove(hvr_vertex_id_t key, void *val,
         hvr_map_t *m);
