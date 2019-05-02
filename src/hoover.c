@@ -58,6 +58,10 @@ typedef struct _profiling_info_t {
     process_perf_info_t perf_info;
     unsigned long long time_updating_partitions;
     unsigned long long time_updating_subscribers;
+    unsigned long long time_1;
+    unsigned long long time_2;
+    unsigned long long time_3_4;
+    unsigned long long time_5;
     unsigned long long time_sending;
     int should_abort;
     unsigned long long coupling_coupling;
@@ -554,7 +558,11 @@ static inline void add_interacting_partitions(hvr_vertex_id_t p, hvr_set_t *s,
 
 static void update_partition_window(hvr_internal_ctx_t *ctx,
         unsigned long long *out_time_updating_partitions,
-        unsigned long long *out_time_updating_subscribers) {
+        unsigned long long *out_time_updating_subscribers,
+        unsigned long long *out_time_1,
+        unsigned long long *out_time_2,
+        unsigned long long *out_time_3_4,
+        unsigned long long *out_time_5) {
     const unsigned long long start = hvr_current_time_us();
 
     hvr_set_t *new_subscribed_partitions = ctx->new_subscribed_partitions;
@@ -627,6 +635,8 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
         }
     }
 
+    const unsigned long long after_1 = hvr_current_time_us();
+
     // ***** #2 (new producer) *****
     for (size_t i = 0; i < n_producer_partitions; i++) {
         hvr_partition_t p = ctx->new_producer_partitions_list[i];
@@ -635,6 +645,8 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
                     HVR_IS_MULTITHREADED);
         }
     }
+
+    const unsigned long long after_2 = hvr_current_time_us();
 
     // ***** #3 (new sub) and #4 (existing sub) *****
     for (size_t i = 0; i < n_subscriber_partitions; i++) {
@@ -661,6 +673,8 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
         }
     }
 
+    const unsigned long long after_3_4 = hvr_current_time_us();
+
     // ***** #5 (unsubscription) *****
     for (size_t i = 0; i < ctx->n_prev_subscriber_partitions; i++) {
         hvr_partition_t p = ctx->prev_subscriber_partitions_list[i];
@@ -673,6 +687,8 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
             handle_new_unsubscription(p, ctx);
         }
     }
+
+    const unsigned long long after_5 = hvr_current_time_us();
 
     /*
      * Copy the newly computed partition windows for this PE over for next time
@@ -696,6 +712,10 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
     const unsigned long long end = hvr_current_time_us();
 
     *out_time_updating_partitions = after_part_updates - start;
+    *out_time_1 = after_1 - after_part_updates;
+    *out_time_2 = after_2 - after_1;
+    *out_time_3_4 = after_3_4 - after_2;
+    *out_time_5 = after_5 - after_3_4;
     *out_time_updating_subscribers = end - after_part_updates;
 }
 
@@ -2464,6 +2484,10 @@ static void save_profiling_info(
         process_perf_info_t *perf_info,
         unsigned long long time_updating_partitions,
         unsigned long long time_updating_subscribers,
+        unsigned long long time_1,
+        unsigned long long time_2,
+        unsigned long long time_3_4,
+        unsigned long long time_5,
         unsigned long long time_sending,
         int should_abort,
         unsigned long long coupling_coupling,
@@ -2503,8 +2527,14 @@ static void save_profiling_info(
     saved_profiling_info[n_profiled_iters].n_updates_sent = n_updates_sent;
     memcpy(&saved_profiling_info[n_profiled_iters].perf_info,
             perf_info, sizeof(*perf_info));
-    saved_profiling_info[n_profiled_iters].time_updating_partitions = time_updating_partitions;
-    saved_profiling_info[n_profiled_iters].time_updating_subscribers = time_updating_subscribers;
+    saved_profiling_info[n_profiled_iters].time_updating_partitions =
+        time_updating_partitions;
+    saved_profiling_info[n_profiled_iters].time_updating_subscribers =
+        time_updating_subscribers;
+    saved_profiling_info[n_profiled_iters].time_1 = time_1;
+    saved_profiling_info[n_profiled_iters].time_2 = time_2;
+    saved_profiling_info[n_profiled_iters].time_3_4 = time_3_4;
+    saved_profiling_info[n_profiled_iters].time_5 = time_5;
     saved_profiling_info[n_profiled_iters].time_sending = time_sending;
     saved_profiling_info[n_profiled_iters].should_abort = should_abort;
 
@@ -2658,10 +2688,14 @@ static void print_profiling_info(profiling_info_t *info) {
     fprintf(profiling_fp, "  update actor partitions %f\n",
             (double)(info->end_update_partitions - info->end_update_dist) / 1000.0);
     fprintf(profiling_fp, "  update partition window %f - update time = "
-            "(parts=%f subscribers=%f)\n",
+            "(parts=%f subscribers=%f - %f %f %f %f)\n",
             (double)(info->end_partition_window - info->end_update_partitions) / 1000.0,
             (double)info->time_updating_partitions / 1000.0,
-            (double)info->time_updating_subscribers / 1000.0);
+            (double)info->time_updating_subscribers / 1000.0,
+            (double)info->time_1 / 1000.0,
+            (double)info->time_2 / 1000.0,
+            (double)info->time_3_4 / 1000.0,
+            (double)info->time_5 / 1000.0);
     fprintf(profiling_fp, "  update neighbors %f\n",
             (double)(info->end_neighbor_updates - info->end_partition_window) / 1000.0);
     fprintf(profiling_fp, "  send updates %f - %u changes, %f ms sending\n",
@@ -2875,9 +2909,10 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      * need notifications on. Subscribe to notifications about partitions from
      * update_partition_window in the global registry.
      */
-    unsigned long long time_updating_partitions, time_updating_subscribers;
+    unsigned long long time_updating_partitions, time_updating_subscribers,
+                  time_1, time_2, time_3_4, time_5;
     update_partition_window(ctx, &time_updating_partitions,
-            &time_updating_subscribers);
+            &time_updating_subscribers, &time_1, &time_2, &time_3_4, &time_5);
     const unsigned long long end_partition_window = hvr_current_time_us();
 
     /*
@@ -2946,6 +2981,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 &perf_info,
                 time_updating_partitions,
                 time_updating_subscribers,
+                time_1, time_2, time_3_4, time_5,
                 time_sending,
                 should_abort,
                 coupling_coupling,
@@ -3002,7 +3038,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         const unsigned long long end_update_partitions = hvr_current_time_us();
 
         update_partition_window(ctx, &time_updating_partitions,
-            &time_updating_subscribers);
+            &time_updating_subscribers, &time_1, &time_2, &time_3_4, &time_5);
 
         const unsigned long long end_partition_window = hvr_current_time_us();
 
@@ -3048,6 +3084,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     &perf_info,
                     time_updating_partitions,
                     time_updating_subscribers,
+                    time_1, time_2, time_3_4, time_5,
                     time_sending,
                     should_abort,
                     coupling_coupling,
