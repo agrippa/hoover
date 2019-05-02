@@ -125,5 +125,6 @@ typedef struct _process_perf_info_t {
 } process_perf_info_t;
 
 extern void *shmem_malloc_wrapper(size_t nbytes);
+extern void *malloc_helper(size_t nbytes);
 
 #endif

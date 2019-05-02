@@ -174,6 +174,22 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
 static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         process_perf_info_t *perf_info);
 
+void *malloc_helper(size_t nbytes) {
+    static size_t count_bytes = 0;
+    if (nbytes == 0) {
+        fprintf(stderr, "PE %d allocated %lu bytes in the heap.\n",
+                shmem_my_pe(), count_bytes);
+        return NULL;
+    }
+
+    void *p = malloc(nbytes);
+    count_bytes += nbytes;
+    if (p) {
+        memset(p, 0xff, nbytes);
+    }
+    return p;
+}
+
 void *shmem_malloc_wrapper(size_t nbytes) {
     static size_t total_nbytes = 0;
     static FILE *fp = NULL;
@@ -238,7 +254,7 @@ static void flush_buffered_updates(hvr_internal_ctx_t *ctx) {
 }
 
 void hvr_ctx_create(hvr_ctx_t *out_ctx) {
-    hvr_internal_ctx_t *new_ctx = (hvr_internal_ctx_t *)malloc(
+    hvr_internal_ctx_t *new_ctx = (hvr_internal_ctx_t *)malloc_helper(
             sizeof(*new_ctx));
     assert(new_ctx);
     memset(new_ctx, 0x00, sizeof(*new_ctx));
@@ -352,14 +368,15 @@ static void pull_vertices_from_dead_pe(int dead_pe, hvr_partition_t partition,
 static void handle_new_subscription(hvr_partition_t p,
         hvr_internal_ctx_t *ctx) {
     hvr_dist_bitvec_local_subcopy_t *p_dead_info =
-        (hvr_dist_bitvec_local_subcopy_t *)malloc(sizeof(*p_dead_info));
+        (hvr_dist_bitvec_local_subcopy_t *)malloc_helper(sizeof(*p_dead_info));
     assert(p_dead_info);
     hvr_dist_bitvec_local_subcopy_init(&ctx->terminated_pes,
             p_dead_info);
     hvr_map_add(p, p_dead_info, 0, &ctx->dead_info);
 
     hvr_dist_bitvec_local_subcopy_t *p_producer_info =
-        (hvr_dist_bitvec_local_subcopy_t *)malloc(sizeof(*p_producer_info));
+        (hvr_dist_bitvec_local_subcopy_t *)malloc_helper(
+                sizeof(*p_producer_info));
     assert(p_producer_info);
     hvr_dist_bitvec_local_subcopy_init(&ctx->partition_producers,
             p_producer_info);
@@ -531,6 +548,9 @@ static void handle_new_unsubscription(hvr_partition_t p,
     assert(p_dead_info);
     hvr_map_remove(p, p_dead_info, &ctx->dead_info);
     hvr_dist_bitvec_local_subcopy_destroy(&ctx->terminated_pes, p_dead_info);
+
+    free(p_producer_info);
+    free(p_dead_info);
 }
 
 static inline void add_interacting_partitions(hvr_vertex_id_t p, hvr_set_t *s,
@@ -874,13 +894,13 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_set_msg_init(new_ctx->new_all_terminated_cluster_pes,
             &new_ctx->new_all_terminated_cluster_pes_msg);
 
-    new_ctx->coupled_pes_values = (hvr_vertex_t *)malloc(
+    new_ctx->coupled_pes_values = (hvr_vertex_t *)malloc_helper(
             new_ctx->npes * sizeof(hvr_vertex_t));
     assert(new_ctx->coupled_pes_values);
     for (unsigned i = 0; i < new_ctx->npes; i++) {
         hvr_vertex_init(&(new_ctx->coupled_pes_values)[i], new_ctx);
     }
-    new_ctx->updates_on_this_iter = (int *)malloc(
+    new_ctx->updates_on_this_iter = (int *)malloc_helper(
             new_ctx->npes * sizeof(new_ctx->updates_on_this_iter[0]));
     assert(new_ctx->updates_on_this_iter);
 
@@ -890,7 +910,7 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_partition_list_init(new_ctx->n_partitions,
             &new_ctx->mirror_partition_lists);
 
-    new_ctx->partition_min_dist_from_local_vert = (uint8_t *)malloc(
+    new_ctx->partition_min_dist_from_local_vert = (uint8_t *)malloc_helper(
             sizeof(new_ctx->partition_min_dist_from_local_vert[0]) *
             new_ctx->n_partitions);
     assert(new_ctx->partition_min_dist_from_local_vert);
@@ -928,14 +948,14 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_map_init(&new_ctx->producer_info, prealloc_segs);
     hvr_map_init(&new_ctx->dead_info, prealloc_segs);
 
-    new_ctx->next_producer_info_check = (hvr_time_t *)malloc(
+    new_ctx->next_producer_info_check = (hvr_time_t *)malloc_helper(
             new_ctx->n_partitions *
             sizeof(new_ctx->next_producer_info_check[0]));
     assert(new_ctx->next_producer_info_check);
     memset(new_ctx->next_producer_info_check, 0x00, new_ctx->n_partitions *
             sizeof(new_ctx->next_producer_info_check[0]));
 
-    new_ctx->curr_producer_info_interval = (hvr_time_t *)malloc(
+    new_ctx->curr_producer_info_interval = (hvr_time_t *)malloc_helper(
             new_ctx->n_partitions *
             sizeof(new_ctx->curr_producer_info_interval[0]));
     assert(new_ctx->curr_producer_info_interval);
@@ -943,19 +963,19 @@ void hvr_init(const hvr_partition_t n_partitions,
         new_ctx->curr_producer_info_interval[p] = 1;
     }
 
-    new_ctx->buffered_updates = (hvr_vertex_update_t *)malloc(
+    new_ctx->buffered_updates = (hvr_vertex_update_t *)malloc_helper(
             new_ctx->npes * sizeof(hvr_vertex_update_t));
     assert(new_ctx->buffered_updates);
     memset(new_ctx->buffered_updates, 0x00,
             new_ctx->npes * sizeof(hvr_vertex_update_t));
 
-    new_ctx->buffered_deletes = (hvr_vertex_update_t *)malloc(
+    new_ctx->buffered_deletes = (hvr_vertex_update_t *)malloc_helper(
             new_ctx->npes * sizeof(hvr_vertex_update_t));
     assert(new_ctx->buffered_deletes);
     memset(new_ctx->buffered_deletes, 0x00,
             new_ctx->npes * sizeof(hvr_vertex_update_t));
 
-    new_ctx->vert_partition_buf = (hvr_partition_t *)malloc(
+    new_ctx->vert_partition_buf = (hvr_partition_t *)malloc_helper(
             N_VERTICES_PER_BUF * sizeof(hvr_partition_t));
     assert(new_ctx->vert_partition_buf);
 
@@ -976,11 +996,11 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_msg_buf_pool_init(&new_ctx->msg_buf_pool, max_msg_len,
             max_buffered_msgs);
 
-    new_ctx->interacting = (hvr_partition_t *)malloc(
+    new_ctx->interacting = (hvr_partition_t *)malloc_helper(
             MAX_INTERACTING_PARTITIONS * sizeof(new_ctx->interacting[0]));
     assert(new_ctx->interacting);
 #ifdef HVR_MULTITHREADED
-    new_ctx->per_thread_interacting = (hvr_partition_t *)malloc(
+    new_ctx->per_thread_interacting = (hvr_partition_t *)malloc_helper(
             new_ctx->nthreads * MAX_INTERACTING_PARTITIONS *
             sizeof(new_ctx->per_thread_interacting[0]));
     assert(new_ctx->per_thread_interacting);
@@ -1005,16 +1025,16 @@ void hvr_init(const hvr_partition_t n_partitions,
     if (getenv("HVR_MAX_ACTIVE_PARTITIONS")) {
         max_active_partitions = atoi(getenv("HVR_MAX_ACTIVE_PARTITIONS"));
     }
-    new_ctx->new_producer_partitions_list = (hvr_partition_t *)malloc(
+    new_ctx->new_producer_partitions_list = (hvr_partition_t *)malloc_helper(
             max_active_partitions *
             sizeof(new_ctx->new_producer_partitions_list[0]));
-    new_ctx->new_subscriber_partitions_list = (hvr_partition_t *)malloc(
+    new_ctx->new_subscriber_partitions_list = (hvr_partition_t *)malloc_helper(
             max_active_partitions *
             sizeof(new_ctx->new_subscriber_partitions_list[0]));
-    new_ctx->prev_producer_partitions_list = (hvr_partition_t *)malloc(
+    new_ctx->prev_producer_partitions_list = (hvr_partition_t *)malloc_helper(
             max_active_partitions *
             sizeof(new_ctx->prev_producer_partitions_list[0]));
-    new_ctx->prev_subscriber_partitions_list = (hvr_partition_t *)malloc(
+    new_ctx->prev_subscriber_partitions_list = (hvr_partition_t *)malloc_helper(
             max_active_partitions *
             sizeof(new_ctx->prev_subscriber_partitions_list[0]));
     assert(new_ctx->new_producer_partitions_list &&
@@ -1029,6 +1049,7 @@ void hvr_init(const hvr_partition_t n_partitions,
     // Print the number of bytes allocated
 #ifdef DETAILED_PRINTS
     shmem_malloc_wrapper(0);
+    malloc_helper(0);
     print_memory_metrics(new_ctx);
 #endif
 
@@ -2576,9 +2597,9 @@ static void save_profiling_info(
 #ifdef PRINT_PARTITIONS
 #define PARTITIONS_STR_BUFSIZE (1024 * 1024)
     saved_profiling_info[n_profiled_iters].producer_partitions_str =
-        (char *)malloc(PARTITIONS_STR_BUFSIZE);
+        (char *)malloc_helper(PARTITIONS_STR_BUFSIZE);
     saved_profiling_info[n_profiled_iters].subscriber_partitions_str =
-        (char *)malloc(PARTITIONS_STR_BUFSIZE);
+        (char *)malloc_helper(PARTITIONS_STR_BUFSIZE);
     assert(saved_profiling_info[n_profiled_iters].producer_partitions_str &&
             saved_profiling_info[n_profiled_iters].subscriber_partitions_str);
 

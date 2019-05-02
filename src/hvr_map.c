@@ -85,7 +85,7 @@ static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
 void hvr_map_init(hvr_map_t *m, unsigned n_segs) {
     memset(m, 0x00, sizeof(*m));
 
-    hvr_map_seg_t *prealloc = (hvr_map_seg_t *)malloc(
+    hvr_map_seg_t *prealloc = (hvr_map_seg_t *)malloc_helper(
             n_segs * sizeof(*prealloc));
     assert(prealloc);
     for (unsigned i = 0; i < n_segs - 1; i++) {

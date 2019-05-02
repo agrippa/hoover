@@ -22,9 +22,9 @@ hvr_set_t *hvr_create_empty_set(const unsigned nvals) {
     const uint64_t bits_per_ele = sizeof(bit_vec_element_type) *
                 BITS_PER_BYTE;
     const uint64_t nelements = (nvals + bits_per_ele - 1) / bits_per_ele;
-    hvr_set_t *set = (hvr_set_t *)malloc(sizeof(*set));
+    hvr_set_t *set = (hvr_set_t *)malloc_helper(sizeof(*set));
     assert(set);
-    bit_vec_element_type *bit_vector = (bit_vec_element_type *)malloc(
+    bit_vec_element_type *bit_vector = (bit_vec_element_type *)malloc_helper(
             nelements * sizeof(bit_vec_element_type));
     assert(bit_vector);
     return hvr_create_empty_set_helper(nelements, nvals, set, bit_vector);

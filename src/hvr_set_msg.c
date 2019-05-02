@@ -8,7 +8,7 @@ void hvr_set_msg_init(hvr_set_t *set, hvr_set_msg_t *msg) {
     msg->set = set;
     msg->msg_buf_len = sizeof(hvr_internal_set_msg_t) +
             set->bit_vector_len * sizeof(bit_vec_element_type);
-    msg->msg_buf = (hvr_internal_set_msg_t *)malloc(msg->msg_buf_len);
+    msg->msg_buf = (hvr_internal_set_msg_t *)malloc_helper(msg->msg_buf_len);
     assert(msg->msg_buf);
 }
 

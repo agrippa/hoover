@@ -1,4 +1,5 @@
 #include "hvr_sparse_arr.h"
+#include "hvr_common.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -13,7 +14,7 @@ void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity) {
     unsigned nsegs = (capacity + HVR_SPARSE_ARR_SEGMENT_SIZE - 1) /
         HVR_SPARSE_ARR_SEGMENT_SIZE;
 
-    arr->segs = (hvr_sparse_arr_seg_t **)malloc(nsegs * sizeof(*(arr->segs)));
+    arr->segs = (hvr_sparse_arr_seg_t **)malloc_helper(nsegs * sizeof(*(arr->segs)));
     assert(arr->segs);
     memset(arr->segs, 0x00, nsegs * sizeof(*(arr->segs)));
 
@@ -24,7 +25,7 @@ void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity) {
     if (getenv("HVR_SPARSE_ARR_SEGS")) {
         prealloc = atoi(getenv("HVR_SPARSE_ARR_SEGS"));
     }
-    arr->preallocated = (hvr_sparse_arr_seg_t *)malloc(
+    arr->preallocated = (hvr_sparse_arr_seg_t *)malloc_helper(
             prealloc * sizeof(arr->preallocated[0]));
     assert(arr->preallocated);
     for (unsigned i = 0; i < prealloc - 1; i++) {
@@ -37,7 +38,7 @@ void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity) {
     if (getenv("HVR_SPARSE_ARR_POOL")) {
         pool_size = atoi(getenv("HVR_SPARSE_ARR_POOL"));
     }
-    arr->pool = malloc(pool_size);
+    arr->pool = malloc_helper(pool_size);
     assert(arr->pool);
     memset(arr->pool, 0xff, pool_size);
     arr->tracker = create_mspace_with_base(arr->pool, pool_size, 0);

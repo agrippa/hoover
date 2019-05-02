@@ -22,7 +22,7 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache) {
     }
 
     hvr_vertex_cache_node_t *prealloc =
-        (hvr_vertex_cache_node_t *)malloc(n_preallocs * sizeof(*prealloc));
+        (hvr_vertex_cache_node_t *)malloc_helper(n_preallocs * sizeof(*prealloc));
     assert(prealloc);
     memset(prealloc, 0x00, n_preallocs * sizeof(*prealloc));
 

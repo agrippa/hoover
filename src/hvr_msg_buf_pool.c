@@ -1,12 +1,13 @@
 #include <assert.h>
 
+#include "hvr_common.h"
 #include "hvr_msg_buf_pool.h"
 
 void hvr_msg_buf_pool_init(hvr_msg_buf_pool_t *pool, size_t buf_size,
         size_t pool_size) {
-    pool->buf_mem = malloc(pool_size * buf_size);
+    pool->buf_mem = malloc_helper(pool_size * buf_size);
     assert(pool->buf_mem);
-    pool->node_mem = (hvr_msg_buf_node_t *)malloc(
+    pool->node_mem = (hvr_msg_buf_node_t *)malloc_helper(
             pool_size * sizeof(pool->node_mem[0]));
     assert(pool->node_mem);
     pool->buf_size = buf_size;

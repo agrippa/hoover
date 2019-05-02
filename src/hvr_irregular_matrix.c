@@ -6,12 +6,12 @@
 
 void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
         hvr_irr_matrix_t *m) {
-    m->edges = (hvr_edge_info_t **)malloc(nvertices * sizeof(m->edges[0]));
+    m->edges = (hvr_edge_info_t **)malloc_helper(nvertices * sizeof(m->edges[0]));
     assert(m->edges);
-    m->edges_capacity = (uint16_t *)malloc(
+    m->edges_capacity = (uint16_t *)malloc_helper(
             nvertices * sizeof(m->edges_capacity[0]));
     assert(m->edges_capacity);
-    m->edges_len = (uint16_t *)malloc(nvertices * sizeof(m->edges_len[0]));
+    m->edges_len = (uint16_t *)malloc_helper(nvertices * sizeof(m->edges_len[0]));
     assert(m->edges_len);
 
     memset(m->edges, 0x00, sizeof(m->edges[0]) * nvertices);
@@ -20,7 +20,7 @@ void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
 
     m->nvertices = nvertices;
 
-    m->pool = malloc(pool_size);
+    m->pool = malloc_helper(pool_size);
     assert(m->pool);
     memset(m->pool, 0xff, pool_size);
     m->pool_size = pool_size;

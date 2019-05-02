@@ -34,7 +34,7 @@ void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
     if (getenv("HVR_DIST_BITVEC_POOL_SIZE")) {
         pool_size = atoi(getenv("HVR_DIST_BITVEC_POOL_SIZE"));
     }
-    vec->pool = malloc(pool_size);
+    vec->pool = malloc_helper(pool_size);
     assert(vec->pool || pool_size == 0);
     vec->pool_size = pool_size;
 

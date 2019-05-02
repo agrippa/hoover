@@ -2,13 +2,13 @@
 
 void hvr_buffered_msgs_init(size_t nvertices, size_t pool_size,
         hvr_buffered_msgs_t *b) {
-    b->buffered = (hvr_buffered_msgs_node_t **)malloc(
+    b->buffered = (hvr_buffered_msgs_node_t **)malloc_helper(
             nvertices * sizeof(b->buffered[0]));
     assert(b->buffered);
     memset(b->buffered, 0x00, nvertices * sizeof(b->buffered[0]));
     b->nvertices = nvertices;
 
-    b->pool = malloc(pool_size);
+    b->pool = malloc_helper(pool_size);
     assert(b->pool);
     memset(b->pool, 0x00, pool_size);
     b->pool_size = pool_size;
