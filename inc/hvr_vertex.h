@@ -40,7 +40,7 @@ extern void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t ctx);
 /*
  * Initialize an empty sparse vector.
  */
-extern void hvr_vertex_init(hvr_vertex_t *vert, hvr_ctx_t ctx);
+void hvr_vertex_init(hvr_vertex_t *vert, hvr_vertex_id_t id, hvr_time_t iter);
 
 /*
  * Get the value for the specified feature in the provided vector.

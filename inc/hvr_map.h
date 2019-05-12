@@ -2,7 +2,6 @@
 #define _HVR_MAP_H
 
 #include "hvr_common.h"
-#include "hvr_vertex_pool.h"
 #include "dlmalloc.h"
 
 #define HVR_MAP_SEG_SIZE 128

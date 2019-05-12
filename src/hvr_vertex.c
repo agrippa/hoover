@@ -3,26 +3,15 @@
 
 #include "hvr_vertex.h"
 #include "hoover.h"
-#include "hvr_vertex_pool.h"
 
 hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    hvr_vertex_t *allocated = hvr_alloc_vertices(1, ctx);
+    hvr_vertex_cache_node_t *reserved = hvr_vertex_cache_reserve(
+            &ctx->vec_cache, ctx->pe, ctx->iter);
+    hvr_vertex_t *allocated = &reserved->vert;
 
     allocated->next_in_partition = ctx->recently_created;
     ctx->recently_created = allocated;
-
-    return allocated;
-}
-
-hvr_vertex_t *hvr_vertex_create_n(size_t n, hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    hvr_vertex_t *allocated = hvr_alloc_vertices(n, ctx);
-
-    for (size_t i = 0; i < n; i++) {
-        allocated[i].next_in_partition = ctx->recently_created;
-        ctx->recently_created = &allocated[i];
-    }
 
     return allocated;
 }
@@ -37,20 +26,14 @@ void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
 
     remove_from_partition_list(vert, &ctx->local_partition_lists, ctx);
 
-    hvr_free_vertices(vert, 1, ctx);
+    hvr_vertex_cache_delete((hvr_vertex_cache_node_t *)vert, &ctx->vec_cache);
 }
 
-void hvr_vertex_init(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+void hvr_vertex_init(hvr_vertex_t *vert, hvr_vertex_id_t id, hvr_time_t iter) {
     memset(vert, 0x00, sizeof(*vert));
 
-    hvr_vertex_pool_t *pool = &ctx->pool;
-    if (vert >= pool->pool && vert < pool->pool + pool->tracker.capacity) {
-        vert->id = construct_vertex_id(ctx->pe, vert - pool->pool);
-    } else {
-        vert->id = HVR_INVALID_VERTEX_ID;
-    }
-    vert->creation_iter = ctx->iter;
+    vert->id = id;
+    vert->creation_iter = iter;
     // Should be sent and processed
     vert->needs_processing = 1;
     vert->needs_send = 1;

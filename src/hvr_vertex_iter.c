@@ -6,26 +6,47 @@
  * iteration, as they will not have updated edge information.
  */
 static int is_valid_vertex(hvr_vertex_t *vertex, hvr_vertex_iter_t *iter) {
-    return iter->include_all || vertex->creation_iter < iter->ctx->iter;
+    return (VERTEX_ID_PE(vertex->id) == iter->ctx->pe) &&
+        (iter->include_all || vertex->creation_iter < iter->ctx->iter);
+}
+
+static inline int hvr_vertex_iter_next_helper(int *inout_bucket,
+        hvr_map_seg_t **inout_seg, unsigned *inout_seg_index,
+        hvr_vertex_iter_t *iter) {
+    int bucket = *inout_bucket;
+    while (bucket < HVR_MAP_BUCKETS) {
+        hvr_map_seg_t *seg = (bucket == *inout_bucket ? *inout_seg :
+                iter->cache_map->buckets[bucket]);
+        while (seg) {
+            unsigned seg_index = (seg == *inout_seg ? *inout_seg_index : 0);
+            while (seg_index < seg->nkeys) {
+                hvr_vertex_cache_node_t *node = seg->data[seg_index].data;
+                if (is_valid_vertex(&node->vert, iter)) {
+                    *inout_bucket = bucket;
+                    *inout_seg = seg;
+                    *inout_seg_index = seg_index;
+                    return 1;
+                }
+                seg_index++;
+            }
+            seg = seg->next;
+        }
+        bucket++;
+    }
+
+    return 0;
 }
 
 static void hvr_vertex_iter_init_helper(hvr_vertex_iter_t *iter,
         hvr_internal_ctx_t *ctx, int include_all) {
-    iter->current_chunk = ctx->pool.tracker.used_list;
-    iter->index_for_current_chunk = 0;
-    iter->pool = &ctx->pool;
-    iter->ctx = ctx;
+    // Seek to first valid vertex
     iter->include_all = include_all;
+    iter->ctx = ctx;
+    iter->cache_map = &ctx->vec_cache.cache_map;
 
-    // May be NULL if no vertices are allocated yet
-    if (iter->current_chunk) {
-        // If the first vertex isn't valid, need to iterate to the next one
-        hvr_vertex_t *first = iter->pool->pool +
-            (iter->current_chunk->start_index + iter->index_for_current_chunk);
-        if (!is_valid_vertex(first, iter)) {
-            hvr_vertex_iter_next(iter);
-        }
-    }
+    iter->current_bucket = 0;
+    iter->current_seg = iter->cache_map->buckets[0];
+    iter->current_seg_index = 0;
 }
 
 void hvr_vertex_iter_init(hvr_vertex_iter_t *iter,
@@ -39,102 +60,21 @@ void hvr_vertex_iter_all_init(hvr_vertex_iter_t *iter,
 }
 
 hvr_vertex_t *hvr_vertex_iter_next(hvr_vertex_iter_t *iter) {
-    if (iter->current_chunk == NULL) {
-        return NULL;
-    } else {
-        hvr_vertex_t *result = iter->pool->pool +
-            (iter->current_chunk->start_index + iter->index_for_current_chunk);
-        // Haven't already found that we're at the end
-        int found = 0;
-        while (!found) {
-            iter->index_for_current_chunk += 1;
-            if (iter->index_for_current_chunk == iter->current_chunk->length) {
-                // Move to next chunk, which may be NULL
-                iter->current_chunk = iter->current_chunk->next;
-                iter->index_for_current_chunk = 0;
-            }
+    int bucket = iter->current_bucket;
+    hvr_map_seg_t *seg = iter->current_seg;
+    unsigned seg_index = iter->current_seg_index;
 
-            if (iter->current_chunk == NULL) {
-                // Reached the end of the list
-                found = 1;
-            } else {
-                // Check if the current vertex is one that we want to visit
-                hvr_vertex_t *vertex = iter->pool->pool +
-                    (iter->current_chunk->start_index +
-                     iter->index_for_current_chunk);
+    int success = hvr_vertex_iter_next_helper(&bucket, &seg, &seg_index, iter);
 
-                /*
-                 * deleted_timestamp is initialized to HVR_MAX_TIMESTEP.
-                 *
-                 * created_timestamp < current timestep ensures we don't iterate
-                 * over any vertices created in the current timestep.
-                 */
-                if (is_valid_vertex(vertex, iter)) {
-                    found = 1;
-                }
-            }
-        }
+    iter->current_bucket = bucket;
+    iter->current_seg = seg;
+    iter->current_seg_index = seg_index + 1;
+
+    if (success) {
+        hvr_vertex_cache_node_t *node = seg->data[seg_index].data;
+        hvr_vertex_t *result = &node->vert;
         return result;
-    }
-}
-
-void hvr_conc_vertex_iter_init(hvr_conc_vertex_iter_t *iter,
-        unsigned max_chunk_size, hvr_internal_ctx_t *ctx) {
-    hvr_vertex_iter_init(&iter->child, ctx);
-
-    iter->max_chunk_size = max_chunk_size;
-    iter->n_chunks_generated = 0;
-
-    int err = pthread_mutex_init(&iter->mutex, NULL);
-    assert(err == 0);
-}
-
-int hvr_conc_vertex_iter_next_chunk(hvr_conc_vertex_iter_t *iter,
-        hvr_conc_vertex_subiter_t *chunk) {
-    int success = 1;
-
-    int err = pthread_mutex_lock(&iter->mutex);
-    assert(err == 0);
-
-    if (iter->child.current_chunk == NULL) {
-        success = 0;
     } else {
-        // Set up the subchunk
-        memcpy(&chunk->child, &iter->child, sizeof(chunk->child));
-        chunk->max_index_for_current_chunk =
-            chunk->child.index_for_current_chunk + iter->max_chunk_size;
-        if (chunk->max_index_for_current_chunk >
-                chunk->child.current_chunk->length) {
-            chunk->max_index_for_current_chunk =
-                chunk->child.current_chunk->length;
-        }
-
-        if (chunk->max_index_for_current_chunk ==
-                chunk->child.current_chunk->length) {
-            // Go to the next chunk, the remainder of this chunk is handled
-            iter->child.current_chunk = iter->child.current_chunk->next;
-            iter->child.index_for_current_chunk = 0;
-        } else {
-            // Just move the current index
-            iter->child.index_for_current_chunk =
-                chunk->max_index_for_current_chunk;
-        }
-
-        iter->n_chunks_generated += 1;
-    }
-
-    err = pthread_mutex_unlock(&iter->mutex);
-    assert(err == 0);
-
-    return success;
-}
-
-hvr_vertex_t *hvr_conc_vertex_iter_next(hvr_conc_vertex_subiter_t *chunk) {
-    if (chunk->child.index_for_current_chunk >=
-            chunk->max_index_for_current_chunk) {
         return NULL;
     }
-
-    return hvr_vertex_iter_next(&chunk->child);
 }
-

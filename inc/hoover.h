@@ -10,7 +10,6 @@
 extern "C" {
 #endif
 
-#include "hvr_vertex_pool.h"
 #include "hvr_vertex_cache.h"
 #include "hvr_common.h"
 #include "hvr_vertex_iter.h"
@@ -171,7 +170,6 @@ typedef struct _hvr_internal_ctx_t {
     // Is the current OpenSHMEM runtime configured thread-safe?
     int thread_safe;
 
-    hvr_vertex_pool_t pool;
     hvr_partition_t *vertex_partitions; // only set while exiting
 
     // Number of partitions passed in by the user
@@ -411,6 +409,8 @@ static inline hvr_partition_t wrap_actor_to_partition(hvr_vertex_t *vec,
     assert(partition < ctx->n_partitions);
     return partition;
 }
+
+size_t hvr_n_allocated(hvr_ctx_t in_ctx);
 
 #ifdef __cplusplus
 }

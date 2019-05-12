@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:20:00
 #SBATCH -J hoover-infectious
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -75,7 +75,7 @@ if [[ $PE_PER_SOCKET -eq 0 ]]; then
 
     export EXE=infectious_test
     export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1"
-    export SHMEM_SYMMETRIC_SIZE=$((768 * 1024 * 1024))
+    export SHMEM_SYMMETRIC_SIZE=$((1024 * 1024 * 1024 + 512 * 1024 * 1024))
 else
     if [[ $SLURM_NNODES -eq 1 ]]; then
         # For 1 node
@@ -119,7 +119,7 @@ export HVR_EDGES_POOL_SIZE=$((768 * 1024 * 1024))
 export HVR_MAX_ACTIVE_PARTITIONS=600000
 export HVR_MAX_PRODUCER_INFO_INTERVAL=16
 
-export MAX_WALLTIME_SECONDS=480
+export MAX_WALLTIME_SECONDS=720
 
 export HVR_SYMM_POOL_NNODES=1024
 export HVR_VERT_CACHE_SEGS=50000
@@ -136,7 +136,7 @@ export HVR_PARTITION_LIST_SEGS=16384
 # export HVR_CACHE_TRACE_DUMP=1
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
-export HVR_HANG_ABORT=540
+# export HVR_HANG_ABORT=540
 # export HVR_HANG_ABORT_PE=17
 
 cd $SCRATCH

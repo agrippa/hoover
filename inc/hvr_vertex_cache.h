@@ -33,9 +33,6 @@ typedef struct _hvr_vertex_cache_node_t {
     struct _hvr_vertex_cache_node_t *local_neighbors_next;
     struct _hvr_vertex_cache_node_t *local_neighbors_prev;
 
-    // Partition for this vert.
-    hvr_partition_t part;
-
     unsigned n_local_neighbors;
     uint8_t dist_from_local_vert;
     hvr_time_t dist_from_local_vert_iter;
@@ -66,6 +63,7 @@ typedef struct _hvr_vertex_cache_t {
 
     // Keeps a count of mirrored vertices
     unsigned long long n_cached_vertices;
+    unsigned long long n_local_vertices;
 } hvr_vertex_cache_t;
 
 static inline hvr_vertex_cache_node_t *CACHE_NODE_BY_OFFSET(
@@ -154,9 +152,9 @@ static inline void hvr_vertex_cache_add_to_local_neighbor_list(
  * cache is assumed to point to a block of memory of at least
  * sizeof(hvr_vertex_cache_t) bytes.
  */
-extern void hvr_vertex_cache_init(hvr_vertex_cache_t *cache);
+void hvr_vertex_cache_init(hvr_vertex_cache_t *cache);
 
-extern void hvr_vertex_cache_destroy(hvr_vertex_cache_t *cache);
+void hvr_vertex_cache_destroy(hvr_vertex_cache_t *cache);
 
 /*
  * Given a vertex ID on a remote PE, look up that vertex in our local cache.
@@ -166,17 +164,17 @@ extern void hvr_vertex_cache_destroy(hvr_vertex_cache_t *cache);
  * May lead to evictions of very old cache entries that we now consider unusable
  * because of their age, as judged by CACHED_TIMESTEPS_TOLERANCE.
  */
-extern hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
+hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
         hvr_vertex_cache_t *cache);
 
-extern hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
-        hvr_partition_t part, hvr_vertex_cache_t *cache);
-
-extern void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *vert,
+hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         hvr_vertex_cache_t *cache);
 
-extern void hvr_vertex_cache_update_partition(hvr_vertex_cache_node_t *existing,
-        hvr_partition_t new_partition, hvr_vertex_cache_t *cache);
+hvr_vertex_cache_node_t *hvr_vertex_cache_reserve(hvr_vertex_cache_t *cache,
+        int pe, hvr_time_t iter);
+
+void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *vert,
+        hvr_vertex_cache_t *cache);
 
 void hvr_vertex_cache_mem_used(size_t *used, size_t *allocated,
         hvr_vertex_cache_t *cache);

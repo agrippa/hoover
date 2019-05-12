@@ -22,7 +22,8 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache) {
     }
 
     hvr_vertex_cache_node_t *prealloc =
-        (hvr_vertex_cache_node_t *)malloc_helper(n_preallocs * sizeof(*prealloc));
+        (hvr_vertex_cache_node_t *)shmem_malloc_wrapper(
+                n_preallocs * sizeof(*prealloc));
     assert(prealloc);
     memset(prealloc, 0x00, n_preallocs * sizeof(*prealloc));
 
@@ -83,16 +84,37 @@ void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *node,
     cache->n_cached_vertices--;
 }
 
-void hvr_vertex_cache_update_partition(hvr_vertex_cache_node_t *existing,
-        hvr_partition_t new_partition, hvr_vertex_cache_t *cache) {
-    assert(new_partition != HVR_INVALID_PARTITION);
+hvr_vertex_cache_node_t *hvr_vertex_cache_reserve(hvr_vertex_cache_t *cache,
+        int pe, hvr_time_t iter) {
+    // Assume that vec is not already in the cache, but don't enforce this
+    hvr_vertex_cache_node_t *new_node = NULL;
+    if (cache->pool_head) {
+        // Look for an already free node
+        new_node = cache->pool_head;
+        cache->pool_head = new_node->local_neighbors_next;
+        if (cache->pool_head) {
+            cache->pool_head->local_neighbors_prev = NULL;
+        }
+    } else {
+        // No valid node found, print an error
+        fprintf(stderr, "ERROR: PE %d exhausted %u cache slots\n",
+                shmem_my_pe(), cache->pool_size);
+        abort();
+    }
 
-    existing->part = new_partition;
+    memset(new_node, 0x00, sizeof(*new_node));
+    hvr_vertex_init(&new_node->vert,
+            construct_vertex_id(pe, new_node - cache->pool_mem), iter);
+
+    hvr_map_add(new_node->vert.id, new_node, 0, &cache->cache_map);
+
+    cache->n_local_vertices++;
+
+    return new_node;
 }
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
-        hvr_partition_t part, hvr_vertex_cache_t *cache) {
-    assert(part != HVR_INVALID_PARTITION);
+        hvr_vertex_cache_t *cache) {
 
     // Assume that vec is not already in the cache, but don't enforce this
     hvr_vertex_cache_node_t *new_node = NULL;
@@ -110,10 +132,8 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         abort();
     }
 
+    memset(new_node, 0x00, sizeof(*new_node));
     memcpy(&new_node->vert, vert, sizeof(*vert));
-    new_node->part = part;
-    new_node->n_local_neighbors = 0;
-    new_node->flag = 0;
 
     hvr_map_add(vert->id, new_node, 0, &cache->cache_map);
 
@@ -124,7 +144,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
 
 void hvr_vertex_cache_destroy(hvr_vertex_cache_t *cache) {
     hvr_map_destroy(&cache->cache_map);
-    free(cache->pool_mem);
+    shmem_free(cache->pool_mem);
 }
 
 void hvr_vertex_cache_mem_used(size_t *out_used, size_t *out_allocated,

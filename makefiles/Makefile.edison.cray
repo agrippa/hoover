@@ -8,7 +8,7 @@ SHMEM_FLAGS=-Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE
 CC=cc
 CXX=cc
 
-HOOVER_OBJS=bin/hoover.o bin/hvr_vertex_pool.o bin/hvr_vertex_iter.o \
+HOOVER_OBJS=bin/hoover.o bin/hvr_vertex_iter.o \
 			bin/hvr_mailbox.o bin/hvr_set.o bin/hvr_vertex.o \
 			bin/hvr_vertex_cache.o bin/hvr_dist_bitvec.o \
 			bin/hvr_sparse_arr.o bin/hvr_map.o bin/hvr_set_msg.o \

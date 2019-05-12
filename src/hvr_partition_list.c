@@ -30,11 +30,12 @@ static void prepend_to_partition_list_helper(hvr_vertex_t *curr,
     hvr_map_add(partition, curr, 1, &l->map);
 }
 
-void prepend_to_partition_list(hvr_vertex_t *curr,
+hvr_partition_t prepend_to_partition_list(hvr_vertex_t *curr,
         hvr_partition_list_t *l, hvr_internal_ctx_t *ctx) {
     hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
 
     prepend_to_partition_list_helper(curr, partition, l, ctx);
+    return partition;
 }
 
 void remove_from_partition_list_helper(hvr_vertex_t *vert,

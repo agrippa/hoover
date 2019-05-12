@@ -212,7 +212,7 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     if (timestep < max_num_timesteps - 1) {
         if (hvr_vertex_get(NEXT_CREATED, vertex, ctx) == 0) {
             // Add a next
-            hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
+            hvr_vertex_t *next = hvr_vertex_create(ctx);
 
             double x = hvr_vertex_get(PX, vertex, ctx);
             double y = hvr_vertex_get(PY, vertex, ctx);
@@ -258,6 +258,7 @@ void might_interact(const hvr_partition_t partition,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity,
         hvr_ctx_t ctx) {
+    assert(partition != HVR_INVALID_PARTITION);
 
     // The global dimensions of the full simulation space
     const double global_x_dim = (double)n_cells_x * cell_dim_x;
@@ -518,13 +519,14 @@ int main(int argc, char **argv) {
     //         (double)elapsed_count_local / 1000.0, n_local_actors);
 
     // unsigned long long start_pop_local = hvr_current_time_us();
-    hvr_vertex_t *actors = hvr_vertex_create_n(n_local_actors, hvr_ctx);
 
     size_t index = 0;
     input = fopen(input_filename, "rb");
     while (safe_fread(buf, 6, input)) {
         if (buf[1] >= my_cell_start_x && buf[1] < my_cell_end_x &&
                 buf[2] >= my_cell_start_y && buf[2] < my_cell_end_y) {
+            hvr_vertex_t *actor = hvr_vertex_create(hvr_ctx);
+
             double actor_id = buf[0];
             double x = buf[1];
             double y = buf[2];
@@ -537,18 +539,18 @@ int main(int argc, char **argv) {
                         (unsigned long)actor_id);
             }
 
-            hvr_vertex_set(TIME_STEP, 0, &actors[index], hvr_ctx);
-            hvr_vertex_set(ACTOR_ID, actor_id, &actors[index], hvr_ctx);
-            hvr_vertex_set(PX, x, &actors[index], hvr_ctx);
-            hvr_vertex_set(PY, y, &actors[index], hvr_ctx);
-            hvr_vertex_set(INFECTED, infected, &actors[index], hvr_ctx);
-            hvr_vertex_set(DST_X, dst_x, &actors[index], hvr_ctx);
-            hvr_vertex_set(DST_Y, dst_y, &actors[index], hvr_ctx);
-            hvr_vertex_set(NEXT_CREATED, 0, &actors[index], hvr_ctx);
-            hvr_vertex_set(NEXT_ID, 0, &actors[index], hvr_ctx);
-            hvr_vertex_set(PREV_IS_INFECTED, infected, &actors[index], hvr_ctx);
-            hvr_vertex_set(PREV_PX, x, &actors[index], hvr_ctx);
-            hvr_vertex_set(PREV_PY, y, &actors[index], hvr_ctx);
+            hvr_vertex_set(TIME_STEP, 0, actor, hvr_ctx);
+            hvr_vertex_set(ACTOR_ID, actor_id, actor, hvr_ctx);
+            hvr_vertex_set(PX, x, actor, hvr_ctx);
+            hvr_vertex_set(PY, y, actor, hvr_ctx);
+            hvr_vertex_set(INFECTED, infected, actor, hvr_ctx);
+            hvr_vertex_set(DST_X, dst_x, actor, hvr_ctx);
+            hvr_vertex_set(DST_Y, dst_y, actor, hvr_ctx);
+            hvr_vertex_set(NEXT_CREATED, 0, actor, hvr_ctx);
+            hvr_vertex_set(NEXT_ID, 0, actor, hvr_ctx);
+            hvr_vertex_set(PREV_IS_INFECTED, infected, actor, hvr_ctx);
+            hvr_vertex_set(PREV_PX, x, actor, hvr_ctx);
+            hvr_vertex_set(PREV_PY, y, actor, hvr_ctx);
 
             index++;
         }
