@@ -1777,57 +1777,24 @@ void send_updates_to_all_subscribed_pes(
     // Find subscribers to part and send message to them
     const unsigned n_subscribers = hvr_sparse_arr_row_length(part,
             &ctx->pe_subscription_info);
-    if (n_subscribers > 0) {
-        // Current neighbors for the updated vertex
-        int *subscribers = NULL;
-        hvr_sparse_arr_linearize_row(part, &subscribers,
-                &ctx->pe_subscription_info);
+    // Current neighbors for the updated vertex
+    int *subscribers = NULL;
+    hvr_sparse_arr_linearize_row(part, &subscribers,
+            &ctx->pe_subscription_info);
 
-        int self_subscription = 0;
-        for (unsigned s = 0; s < n_subscribers; s++) {
-            int sub_pe = subscribers[s];
-            assert(sub_pe < ctx->npes);
-            if (sub_pe == ctx->pe) {
-                self_subscription = 1;
-            }
+    for (unsigned s = 0; s < n_subscribers; s++) {
+        int sub_pe = subscribers[s];
+        assert(sub_pe < ctx->npes);
 
-            hvr_vertex_update_t *msg = (is_delete ?
-                    ctx->buffered_deletes + sub_pe :
-                    ctx->buffered_updates + sub_pe);
-            memcpy(&(msg->verts[msg->len]), vert, sizeof(*vert));
-            msg->is_invalidation[msg->len] = is_invalidation;
-            msg->len += 1;
-
-            if (msg->len == VERT_PER_UPDATE) {
-                send_vertex_update_msg(msg, sub_pe, mbox, perf_info, ctx,
-                        &start, time_sending);
-            }
-        }
-
-        if (!self_subscription) {
-            hvr_vertex_update_t *msg = (is_delete ?
-                    ctx->buffered_deletes + ctx->pe :
-                    ctx->buffered_updates + ctx->pe);
-            memcpy(&(msg->verts[msg->len]), vert, sizeof(*vert));
-            msg->is_invalidation[msg->len] = is_invalidation;
-            msg->len += 1;
-
-            if (msg->len == VERT_PER_UPDATE) {
-                send_vertex_update_msg(msg, ctx->pe, mbox, perf_info, ctx,
-                        &start, time_sending);
-            }
-        }
-    } else {
-        // Only send to myself
         hvr_vertex_update_t *msg = (is_delete ?
-                ctx->buffered_deletes + ctx->pe :
-                ctx->buffered_updates + ctx->pe);
+                ctx->buffered_deletes + sub_pe :
+                ctx->buffered_updates + sub_pe);
         memcpy(&(msg->verts[msg->len]), vert, sizeof(*vert));
         msg->is_invalidation[msg->len] = is_invalidation;
         msg->len += 1;
 
         if (msg->len == VERT_PER_UPDATE) {
-            send_vertex_update_msg(msg, ctx->pe, mbox, perf_info, ctx,
+            send_vertex_update_msg(msg, sub_pe, mbox, perf_info, ctx,
                     &start, time_sending);
         }
     }
@@ -3133,7 +3100,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         }
 
         ctx->iter += 1;
-
     }
 
     shmem_quiet();
