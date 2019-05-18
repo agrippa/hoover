@@ -1380,65 +1380,8 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
             hvr_partition_t old_partition = updated->vert.curr_part;
             memcpy(&updated->vert, new_vert,
                     offsetof(hvr_vertex_t, next_in_partition));
-            update_partition_list_membership(&updated->vert,
-                    old_partition,
-                    &ctx->mirror_partition_lists, ctx);
 
-            /*
-             * Look for existing edges and verify they should still exist with
-             * this update to the local mirror.
-             */
-            unsigned n_neighbors = hvr_irr_matrix_linearize(
-                    CACHE_NODE_OFFSET(updated, &ctx->vec_cache),
-                    ctx->edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
-
-            for (unsigned n = 0; n < n_neighbors; n++) {
-                hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
-                        EDGE_INFO_VERTEX(ctx->edge_buffer[n]), &ctx->vec_cache);
-                hvr_edge_type_t edge = EDGE_INFO_EDGE(ctx->edge_buffer[n]);
-
-                // Check this edge should still exist
-                hvr_edge_type_t new_edge = ctx->should_have_edge(
-                        &updated->vert, &(cached_neighbor->vert), ctx);
-                update_edge_info(updated->vert.id, cached_neighbor->vert.id,
-                        updated, cached_neighbor, new_edge, &edge, ctx);
-
-                // Mark that we've already handled it
-                cached_neighbor->flag = 1;
-            }
-
-            const unsigned long long done_updating_edges = hvr_current_time_us();
-
-            hvr_edge_type_t no_edge = NO_EDGE;
-            for (unsigned i = 0; i < n_interacting; i++) {
-                hvr_partition_t other_part = ctx->interacting[i];
-
-                hvr_vertex_t *cache_iter = hvr_partition_list_head(other_part,
-                        &ctx->mirror_partition_lists);
-                while (cache_iter) {
-                    hvr_vertex_cache_node_t *cache_node =
-                        (hvr_vertex_cache_node_t *)cache_iter;
-                    if (!cache_node->flag) {
-                        hvr_edge_type_t new_edge = ctx->should_have_edge(
-                                cache_iter, &updated->vert, ctx);
-
-                        update_edge_info(cache_iter->id, updated->vert.id,
-                                cache_node, updated, new_edge, &no_edge, ctx);
-
-                        local_count_new_should_have_edges += 1;
-                    }
-                    cache_iter = cache_iter->next_in_partition;
-                }
-            }
-
-            // Clear the flag
-            for (unsigned n = 0; n < n_neighbors; n++) {
-                hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
-                        EDGE_INFO_VERTEX(ctx->edge_buffer[n]), &ctx->vec_cache);
-                cached_neighbor->flag = 0;
-            }
-
-            mark_all_downstream_neighbors_for_processing(updated, ctx);
+            update_existing_edges(updated, old_partition);
 
             const unsigned long long done = hvr_current_time_us();
 
@@ -1726,6 +1669,69 @@ void hvr_create_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
             NULL, ctx);
 }
 
+static void update_existing_edges(hvr_vertex_cache_node_t *updated,
+        hvr_partition_t old_part) {
+update_partition_list_membership(&updated->vert,
+                    old_partition,
+                    &ctx->mirror_partition_lists, ctx);
+
+            /*
+             * Look for existing edges and verify they should still exist with
+             * this update to the local mirror.
+             */
+            unsigned n_neighbors = hvr_irr_matrix_linearize(
+                    CACHE_NODE_OFFSET(updated, &ctx->vec_cache),
+                    ctx->edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
+
+            for (unsigned n = 0; n < n_neighbors; n++) {
+                hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
+                        EDGE_INFO_VERTEX(ctx->edge_buffer[n]), &ctx->vec_cache);
+                hvr_edge_type_t edge = EDGE_INFO_EDGE(ctx->edge_buffer[n]);
+
+                // Check this edge should still exist
+                hvr_edge_type_t new_edge = ctx->should_have_edge(
+                        &updated->vert, &(cached_neighbor->vert), ctx);
+                update_edge_info(updated->vert.id, cached_neighbor->vert.id,
+                        updated, cached_neighbor, new_edge, &edge, ctx);
+
+                // Mark that we've already handled it
+                cached_neighbor->flag = 1;
+            }
+
+            const unsigned long long done_updating_edges = hvr_current_time_us();
+
+            hvr_edge_type_t no_edge = NO_EDGE;
+            for (unsigned i = 0; i < n_interacting; i++) {
+                hvr_partition_t other_part = ctx->interacting[i];
+
+                hvr_vertex_t *cache_iter = hvr_partition_list_head(other_part,
+                        &ctx->mirror_partition_lists);
+                while (cache_iter) {
+                    hvr_vertex_cache_node_t *cache_node =
+                        (hvr_vertex_cache_node_t *)cache_iter;
+                    if (!cache_node->flag) {
+                        hvr_edge_type_t new_edge = ctx->should_have_edge(
+                                cache_iter, &updated->vert, ctx);
+
+                        update_edge_info(cache_iter->id, updated->vert.id,
+                                cache_node, updated, new_edge, &no_edge, ctx);
+
+                        local_count_new_should_have_edges += 1;
+                    }
+                    cache_iter = cache_iter->next_in_partition;
+                }
+            }
+
+            // Clear the flag
+            for (unsigned n = 0; n < n_neighbors; n++) {
+                hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
+                        EDGE_INFO_VERTEX(ctx->edge_buffer[n]), &ctx->vec_cache);
+                cached_neighbor->flag = 0;
+            }
+
+            mark_all_downstream_neighbors_for_processing(updated, ctx);
+}
+
 static int update_vertices(hvr_set_t *to_couple_with,
         hvr_internal_ctx_t *ctx) {
     if (ctx->update_metadata == NULL) {
@@ -1741,8 +1747,9 @@ static int update_vertices(hvr_set_t *to_couple_with,
         if (curr->needs_processing) {
             const hvr_partition_t old_part = wrap_actor_to_partition(curr, ctx);
             ctx->update_metadata(curr, to_couple_with, ctx);
-            update_partition_list_membership(curr, old_part,
-                    &ctx->local_partition_lists, ctx);
+
+            update_existing_edges((hvr_vertex_cache_node_t *)curr,
+                    old_partition);
 
             curr->needs_processing = 0;
             count++;
