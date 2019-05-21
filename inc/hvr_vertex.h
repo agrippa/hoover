@@ -20,6 +20,7 @@ typedef struct _hvr_vertex_t {
     unsigned char needs_send;
     unsigned char needs_processing;
     hvr_partition_t curr_part;
+    hvr_partition_t prev_part;
 
     // These two fields must be the last in the vertex struct, in this order
     struct _hvr_vertex_t *next_in_partition;
@@ -95,7 +96,7 @@ extern void hvr_vertex_dump(hvr_vertex_t *vert, char *buf,
 /*
  * Get the PE that allocated and owns this vertex.
  */
-extern int hvr_vertex_get_owning_pe(hvr_vertex_t *vec);
+extern int hvr_vertex_get_owning_pe(const hvr_vertex_t *vec);
 
 /*
  * Add the contents of two vertices together (dst and src) and store the result

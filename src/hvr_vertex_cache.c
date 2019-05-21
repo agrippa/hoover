@@ -36,7 +36,7 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache) {
         prealloc[i].local_neighbors_next = prealloc + (i + 1);
         prealloc[i].local_neighbors_prev = prealloc + (i - 1);
     }
-    cache->pool_head = prealloc + 0;
+    cache->pool_head = prealloc;
     cache->pool_mem = prealloc;
     cache->pool_size = n_preallocs;
 

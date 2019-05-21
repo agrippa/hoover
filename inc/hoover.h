@@ -90,7 +90,7 @@ typedef void (*hvr_might_interact_func)(const hvr_partition_t partition,
  * API for calculating the problem space partition that a given vertex belongs
  * to.
  */
-typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_vertex_t *actor,
+typedef hvr_partition_t (*hvr_actor_to_partition)(const hvr_vertex_t *actor,
         hvr_ctx_t ctx);
 
 /*
@@ -99,8 +99,8 @@ typedef hvr_partition_t (*hvr_actor_to_partition)(hvr_vertex_t *actor,
  * any two vertices A and B, the return value of should_have_edge(A, B) must be
  * the inverse of should_have_edge(B, A).
  */
-typedef hvr_edge_type_t (*hvr_should_have_edge)(hvr_vertex_t *target,
-        hvr_vertex_t *candidate, hvr_ctx_t ctx);
+typedef hvr_edge_type_t (*hvr_should_have_edge)(const hvr_vertex_t *target,
+        const hvr_vertex_t *candidate, hvr_ctx_t ctx);
 
 /*
  * All message definitions.
@@ -403,7 +403,7 @@ extern void send_updates_to_all_subscribed_pes(
         unsigned long long *time_sending,
         hvr_internal_ctx_t *ctx);
 
-static inline hvr_partition_t wrap_actor_to_partition(hvr_vertex_t *vec,
+static inline hvr_partition_t wrap_actor_to_partition(const hvr_vertex_t *vec,
         hvr_internal_ctx_t *ctx) {
     hvr_partition_t partition = ctx->actor_to_partition(vec, ctx);
     assert(partition < ctx->n_partitions);

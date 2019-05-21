@@ -14,12 +14,12 @@ long long p_wrk[SHMEM_REDUCE_MIN_WRKDATA_SIZE];
 int int_p_wrk[SHMEM_REDUCE_MIN_WRKDATA_SIZE];
 long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 
-hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
+hvr_edge_type_t should_have_edge(const hvr_vertex_t *base, const hvr_vertex_t *neighbor,
         hvr_ctx_t ctx) {
     return BIDIRECTIONAL;
 }
 
-hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
+hvr_partition_t actor_to_partition(const hvr_vertex_t *actor, hvr_ctx_t ctx) {
     return 0;
 }
 

@@ -19,11 +19,11 @@ void start_time_step(hvr_vertex_iter_t *iter,
     }
 }
 
-hvr_partition_t actor_to_partition(hvr_vertex_t *vertex, hvr_ctx_t ctx) {
+hvr_partition_t actor_to_partition(const hvr_vertex_t *vertex, hvr_ctx_t ctx) {
     return (hvr_partition_t)hvr_vertex_get(0, vertex, ctx);
 }
 
-hvr_edge_type_t should_have_edge(hvr_vertex_t *a, hvr_vertex_t *b,
+hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
         hvr_ctx_t ctx) {
     return BIDIRECTIONAL;
 }
@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
     npes = shmem_n_pes();
     assert(npes == 2);
 
-    hvr_vertex_t *vertices = hvr_vertex_create_n(1, hvr_ctx);
+    hvr_vertex_t *vertices = hvr_vertex_create(hvr_ctx);
     hvr_vertex_set(0, pe, &vertices[0], hvr_ctx);
 
     hvr_init(3, // # partitions

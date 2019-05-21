@@ -40,7 +40,7 @@ long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 
 static unsigned grid_cells_this_pe;
 
-hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
+hvr_partition_t actor_to_partition(const hvr_vertex_t *actor, hvr_ctx_t ctx) {
     const double row = hvr_vertex_get(0, actor, ctx);
     const double col = hvr_vertex_get(1, actor, ctx);
 
@@ -53,7 +53,7 @@ hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
     return partition;
 }
 
-hvr_edge_type_t should_have_edge(hvr_vertex_t *a, hvr_vertex_t *b,
+hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
         hvr_ctx_t ctx) {
     double delta0 = hvr_vertex_get(0, b, ctx) - hvr_vertex_get(0, a, ctx);
     double delta1 = hvr_vertex_get(1, b, ctx) - hvr_vertex_get(1, a, ctx);
@@ -254,24 +254,19 @@ int main(int argc, char **argv) {
      *  1: column of this cell
      *  2: whether this cell has been "infected" by its neighbors
      */
-    hvr_vertex_t *vertices = hvr_vertex_create_n(
-            grid_cell_end - grid_cell_start, hvr_ctx);
     for (hvr_vertex_id_t vertex = grid_cell_start; vertex < grid_cell_end;
             vertex++) {
+        hvr_vertex_t *vertex_obj = hvr_vertex_create(hvr_ctx);
         const hvr_vertex_id_t row = vertex / grid_dim;
         const hvr_vertex_id_t col = vertex % grid_dim;
 
-        hvr_vertex_set(0, (double)row, &vertices[vertex - grid_cell_start],
-                hvr_ctx);
-        hvr_vertex_set(1, (double)col, &vertices[vertex - grid_cell_start],
-                hvr_ctx);
+        hvr_vertex_set(0, (double)row, vertex_obj, hvr_ctx);
+        hvr_vertex_set(1, (double)col, vertex_obj, hvr_ctx);
         if (pe == 0 && vertex == grid_cell_start) {
             // Initialze just the cell at (0, 0) as infected.
-            hvr_vertex_set(2, 1.0, &vertices[vertex - grid_cell_start],
-                    hvr_ctx);
+            hvr_vertex_set(2, 1.0, vertex_obj, hvr_ctx);
         } else {
-            hvr_vertex_set(2, 0.0, &vertices[vertex - grid_cell_start],
-                    hvr_ctx);
+            hvr_vertex_set(2, 0.0, vertex_obj, hvr_ctx);
         }
     }
 

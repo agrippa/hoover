@@ -69,20 +69,6 @@ typedef hvr_internal_ctx_t *hvr_ctx_t;
 typedef uint32_t hvr_partition_t;
 #define HVR_INVALID_PARTITION UINT32_MAX
 
-static inline size_t get_symm_pool_nelements() {
-    static size_t symm_pool_nelements = 0;
-
-    if (symm_pool_nelements == 0) {
-        if (getenv("HVR_SYMM_POOL_SIZE")) {
-            symm_pool_nelements = atoi(getenv("HVR_SYMM_POOL_SIZE"));
-            assert(symm_pool_nelements > 0);
-        } else {
-            symm_pool_nelements = 1024UL * 1024UL; // Default
-        }
-    }
-    return symm_pool_nelements;
-}
-
 typedef struct _hvr_vertex_update_t hvr_vertex_update_t;
 
 typedef hvr_vertex_id_t hvr_edge_info_t;

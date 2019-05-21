@@ -80,8 +80,8 @@ static double distance(double x1, double y1, double x2, double y2) {
     return sqrt((deltay * deltay) + (deltax * deltax));
 }
 
-hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
-        hvr_ctx_t ctx) {
+hvr_edge_type_t should_have_edge(const hvr_vertex_t *base,
+        const hvr_vertex_t *neighbor, hvr_ctx_t ctx) {
     int base_time = (int)hvr_vertex_get(TIME_STEP, base, ctx);
     int neighbor_time = (int)hvr_vertex_get(TIME_STEP, neighbor, ctx);
 
@@ -98,7 +98,7 @@ hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
     return NO_EDGE;
 }
 
-hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
+hvr_partition_t actor_to_partition(const hvr_vertex_t *actor, hvr_ctx_t ctx) {
     const double timestep = hvr_vertex_get(TIME_STEP, actor, ctx);
     const double y = hvr_vertex_get(PREV_PY, actor, ctx);
     const double x = hvr_vertex_get(PREV_PX, actor, ctx);

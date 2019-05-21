@@ -38,7 +38,7 @@ hvr_partition_t prepend_to_partition_list(hvr_vertex_t *curr,
     return partition;
 }
 
-void remove_from_partition_list_helper(hvr_vertex_t *vert,
+void remove_from_partition_list_helper(const hvr_vertex_t *vert,
         hvr_partition_t partition, hvr_partition_list_t *l,
         hvr_internal_ctx_t *ctx) {
     assert(partition != HVR_INVALID_PARTITION);

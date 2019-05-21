@@ -38,6 +38,7 @@ void hvr_vertex_init(hvr_vertex_t *vert, hvr_vertex_id_t id, hvr_time_t iter) {
     vert->needs_processing = 1;
     vert->needs_send = 1;
     vert->curr_part = HVR_INVALID_PARTITION;
+    vert->prev_part = HVR_INVALID_PARTITION;
 }
 
 void hvr_vertex_dump(hvr_vertex_t *vert, char *buf, const size_t buf_size,
@@ -64,7 +65,7 @@ void hvr_vertex_dump(hvr_vertex_t *vert, char *buf, const size_t buf_size,
     }
 }
 
-int hvr_vertex_get_owning_pe(hvr_vertex_t *vert) {
+int hvr_vertex_get_owning_pe(const hvr_vertex_t *vert) {
     assert(vert->id != HVR_INVALID_VERTEX_ID);
     return VERTEX_ID_PE(vert->id);
 }

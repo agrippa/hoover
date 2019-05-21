@@ -8,64 +8,24 @@
 
 #include <hoover.h>
 
+#define ACTOR 0
+#define CREATED_NEXT 1
+
 unsigned N = 2000;
 int pe, npes;
 
-hvr_partition_t actor_to_partition(hvr_vertex_t *vertex, hvr_ctx_t ctx) {
-    hvr_partition_t actor = (hvr_partition_t)hvr_vertex_get(0, vertex, ctx);
-    if (actor < N) {
-        return actor;
-    } else {
-        hvr_partition_t part = N + hvr_vertex_get(1, vertex, ctx);
-        if (part >= 2 * N) part = 2 * N - 1;
-        return part;
-    }
+hvr_partition_t actor_to_partition(const hvr_vertex_t *vertex, hvr_ctx_t ctx) {
+    return hvr_vertex_get_uint64(ACTOR, vertex, ctx);
 }
 
-hvr_edge_type_t should_have_edge(hvr_vertex_t *a, hvr_vertex_t *b,
+hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
         hvr_ctx_t ctx) {
-    if (hvr_vertex_get_owning_pe(a) != hvr_vertex_get_owning_pe(b)) {
-        // fprintf(stderr, "PE %d BIDIRECTIONAL (%f %f) (%f %f)\n", ctx->pe,
-        //         hvr_vertex_get(0, a, ctx), hvr_vertex_get(1, a, ctx),
-        //         hvr_vertex_get(0, b, ctx), hvr_vertex_get(1, b, ctx));
-        return BIDIRECTIONAL;
-    } else {
-        // fprintf(stderr, "PE %d NO_EDGE (%f %f) (%f %f)\n", ctx->pe,
-        //         hvr_vertex_get(0, a, ctx), hvr_vertex_get(1, a, ctx),
-        //         hvr_vertex_get(0, b, ctx), hvr_vertex_get(1, b, ctx));
-        return NO_EDGE;
-    }
-}
+    uint64_t actor_a = hvr_vertex_get_uint64(ACTOR, a, ctx);
+    uint64_t actor_b = hvr_vertex_get_uint64(ACTOR, b, ctx);
 
-void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
-        hvr_ctx_t ctx) {
-    hvr_partition_t actor = (hvr_partition_t)hvr_vertex_get(0, vertex, ctx);
-    if (actor == N) {
-        assert(hvr_vertex_get_owning_pe(vertex) == 1);
-
-        hvr_vertex_t **verts;
-        hvr_edge_type_t *dirs;
-        int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
-        assert(n_neighbors >= 0 && n_neighbors <= N);
-
-        fprintf(stderr, "PE %d iter %d, %u neighbors for actor %d\n",
-                ctx->pe, ctx->iter, n_neighbors, N);
-
-        for (int i = 0; i < n_neighbors; i++) {
-            hvr_vertex_t *neighbor = verts[i];
-            assert((unsigned)hvr_vertex_get(0, neighbor, ctx) < n_neighbors);
-        }
-
-        unsigned curr_val = (unsigned)hvr_vertex_get(1, vertex, ctx);
-        assert(curr_val == n_neighbors || curr_val == n_neighbors - 1);
-
-        if (curr_val < n_neighbors) {
-            fprintf(stderr, "Transitioning from %u to %u\n", curr_val,
-                    n_neighbors);
-        }
-
-        hvr_vertex_set(1, (double)n_neighbors, vertex, ctx);
-    }
+    int delta = abs(actor_a - actor_b);
+    assert(delta == 1);
+    return BIDIRECTIONAL;
 }
 
 void might_interact(const hvr_partition_t partition,
@@ -73,21 +33,43 @@ void might_interact(const hvr_partition_t partition,
         unsigned *n_interacting_partitions,
         unsigned interacting_partitions_capacity,
         hvr_ctx_t ctx) {
-    if (partition < N) {
-        assert(partition >= 0);
-        // For partitions on PE 0
-        *n_interacting_partitions = partition + 1;
-        assert(*n_interacting_partitions <= interacting_partitions_capacity);
-        for (int i = 0; i < *n_interacting_partitions; i++) {
-            interacting_partitions[i] = N + i;
+    if (partition > 0) {
+        interacting_partitions[*n_interacting_partitions] = partition - 1;
+        *n_interacting_partitions += 1;
+    }
+    if (partition < N - 1) {
+        interacting_partitions[*n_interacting_partitions] = partition + 1;
+        *n_interacting_partitions += 1;
+    }
+}
+
+void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
+        hvr_ctx_t ctx) {
+    uint64_t actor = hvr_vertex_get_uint64(ACTOR, vertex, ctx);
+    uint64_t created_next = hvr_vertex_get_uint64(CREATED_NEXT, vertex, ctx);
+
+    if (actor < N - 2 && !created_next) {
+        hvr_vertex_t **verts;
+        hvr_edge_type_t *dirs;
+        int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
+        assert(n_neighbors >= 0 && n_neighbors <= 2);
+
+        // If we have a +1 neighbor, then create a +2 neighbor
+        int found_plus_one = 0;
+        for (int i = 0; i < n_neighbors; i++) {
+            hvr_vertex_t *neighbor = verts[i];
+            uint64_t actor_neighbor = hvr_vertex_get_uint64(ACTOR, neighbor, ctx);
+            if (actor_neighbor == actor + 1) {
+                assert(found_plus_one == 0);
+                found_plus_one = 1;
+            }
         }
-    } else {
-        // Partition on PE 1
-        assert(partition >= N && partition < 2 * N);
-        *n_interacting_partitions = partition - N + 1;
-        assert(*n_interacting_partitions <= interacting_partitions_capacity);
-        for (int i = 0; i < *n_interacting_partitions; i++) {
-            interacting_partitions[i] = i;
+
+        if (found_plus_one) {
+            hvr_vertex_set(CREATED_NEXT, 1, vertex, ctx);
+            hvr_vertex_t *next = hvr_vertex_create(ctx);
+            hvr_vertex_set_uint64(ACTOR, actor + 2, next, ctx);
+            hvr_vertex_set_uint64(CREATED_NEXT, 0, next, ctx);
         }
     }
 }
@@ -116,24 +98,13 @@ int main(int argc, char **argv) {
 
     pe = shmem_my_pe();
     npes = shmem_n_pes();
-    assert(npes == 2);
 
-    hvr_vertex_t *vertices = NULL;
-    if (pe == 0) {
-        vertices = hvr_vertex_create_n(N, hvr_ctx);
-        for (unsigned i = 0; i < N; i++) {
-            hvr_vertex_set(0, i, &vertices[i], hvr_ctx);
-            hvr_vertex_set(1, 0, &vertices[i], hvr_ctx);
-        }
-    } else {
-        vertices = hvr_vertex_create_n(1, hvr_ctx);
-        hvr_vertex_set(0, (double)N, vertices, hvr_ctx);
-        hvr_vertex_set(1, (double)0, vertices, hvr_ctx);
-    }
+    hvr_vertex_t *init_vertex = hvr_vertex_create(hvr_ctx);
+    hvr_vertex_set_uint64(ACTOR, pe, init_vertex, hvr_ctx);
+    hvr_vertex_set_uint64(CREATED_NEXT, 0, init_vertex, hvr_ctx);
 
-    // Statically divide 2D grid into PARTITION_DIM x PARTITION_DIM partitions
-    hvr_init(2 * N, // # partitions
-            update_metadata,
+    hvr_init(N, // # partitions
+            update_vertex,
             might_interact,
             update_coupled_val,
             actor_to_partition,
@@ -148,17 +119,19 @@ int main(int argc, char **argv) {
 
     shmem_barrier_all();
 
-    if (pe == 1) {
-        assert((unsigned)hvr_vertex_get(0, vertices, hvr_ctx) == N);
-        if ((unsigned)hvr_vertex_get(1, vertices, hvr_ctx) != N) {
-            fprintf(stderr, "ERROR: Expected %u, got %u\n", N,
-                    (unsigned)hvr_vertex_get(1, vertices, hvr_ctx));
-        } else {
-            printf("SUCCESS\n");
-        }
+    unsigned count_actors = 0;
+    hvr_vertex_iter_t iter;
+    hvr_vertex_iter_init(&iter, hvr_ctx);
+    for (hvr_vertex_t *curr = hvr_vertex_iter_next(&iter); curr;
+            curr = hvr_vertex_iter_next(&iter)) {
+        count_actors++;
     }
+    assert(count_actors == N / 2);
 
     hvr_finalize(hvr_ctx);
+    if (pe == 0) {
+        printf("SUCCESS\n");
+    }
 
     shmem_finalize();
 
