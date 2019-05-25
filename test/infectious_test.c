@@ -434,11 +434,11 @@ static int safe_fread(double *buf, size_t n_to_read, FILE *fp) {
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc != 9) {
+    if (argc != 11) {
         fprintf(stderr, "usage: %s <cell-dim-y> <cell-dim-x> "
                 "<n-cells-y> <n-cells-x> "
                 "<max-num-timesteps> <infection-radius> "
-                "<time-limit> <input-file>\n",
+                "<time-limit> <input-file> <y-partitions> <x-partitions>\n",
                 argv[0]);
         return 1;
     }
@@ -453,8 +453,8 @@ int main(int argc, char **argv) {
     char *input_filename = argv[8];
 
     n_time_partition = max_num_timesteps;
-    n_y_partition = 500;
-    n_x_partition = 500;
+    n_y_partition = atoi(argv[9]);
+    n_x_partition = atoi(argv[10]);
     hvr_partition_t npartitions = n_time_partition * n_y_partition *
         n_x_partition;
 

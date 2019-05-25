@@ -115,15 +115,17 @@ int main(int argc, char **argv) {
 
     shmem_barrier_all();
 
+    fprintf(stderr, "PE %d - (%u, %u) - iters=%d\n", pe,
+            (unsigned)hvr_vertex_get(ACTOR_ID, vertices, hvr_ctx),
+            (unsigned)hvr_vertex_get(POS, vertices, hvr_ctx),
+            hvr_ctx->iter);
+    assert((unsigned)hvr_vertex_get(ACTOR_ID, vertices, hvr_ctx) == pe);
     if (pe == 0) {
-        assert((unsigned)hvr_vertex_get(ACTOR_ID, vertices, hvr_ctx) == 0);
         assert((unsigned)hvr_vertex_get(POS, vertices, hvr_ctx) == N - 2);
-        printf("PE 0 SUCCESS\n");
     } else {
-        assert((unsigned)hvr_vertex_get(ACTOR_ID, vertices, hvr_ctx) == 1);
         assert((unsigned)hvr_vertex_get(POS, vertices, hvr_ctx) == N - 1);
-        printf("PE 1 SUCCESS\n");
     }
+    printf("PE %d SUCCESS\n", pe);
 
     hvr_finalize(hvr_ctx);
 

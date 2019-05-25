@@ -384,15 +384,11 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
      * outbound on neighbor).
      */
     if (base_is_local && new_edge != DIRECTED_OUT) {
-        hvr_vertex_cache_node_t *local = ctx->vec_cache.pool_mem +
-            VERTEX_ID_OFFSET(base_id);
-        local->vert.needs_processing = 1;
+        base->vert.needs_processing = 1;
     }
 
     if (neighbor_is_local && flip_edge_direction(new_edge) != DIRECTED_OUT) {
-        hvr_vertex_cache_node_t *local = ctx->vec_cache.pool_mem +
-            VERTEX_ID_OFFSET(neighbor_id);
-        local->vert.needs_processing = 1;
+        neighbor->vert.needs_processing = 1;
     }
 }
 
@@ -1571,6 +1567,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         hvr_vertex_update_t *msg = (hvr_vertex_update_t *)msg_buf_node->ptr;
 
         for (unsigned i = 0; i < msg->len; i++) {
+
             if (msg->is_invalidation[i]) {
                 handle_deleted_vertex(&(msg->verts[i]), ctx);
             } else {
@@ -1760,13 +1757,12 @@ static int update_vertices(hvr_set_t *to_couple_with,
             curr->curr_part = new_partition;
             curr->prev_part = old_part;
 
-            unsigned n_interacting = 0;
-            ctx->might_interact(new_partition, ctx->interacting, &n_interacting,
-                    MAX_INTERACTING_PARTITIONS, ctx);
-
             update_partition_list_membership(curr, old_part,
                     &ctx->local_partition_lists, ctx);
             if (curr->needs_send) {
+                unsigned n_interacting = 0;
+                ctx->might_interact(new_partition, ctx->interacting,
+                        &n_interacting, MAX_INTERACTING_PARTITIONS, ctx);
                 // Something changed
                 update_existing_edges((hvr_vertex_cache_node_t *)curr,
                         ctx->interacting, n_interacting, ctx);
@@ -1845,6 +1841,7 @@ static unsigned send_vertex_updates(hvr_internal_ctx_t *ctx,
 
             if (old_partition != HVR_INVALID_PARTITION &&
                     old_partition != new_partition) {
+
                 send_updates_to_all_subscribed_pes(curr, old_partition, 1, 0,
                         perf_info, time_sending, ctx);
             }
@@ -2715,13 +2712,14 @@ static void print_profiling_info(profiling_info_t *info) {
             (double)info->time_2 / 1000.0,
             (double)info->time_3_4 / 1000.0,
             (double)info->time_5 / 1000.0);
-    fprintf(profiling_fp, "  update neighbors %f\n",
-            (double)(info->end_neighbor_updates - info->end_partition_window) / 1000.0);
     fprintf(profiling_fp, "  send updates %f - %u changes, %f ms sending\n",
-            (double)(info->end_send_updates - info->end_neighbor_updates) / 1000.0,
+            (double)(info->end_send_updates - info->end_partition_window) / 1000.0,
             info->n_updates_sent, (double)info->time_sending / 1000.0);
+
+    fprintf(profiling_fp, "  update neighbors %f\n",
+            (double)(info->end_neighbor_updates - info->end_send_updates) / 1000.0);
     fprintf(profiling_fp, "  process vertex updates %f - %u received\n",
-            (double)(info->end_vertex_updates - info->end_send_updates) / 1000.0,
+            (double)(info->end_vertex_updates - info->end_neighbor_updates) / 1000.0,
             info->perf_info.n_received_updates);
     fprintf(profiling_fp, "    %f on deletes\n",
             (double)info->perf_info.time_handling_deletes / 1000.0);
@@ -2934,26 +2932,27 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     shmem_barrier_all();
 
     /*
-     * Receive and process updates sent in update_pes_on_neighbors, and adjust
-     * our local neighbors based on those updates. This stores a mapping from
-     * partition to the PEs that are subscribed to updates in that partition
-     * inside of ctx->pe_subscription_info.
-     */
-    process_perf_info_t perf_info;
-    memset(&perf_info, 0x00, sizeof(perf_info));
-    process_neighbor_updates(ctx, &perf_info);
-    const unsigned long long end_neighbor_updates = hvr_current_time_us();
-
-    /*
      * Process updates sent to us by neighbors via our main mailbox. Use these
      * updates to update edges for all vertices (both local and mirrored).
      */
+    process_perf_info_t perf_info;
+    memset(&perf_info, 0x00, sizeof(perf_info));
     unsigned long long time_sending = 0;
     unsigned n_updates_sent = send_vertex_updates(ctx, &time_sending,
             &perf_info);
 
     // Ensure all updates are sent before processing them during initialization
     const unsigned long long end_send_updates = hvr_current_time_us();
+
+    /*
+     * Receive and process updates sent in update_pes_on_neighbors, and adjust
+     * our local neighbors based on those updates. This stores a mapping from
+     * partition to the PEs that are subscribed to updates in that partition
+     * inside of ctx->pe_subscription_info.
+     */
+    process_neighbor_updates(ctx, &perf_info);
+    const unsigned long long end_neighbor_updates = hvr_current_time_us();
+
 
     perf_info.n_received_updates += process_vertex_updates(ctx, &perf_info);
     process_incoming_messages(ctx);
@@ -3052,15 +3051,15 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long end_partition_window = hvr_current_time_us();
 
-        memset(&perf_info, 0x00, sizeof(perf_info));
-        process_neighbor_updates(ctx, &perf_info);
-
-        const unsigned long long end_neighbor_updates = hvr_current_time_us();
-
         time_sending = 0;
+        memset(&perf_info, 0x00, sizeof(perf_info));
         n_updates_sent = send_vertex_updates(ctx, &time_sending, &perf_info);
 
         const unsigned long long end_send_updates = hvr_current_time_us();
+
+        process_neighbor_updates(ctx, &perf_info);
+
+        const unsigned long long end_neighbor_updates = hvr_current_time_us();
 
         perf_info.n_received_updates += process_vertex_updates(ctx, &perf_info);
         process_incoming_messages(ctx);

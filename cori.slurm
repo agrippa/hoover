@@ -77,7 +77,11 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
 
 ##### Functional tests #####
 srun $SLURM_ARGS $HOME/hoover/bin/init_test 400
+echo
 srun -n 2 $HOME/hoover/bin/complex_interact
+echo
 srun -n 2 $HOME/hoover/bin/complex_interact2
+echo
 srun -n 2 $HOME/hoover/bin/stale_state
-srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480
+echo
+# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480
