@@ -219,8 +219,11 @@ static void send_vertex_update_msg(hvr_vertex_update_t *msg, int pe,
         hvr_mailbox_t *mbox, process_perf_info_t *perf_info,
         hvr_internal_ctx_t *ctx, unsigned long long *start,
         unsigned long long *time_sending) {
+    assert(pe != ctx->pe);
+
     for (int i = 0; i < msg->len; i++) {
         assert(msg->verts[i].curr_part != HVR_INVALID_PARTITION);
+        assert(VERTEX_ID_PE(msg->verts[i].id) == ctx->pe);
     }
 
     int success = hvr_mailbox_send(msg, sizeof(*msg), pe, N_SEND_ATTEMPTS, mbox, 0);
@@ -406,13 +409,11 @@ static void mark_all_downstream_neighbors_for_processing(
         hvr_vertex_cache_node_t *neighbor = CACHE_NODE_BY_OFFSET(offset,
                 &ctx->vec_cache);
 
-        hvr_vertex_t *v = &neighbor->vert;
-        int home_pe = hvr_vertex_get_owning_pe(v);
+        int home_pe = hvr_vertex_get_owning_pe(&neighbor->vert);
 
-        if (home_pe == ctx->pe && dir != DIRECTED_IN) {
-            hvr_vertex_cache_node_t *local = ctx->vec_cache.pool_mem +
-                VERTEX_ID_OFFSET(v->id);
-            local->vert.needs_processing = 1;
+        if (hvr_vertex_get_owning_pe(&neighbor->vert) == ctx->pe &&
+                dir != DIRECTED_IN) {
+            neighbor->vert.needs_processing = 1;
         }
     }
 }
@@ -494,8 +495,6 @@ static unsigned update_existing_edges(hvr_vertex_cache_node_t *updated,
         cached_neighbor->flag = 0;
     }
 
-    mark_all_downstream_neighbors_for_processing(updated, ctx);
-
     return local_count_new_should_have_edges;
 }
 
@@ -519,6 +518,11 @@ static void insert_recently_created_in_partitions(hvr_internal_ctx_t *ctx) {
 
         update_existing_edges((hvr_vertex_cache_node_t *)curr,
                 ctx->interacting, n_interacting, ctx);
+
+        /*
+         * No need for mark_all_downstream_neighbors_for_processing because the
+         * creation of new edges should do that for us.
+         */
     }
 }
 
@@ -1311,23 +1315,25 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
                  * partition. If we find new subscriptions, we need to transmit
                  * all vertex information we have for that partition to the PE.
                  */
-                hvr_vertex_update_t msg;
-                msg.len = 0;
+                if (change->pe != ctx->pe) {
+                    hvr_vertex_update_t msg;
+                    msg.len = 0;
 
-                hvr_vertex_t *iter = hvr_partition_list_head(change->partition,
-                        &ctx->local_partition_lists);
-                while (iter) {
-                    memcpy(&(msg.verts[msg.len]), iter, sizeof(*iter));
-                    msg.is_invalidation[msg.len] = 0;
-                    msg.len += 1;
+                    hvr_vertex_t *iter = hvr_partition_list_head(
+                            change->partition, &ctx->local_partition_lists);
+                    while (iter) {
+                        memcpy(&(msg.verts[msg.len]), iter, sizeof(*iter));
+                        msg.is_invalidation[msg.len] = 0;
+                        msg.len += 1;
 
-                    if (msg.len == VERT_PER_UPDATE ||
-                            (iter->next_in_partition == NULL && msg.len > 0)) {
-                        send_vertex_update_msg(&msg, change->pe,
-                                &ctx->vertex_update_mailbox, NULL, ctx,
-                                NULL, NULL);
+                        if (msg.len == VERT_PER_UPDATE ||
+                                (iter->next_in_partition == NULL && msg.len > 0)) {
+                            send_vertex_update_msg(&msg, change->pe,
+                                    &ctx->vertex_update_mailbox, NULL, ctx,
+                                    NULL, NULL);
+                        }
+                        iter = iter->next_in_partition;
                     }
-                    iter = iter->next_in_partition;
                 }
                 hvr_sparse_arr_insert(change->partition, change->pe,
                         &ctx->pe_subscription_info);
@@ -1431,9 +1437,14 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
                     offsetof(hvr_vertex_t, next_in_partition));
 
             update_partition_list_membership(&updated->vert, old_partition,
-                    &ctx->mirror_partition_lists, ctx);
+                    HVR_INVALID_PARTITION, &ctx->mirror_partition_lists, ctx);
             local_count_new_should_have_edges += update_existing_edges(updated,
                     ctx->interacting, n_interacting, ctx);
+            /*
+             * Mark all downstream neighbors even if edges didn't change due to
+             * change in attributes for this vertex.
+             */
+            mark_all_downstream_neighbors_for_processing(updated, ctx);
 
             const unsigned long long done_updating_edges = hvr_current_time_us();
             const unsigned long long done = hvr_current_time_us();
@@ -1471,6 +1482,12 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
             local_count_new_should_have_edges += create_new_edges(updated,
                     ctx->interacting, n_interacting,
                     &ctx->local_partition_lists, ctx);
+
+            /*
+             * Don't need to mark downstream because creation of new edges for
+             * this new vertex will do that for us.
+             */
+
             if (perf_info) {
                 perf_info->time_creating += (hvr_current_time_us() - start_new);
             }
@@ -1567,6 +1584,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         hvr_vertex_update_t *msg = (hvr_vertex_update_t *)msg_buf_node->ptr;
 
         for (unsigned i = 0; i < msg->len; i++) {
+            assert(VERTEX_ID_PE(msg->verts[i].id) != ctx->pe);
 
             if (msg->is_invalidation[i]) {
                 handle_deleted_vertex(&(msg->verts[i]), ctx);
@@ -1757,15 +1775,21 @@ static int update_vertices(hvr_set_t *to_couple_with,
             curr->curr_part = new_partition;
             curr->prev_part = old_part;
 
-            update_partition_list_membership(curr, old_part,
+            update_partition_list_membership(curr, old_part, new_partition,
                     &ctx->local_partition_lists, ctx);
             if (curr->needs_send) {
+                // Something changed
                 unsigned n_interacting = 0;
                 ctx->might_interact(new_partition, ctx->interacting,
                         &n_interacting, MAX_INTERACTING_PARTITIONS, ctx);
-                // Something changed
                 update_existing_edges((hvr_vertex_cache_node_t *)curr,
                         ctx->interacting, n_interacting, ctx);
+                /*
+                 * Mark all downstream neighbors because attributes of this
+                 * local vertex changed.
+                 */
+                mark_all_downstream_neighbors_for_processing(
+                        (hvr_vertex_cache_node_t *)curr, ctx);
             }
 
             count++;
@@ -2901,16 +2925,16 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     const unsigned long long start_body = hvr_current_time_us();
 
-    // Update distance of each mirrored vertex from a local vertex
-    update_distances(ctx);
-
-    const unsigned long long end_update_dist = hvr_current_time_us();
-
     /*
      * Find which partitions are locally active (either because a local vertex
      * is in them, or a locally mirrored vertex in them).
      */
     insert_recently_created_in_partitions(ctx);
+
+    // Update distance of each mirrored vertex from a local vertex
+    update_distances(ctx);
+
+    const unsigned long long end_update_dist = hvr_current_time_us();
 
     const unsigned long long end_update_partitions = hvr_current_time_us();
 
@@ -3033,6 +3057,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         // Must come before everything else
         const int count_updated = update_vertices(to_couple_with, ctx);
 
+        insert_recently_created_in_partitions(ctx);
+
         // Update my local information on PEs I am coupled with.
         hvr_set_merge(ctx->coupled_pes, to_couple_with);
 
@@ -3041,8 +3067,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         update_distances(ctx);
 
         const unsigned long long end_update_dist = hvr_current_time_us();
-
-        insert_recently_created_in_partitions(ctx);
 
         const unsigned long long end_update_partitions = hvr_current_time_us();
 

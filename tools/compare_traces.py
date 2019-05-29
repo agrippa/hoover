@@ -3,7 +3,10 @@
 import os
 import sys
 
-def read_vertex_trace_file(fp):
+def unique_id_from_vert(vert, min_attr, max_attr):
+    return tuple(vert[min_attr:max_attr + 1])
+
+def read_vertex_trace_file(fp, min_id_attr, max_id_attr):
     records = {}
     for line in fp:
         tokens = line.split(',')
@@ -19,8 +22,10 @@ def read_vertex_trace_file(fp):
         for i in range(int(len(vals) / 2)):
             assert int(vals[2 * i]) == i
             vec.append(float(vals[2 * i + 1]))
-        assert vec_id not in records
-        records[vec_id] = {'iter': it, 'pe': pe, 'vec_id': vec_id, 'vec': vec}
+
+        uid = unique_id_from_vert(vec, min_id_attr, max_id_attr)
+        assert uid not in records
+        records[uid] = {'iter': it, 'pe': pe, 'vec_id': vec_id, 'vec': vec}
     return records
 
 def vertices_are_equal(r1, r2):
@@ -41,16 +46,19 @@ def vertex_to_str(r):
             ', OFFSET=' + str(offset) + '), VEC=' + str(r['vec']) + '}'
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        sys.stderr.write('usage: python compare_traces.py file1 file2\n')
+    if len(sys.argv) != 5:
+        sys.stderr.write('usage: python compare_traces.py file1 file2 ' +
+                'min-id-attr max-id-attr\n')
         sys.exit(1)
 
     fp1 = open(sys.argv[1], 'r')
     fp2 = open(sys.argv[2], 'r')
+    min_id_attr = int(sys.argv[3])
+    max_id_attr = int(sys.argv[4])
 
-    records1 = read_vertex_trace_file(fp1)
+    records1 = read_vertex_trace_file(fp1, min_id_attr, max_id_attr)
     print('Loaded ' + str(len(records1)) + ' records from ' + sys.argv[1])
-    records2 = read_vertex_trace_file(fp2)
+    records2 = read_vertex_trace_file(fp2, min_id_attr, max_id_attr)
     print('Loaded ' + str(len(records2)) + ' records from ' + sys.argv[2])
 
     for r1_id in records1.keys():

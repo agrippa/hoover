@@ -43,7 +43,14 @@ def read_edge_trace_file(fp):
                            'edges': edges}
     return records
 
-def edges_are_equal(r1, r2):
+def find_vertex_for_vecid(vecid, vert_dict):
+    for uid in vert_dict.keys():
+        if vert_dict[uid]['vec_id'] == vecid:
+            return uid
+    return None
+
+def edges_are_equal(r1, r2, vert_dict_1, vert_dict_2, vecid_to_uid_1,
+        vecid_to_uid_2):
     edges1 = r1['edges']
     edges2 = r2['edges']
 
@@ -53,39 +60,26 @@ def edges_are_equal(r1, r2):
     for e in edges1:
         target_pe = e['pe']
         target_offset = e['offset']
+        vecid1 = (target_pe << 32) + target_offset
+        uid1 = vecid_to_uid_1[vecid1]
 
         found = None
         for e2 in edges2:
-            if e2['pe'] == target_pe and e2['offset'] == target_offset:
+            vecid2 = (e2['pe'] << 32) + e2['offset']
+            uid2 = vecid_to_uid_2[vecid2]
+            if uid1 == uid2:
                 found = e2
         if found is None or found['dir'] != e['dir']:
             return False
     return True
 
-def edges_to_str(r):
-    edge_str = '\n'.join(['    ' + str(e['dir']) + ' ' + str(e['pe']) + ' ' + str(e['offset']) for e in r['edges']])
+def uid_to_vertex_str(uid, vertices):
+    vert = vertices[uid]
+    return str(uid) + ' : ' + str(vert['vec'])
+
+
+def edges_to_str(r, vecid_to_uid, uid_to_vertices):
+    edge_str = '\n'.join(['    ' + str(e['dir']) + ' ' +
+        uid_to_vertex_str(vecid_to_uid[(e['pe'] << 32) + e['offset']], uid_to_vertices) for e in r['edges']])
     return '{PE=' + str(r['pe']) + ', ID=' + str(r['vec_id']) + ', EDGES=\n' + \
             edge_str + '}'
-
-if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        sys.stderr.write('usage: python compare_edge_traces.py file1 file2\n')
-        sys.exit(1)
-
-    fp1 = open(sys.argv[1], 'r')
-    fp2 = open(sys.argv[2], 'r')
-
-    records1 = read_edge_trace_file(fp1)
-    print('Loaded ' + str(len(records1)) + ' records from ' + sys.argv[1])
-    records2 = read_edge_trace_file(fp2)
-    print('Loaded ' + str(len(records2)) + ' records from ' + sys.argv[2])
-
-    for r1_id in records1.keys():
-        r1 = records1[r1_id]
-        r2 = records2[r1_id]
-
-        if not edges_are_equal(r1, r2):
-            print(edges_to_str(r1))
-            print(edges_to_str(r2))
-            print('')
-

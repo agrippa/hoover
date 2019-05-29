@@ -17,8 +17,8 @@ void remove_from_partition_list_helper(const hvr_vertex_t *curr,
         hvr_internal_ctx_t *ctx);
 
 void update_partition_list_membership(hvr_vertex_t *curr,
-        hvr_partition_t old_partition, hvr_partition_list_t *l,
-        hvr_internal_ctx_t *ctx);
+        hvr_partition_t old_partition, hvr_partition_t optional_new_partition,
+        hvr_partition_list_t *l, hvr_internal_ctx_t *ctx);
 
 hvr_vertex_t *hvr_partition_list_head(hvr_partition_t part,
         hvr_partition_list_t *l);

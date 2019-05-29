@@ -75,9 +75,11 @@ void remove_from_partition_list(hvr_vertex_t *curr,
 }
 
 void update_partition_list_membership(hvr_vertex_t *curr,
-        hvr_partition_t old_partition, hvr_partition_list_t *l,
-        hvr_internal_ctx_t *ctx) {
-    hvr_partition_t new_partition = wrap_actor_to_partition(curr, ctx);
+        hvr_partition_t old_partition, hvr_partition_t optional_new_partition,
+        hvr_partition_list_t *l, hvr_internal_ctx_t *ctx) {
+    hvr_partition_t new_partition =
+        (optional_new_partition == HVR_INVALID_PARTITION ?
+         wrap_actor_to_partition(curr, ctx) : optional_new_partition);
 
     if (new_partition != old_partition) {
         // Remove from current list
