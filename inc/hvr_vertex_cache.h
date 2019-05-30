@@ -64,6 +64,7 @@ typedef struct _hvr_vertex_cache_t {
     // Keeps a count of mirrored vertices
     unsigned long long n_cached_vertices;
     unsigned long long n_local_vertices;
+    int pe;
 } hvr_vertex_cache_t;
 
 static inline hvr_vertex_cache_node_t *CACHE_NODE_BY_OFFSET(

@@ -26,7 +26,7 @@
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
 
-#define DETAILED_PRINTS
+// #define DETAILED_PRINTS
 // #define COUPLING_PRINTS
 
 // #define PRINT_PARTITIONS
@@ -311,6 +311,12 @@ hvr_graph_id_t hvr_graph_create(hvr_ctx_t in_ctx) {
     return (1 << next_graph);
 }
 
+static inline void mark_for_processing(hvr_vertex_t *vert,
+        hvr_internal_ctx_t *ctx) {
+    vert->needs_processing = 1;
+    ctx->any_needs_processing = 1;
+}
+
 // The only place where edges between vertices are created/deleted
 static inline void update_edge_info(hvr_vertex_id_t base_id,
         hvr_vertex_id_t neighbor_id,
@@ -387,11 +393,11 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
      * outbound on neighbor).
      */
     if (base_is_local && new_edge != DIRECTED_OUT) {
-        base->vert.needs_processing = 1;
+        mark_for_processing(&base->vert, ctx);
     }
 
     if (neighbor_is_local && flip_edge_direction(new_edge) != DIRECTED_OUT) {
-        neighbor->vert.needs_processing = 1;
+        mark_for_processing(&neighbor->vert, ctx);
     }
 }
 
@@ -413,7 +419,7 @@ static void mark_all_downstream_neighbors_for_processing(
 
         if (hvr_vertex_get_owning_pe(&neighbor->vert) == ctx->pe &&
                 dir != DIRECTED_IN) {
-            neighbor->vert.needs_processing = 1;
+            mark_for_processing(&neighbor->vert, ctx);
         }
     }
 }
@@ -1254,6 +1260,7 @@ void hvr_init(const hvr_partition_t n_partitions,
 
     new_ctx->n_prev_producer_partitions = 0;
     new_ctx->n_prev_subscriber_partitions = 0;
+    new_ctx->any_needs_processing = 1;
 
     // Print the number of bytes allocated
 #ifdef DETAILED_PRINTS
@@ -1508,7 +1515,7 @@ void hvr_send_msg(hvr_vertex_id_t dst_id, hvr_vertex_t *payload,
 
         hvr_vertex_cache_node_t *local = ctx->vec_cache.pool_mem + offset;
         assert(local->vert.id != HVR_INVALID_VERTEX_ID); // Verify is allocated
-        local->vert.needs_processing = 1;
+        mark_for_processing(&local->vert, ctx);
     } else {
         inter_vert_msg_t msg;
         msg.dst = dst_id;
@@ -1542,7 +1549,7 @@ static void process_incoming_messages(hvr_internal_ctx_t *ctx) {
 
         hvr_vertex_cache_node_t *local = ctx->vec_cache.pool_mem + offset;
         assert(local->vert.id != HVR_INVALID_VERTEX_ID); // Verify is allocated
-        local->vert.needs_processing = 1;
+        mark_for_processing(&local->vert, ctx);
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, &ctx->vertex_msg_mailbox, 0);
@@ -1756,9 +1763,11 @@ void hvr_create_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
 
 static int update_vertices(hvr_set_t *to_couple_with,
         hvr_internal_ctx_t *ctx) {
-    if (ctx->update_metadata == NULL) {
+    if (ctx->update_metadata == NULL || !ctx->any_needs_processing) {
         return 0;
     }
+
+    ctx->any_needs_processing = 0;
 
     int count = 0;
     hvr_vertex_iter_t iter;
@@ -1865,7 +1874,6 @@ static unsigned send_vertex_updates(hvr_internal_ctx_t *ctx,
 
             if (old_partition != HVR_INVALID_PARTITION &&
                     old_partition != new_partition) {
-
                 send_updates_to_all_subscribed_pes(curr, old_partition, 1, 0,
                         perf_info, time_sending, ctx);
             }

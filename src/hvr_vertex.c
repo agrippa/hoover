@@ -13,6 +13,8 @@ hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
     allocated->next_in_partition = ctx->recently_created;
     ctx->recently_created = allocated;
 
+    ctx->any_needs_processing = 1;
+
     return allocated;
 }
 

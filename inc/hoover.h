@@ -337,6 +337,8 @@ typedef struct _hvr_internal_ctx_t {
     size_t n_prev_subscriber_partitions;
 
     size_t max_active_partitions;
+
+    int any_needs_processing;
 } hvr_internal_ctx_t;
 
 /*

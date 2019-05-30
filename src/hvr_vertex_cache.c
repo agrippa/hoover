@@ -41,6 +41,8 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache) {
     cache->pool_size = n_preallocs;
 
     cache->n_cached_vertices = 0;
+    cache->n_local_vertices = 0;
+    cache->pe = shmem_my_pe();
 }
 
 /*
@@ -59,6 +61,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_lookup(hvr_vertex_id_t vert,
 void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *node,
         hvr_vertex_cache_t *cache) {
     assert(node);
+    const int is_local = (VERTEX_ID_PE(node->vert.id) == cache->pe);
 
     hvr_map_remove(node->vert.id, node, &cache->cache_map);
 
@@ -81,7 +84,11 @@ void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *node,
     node->local_neighbors_prev = NULL;
     cache->pool_head = node;
 
-    cache->n_cached_vertices--;
+    if (is_local) {
+        cache->n_local_vertices--;
+    } else {
+        cache->n_cached_vertices--;
+    }
 }
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_reserve(hvr_vertex_cache_t *cache,
@@ -154,7 +161,8 @@ void hvr_vertex_cache_mem_used(size_t *out_used, size_t *out_allocated,
 
     allocated += cache->pool_size * sizeof(hvr_vertex_cache_node_t);
 
-    used += cache->n_cached_vertices * sizeof(hvr_vertex_cache_node_t);
+    used += (cache->n_local_vertices + cache->n_cached_vertices) *
+        sizeof(hvr_vertex_cache_node_t);
 
     *out_used = used;
     *out_allocated = allocated;
