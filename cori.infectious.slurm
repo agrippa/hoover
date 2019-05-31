@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 4
+#SBATCH -N 64
 #SBATCH -C haswell
 #SBATCH -t 00:09:00
 #SBATCH -J hoover-infectious
@@ -38,6 +38,11 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 # export PE_PER_SOCKET=1
 export PE_PER_SOCKET=0
 
+export X_PARTITIONS=200
+export Y_PARTITIONS=200
+export HVR_VERT_CACHE_PREALLOCS=2500000
+export HVR_EDGES_POOL_SIZE=$((896 * 1024 * 1024))
+
 if [[ $PE_PER_SOCKET -eq 0 ]]; then
     if [[ $SLURM_NNODES -eq 1 ]]; then
         # For 1 node
@@ -49,16 +54,31 @@ if [[ $PE_PER_SOCKET -eq 0 ]]; then
         export CELL_DIM=2000.0
         export PE_ROWS=8
         export PE_COLS=16
+
+        export X_PARTITIONS=400
+        export Y_PARTITIONS=400
+        export HVR_VERT_CACHE_PREALLOCS=2500000
+        export HVR_EDGES_POOL_SIZE=$((896 * 1024 * 1024))
     elif [[ $SLURM_NNODES -eq 16 ]]; then
         # 16 nodes, big run
         export CELL_DIM=1000.0
         export PE_ROWS=16
         export PE_COLS=32
+
+        export X_PARTITIONS=200
+        export Y_PARTITIONS=200
+        export HVR_VERT_CACHE_PREALLOCS=2000000
+        export HVR_EDGES_POOL_SIZE=$((512 * 1024 * 1024))
     elif [[ $SLURM_NNODES -eq 64 ]]; then
         # For 64 nodes, big run
         export CELL_DIM=500.0
         export PE_ROWS=32
         export PE_COLS=64
+
+        export X_PARTITIONS=200
+        export Y_PARTITIONS=200
+        export HVR_VERT_CACHE_PREALLOCS=2000000
+        export HVR_EDGES_POOL_SIZE=$((512 * 1024 * 1024))
     elif [[ $SLURM_NNODES -eq 256 ]]; then
         # For 256 nodes, big run
         export CELL_DIM=250.0
@@ -102,8 +122,6 @@ fi
 
 # Larger problem setup
 export INPUT_FILE=$SCRATCH/500000-vert.16000-y.32000-x.1-infected.bin
-export X_PARTITIONS=400
-export Y_PARTITIONS=400
 export INFECTION_RADIUS=70
 
 # Small problem
@@ -112,8 +130,6 @@ export INFECTION_RADIUS=70
 # export Y_PARTITIONS=100
 # export INFECTION_RADIUS=200
 
-export HVR_VERT_CACHE_PREALLOCS=2500000
-export HVR_EDGES_POOL_SIZE=$((896 * 1024 * 1024))
 export HVR_MAX_ACTIVE_PARTITIONS=2000000
 export HVR_MAX_PRODUCER_INFO_INTERVAL=16
 
