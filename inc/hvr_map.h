@@ -29,9 +29,12 @@ typedef struct _hvr_map_t {
     hvr_map_seg_t *seg_pool;
     hvr_map_seg_t *prealloc_seg_pool;
     unsigned n_prealloc;
+
+    const char *seg_env_var;
 } hvr_map_t;
 
-extern void hvr_map_init(hvr_map_t *m, unsigned n_segs);
+extern void hvr_map_init(hvr_map_t *m, unsigned n_segs,
+        const char *seg_env_var);
 
 extern void hvr_map_destroy(hvr_map_t *m);
 

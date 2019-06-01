@@ -82,7 +82,7 @@ static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
     return 0;
 }
 
-void hvr_map_init(hvr_map_t *m, unsigned n_segs) {
+void hvr_map_init(hvr_map_t *m, unsigned n_segs, const char *seg_env_var) {
     memset(m, 0x00, sizeof(*m));
 
     hvr_map_seg_t *prealloc = (hvr_map_seg_t *)malloc_helper(
@@ -95,6 +95,7 @@ void hvr_map_init(hvr_map_t *m, unsigned n_segs) {
     m->seg_pool = prealloc;
     m->prealloc_seg_pool = prealloc;
     m->n_prealloc = n_segs;
+    m->seg_env_var = seg_env_var;
 }
 
 void hvr_map_destroy(hvr_map_t *m) {
@@ -121,7 +122,12 @@ void hvr_map_add(hvr_vertex_id_t key, void *to_insert, int replace,
         if (m->buckets[bucket] == NULL) {
             // First segment created
             hvr_map_seg_t *new_seg = m->seg_pool;
-            assert(new_seg);
+            if (!new_seg) {
+                fprintf(stderr, "ERROR> Ran out of map segments (%u "
+                        "pre-allocated) Consider increasing %s.\n",
+                        m->n_prealloc, m->seg_env_var);
+                abort();
+            }
             m->seg_pool = new_seg->next;
             memset(new_seg, 0x00, sizeof(*new_seg));
 

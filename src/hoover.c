@@ -42,6 +42,8 @@ static int dead_pe_processing = 1;
 static FILE *profiling_fp = NULL;
 static volatile int this_pe_has_exited = 0;
 
+static const char *producer_info_segs_var_name = "HVR_PRODUCER_INFO_SEGS";
+
 typedef struct _profiling_info_t {
     unsigned long long start_iter;
     unsigned long long end_start_time_step;
@@ -1157,11 +1159,13 @@ void hvr_init(const hvr_partition_t n_partitions,
     new_ctx->max_graph_traverse_depth = max_graph_traverse_depth;
 
     unsigned prealloc_segs = 768;
-    if (getenv("HVR_PRODUCER_INFO_SEGS")) {
-        prealloc_segs = atoi(getenv("HVR_PRODUCER_INFO_SEGS"));
+    if (getenv(producer_info_segs_var_name)) {
+        prealloc_segs = atoi(getenv(producer_info_segs_var_name));
     }
-    hvr_map_init(&new_ctx->producer_info, prealloc_segs);
-    hvr_map_init(&new_ctx->dead_info, prealloc_segs);
+    hvr_map_init(&new_ctx->producer_info, prealloc_segs,
+            producer_info_segs_var_name);
+    hvr_map_init(&new_ctx->dead_info, prealloc_segs,
+            producer_info_segs_var_name);
 
     new_ctx->next_producer_info_check = (hvr_time_t *)malloc_helper(
             new_ctx->n_partitions *

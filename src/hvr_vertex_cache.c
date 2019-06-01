@@ -6,15 +6,17 @@
 
 #include "hvr_vertex_cache.h"
 
+static const char *segs_var_name = "HVR_VERT_CACHE_SEGS";
+
 void hvr_vertex_cache_init(hvr_vertex_cache_t *cache) {
     memset(cache, 0x00, sizeof(*cache));
 
     unsigned prealloc_segs = 768;
-    if (getenv("HVR_VERT_CACHE_SEGS")) {
-        prealloc_segs = atoi(getenv("HVR_VERT_CACHE_SEGS"));
+    if (getenv(segs_var_name)) {
+        prealloc_segs = atoi(getenv(segs_var_name));
     }
 
-    hvr_map_init(&cache->cache_map, prealloc_segs);
+    hvr_map_init(&cache->cache_map, prealloc_segs, segs_var_name);
 
     unsigned n_preallocs = 1024;
     if (getenv("HVR_VERT_CACHE_PREALLOCS")) {

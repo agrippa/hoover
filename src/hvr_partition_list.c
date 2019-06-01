@@ -1,14 +1,16 @@
 #include "hvr_map.h"
 #include "hvr_partition_list.h"
 
+static const char *segs_var_name = "HVR_PARTITION_LIST_SEGS";
+
 void hvr_partition_list_init(hvr_partition_t n_partitions,
         hvr_partition_list_t *l) {
     l->n_partitions = n_partitions;
     int segs = 1024;
-    if (getenv("HVR_PARTITION_LIST_SEGS")) {
-        segs = atoi(getenv("HVR_PARTITION_LIST_SEGS"));
+    if (getenv(segs_var_name)) {
+        segs = atoi(getenv(segs_var_name));
     }
-    hvr_map_init(&l->map, segs);
+    hvr_map_init(&l->map, segs, segs_var_name);
 }
 
 void hvr_partition_list_destroy(hvr_partition_list_t *l) {

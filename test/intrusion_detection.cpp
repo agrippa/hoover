@@ -412,7 +412,7 @@ static unsigned score_pattern(pattern_count_t *pattern) {
     return pattern->count * adjacency_matrix_n_edges(&pattern->matrix);
 }
 
-hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
+hvr_partition_t actor_to_partition(const hvr_vertex_t *actor, hvr_ctx_t ctx) {
     unsigned feat1_partition = (unsigned)hvr_vertex_get(0, actor, ctx) /
         partitions_size[0];
     unsigned feat2_partition = (unsigned)hvr_vertex_get(1, actor, ctx) /
@@ -423,7 +423,7 @@ hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
         feat2_partition * partitions_by_dim[2] + feat3_partition;
 }
 
-hvr_edge_type_t should_have_edge(hvr_vertex_t *a, hvr_vertex_t *b,
+hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
         hvr_ctx_t ctx) {
     const double delta0 = hvr_vertex_get(0, b, ctx) -
         hvr_vertex_get(0, a, ctx);
@@ -513,8 +513,6 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
     const unsigned n_vertices_to_add = min_n_vertices_to_add +
         (fast_rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
 
-    hvr_vertex_t *new_vertices = hvr_vertex_create_n(n_vertices_to_add,
-            ctx);
     n_local_vertices += n_vertices_to_add;
 
     for (unsigned i = 0; i < n_vertices_to_add; i++) {
@@ -533,9 +531,10 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         feat2 = MIN(feat2, domain_dim[1] - 1);
         feat3 = MIN(feat3, domain_dim[2] - 1);
 
-        hvr_vertex_set(0, feat1, &new_vertices[i], ctx);
-        hvr_vertex_set(1, feat2, &new_vertices[i], ctx);
-        hvr_vertex_set(2, feat3, &new_vertices[i], ctx);
+        hvr_vertex_t *new_vert = hvr_vertex_create(ctx);
+        hvr_vertex_set(0, feat1, new_vert, ctx);
+        hvr_vertex_set(1, feat2, new_vert, ctx);
+        hvr_vertex_set(2, feat3, new_vert, ctx);
     }
 
     /*

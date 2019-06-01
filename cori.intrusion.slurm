@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 4
+#SBATCH -N 64
 #SBATCH -C haswell
 #SBATCH -t 00:05:00
 #SBATCH -J hoover-intrusion
@@ -40,8 +40,8 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 
 cd $SCRATCH
 
-export PE_PER_SOCKET=1
-# export PE_PER_SOCKET=0
+# export PE_PER_SOCKET=1
+export PE_PER_SOCKET=0
 
 if [[ $PE_PER_SOCKET -eq 1 ]]; then
     export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $SOCKETS_PER_NODE)) --ntasks-per-socket=1 --cpus-per-task=$CORES_PER_SOCKET"
@@ -111,14 +111,15 @@ export DOMAIN_SIZE="12000 12000 10000"
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
 
-export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
-export HVR_SYMM_POOL_SIZE=$((4 * 1024 * 1024))
+export SHMEM_SYMMETRIC_SIZE=$((2 * 1024 * 1024 * 1024))
 export HVR_VERT_CACHE_SEGS=40000
 export HVR_VERT_CACHE_PREALLOCS=$((8 * 1024 * 1024))
 export HVR_SPARSE_ARR_POOL=$((64 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=4096
 export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
 export HVR_EDGES_POOL_SIZE=$((512 * 1024 * 1024))
+export HVR_PRODUCER_INFO_SEGS=10240
+export HVR_PARTITION_LIST_SEGS=8192
 
 cd $SCRATCH
 mkdir -p job.$SLURM_JOB_ID
