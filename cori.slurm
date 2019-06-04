@@ -73,8 +73,6 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
 # export MAX_SECONDS=120
 # srun $SLURM_ARGS $HOME/hoover/bin/simple_nbody_test $SIMULATION_TIMESTEPS $MAX_SECONDS
 
-# srun $SLURM_ARGS $HOME/hoover/bin/pas
-
 ##### Functional tests #####
 srun $SLURM_ARGS $HOME/hoover/bin/init_test 400
 echo

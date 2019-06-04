@@ -188,38 +188,37 @@ static hvr_partition_t row_col_to_patch_id(int row, int col) {
 }
 
 // Initialize patch vertices, each patch has 15 attributes
-void init_patches(hvr_vertex_t*& patches, hvr_ctx_t ctx) {
+void init_patches(hvr_ctx_t ctx) {
     // Constant attributes (10 of them):
     // 0: x coordinate  1: y coordinate
     // 7 ~ 10: maximum lengths of stay of activity 0 ~ 3
     // 11 ~ 14: relative risks of being bitten (alpha) of activity 0 ~ 3
-    patches = hvr_vertex_create_n(patches_per_pe, ctx);
-
     for (uint64_t i = 0; i < patches_per_pe; i++) {
+        hvr_vertex_t *patch = hvr_vertex_create(ctx);
+
         int patch_id = patches_start + i;
 
-        hvr_vertex_set(PATCH_ID, patch_id, patches + i, ctx);
+        hvr_vertex_set(PATCH_ID, patch_id, patch, ctx);
 
         // Dynamic attributes (5 of them):
         // Store Ihh & Nhh for the record?
-        hvr_vertex_set(PATCH_LAMBDA_H, 0.0, patches + i, ctx);       // lambda_h
-        hvr_vertex_set(PATCH_SV, Kv / 2.0, patches + i, ctx);  // Sv
-        hvr_vertex_set(PATCH_EV, 0.0, patches + i, ctx);       // Ev
-        hvr_vertex_set(PATCH_IV, 0.0, patches + i, ctx);       // Iv
-        hvr_vertex_set(PATCH_NV, Kv / 2.0, patches + i, ctx);  // Nv = Sv + Ev + Iv
+        hvr_vertex_set(PATCH_LAMBDA_H, 0.0, patch, ctx);       // lambda_h
+        hvr_vertex_set(PATCH_SV, Kv / 2.0, patch, ctx);  // Sv
+        hvr_vertex_set(PATCH_EV, 0.0, patch, ctx);       // Ev
+        hvr_vertex_set(PATCH_IV, 0.0, patch, ctx);       // Iv
+        hvr_vertex_set(PATCH_NV, Kv / 2.0, patch, ctx);  // Nv = Sv + Ev + Iv
 
-        hvr_vertex_set(GRAPH_FEAT, PATCH_GRAPH, patches + i, ctx);
+        hvr_vertex_set(GRAPH_FEAT, PATCH_GRAPH, patch, ctx);
 
-        hvr_vertex_set(PATCH_TIMESTEP, 0, patches + i, ctx);
-        hvr_vertex_set(PATCH_NEXT_TIMESTEP_CREATED, 0, patches + i, ctx);
+        hvr_vertex_set(PATCH_TIMESTEP, 0, patch, ctx);
+        hvr_vertex_set(PATCH_NEXT_TIMESTEP_CREATED, 0, patch, ctx);
     }
 }
 
 // Initialize agent vertices, each agent has 7 attributes
-void init_agents(hvr_vertex_t*& agents, hvr_ctx_t ctx) {
+void init_agents(hvr_ctx_t ctx) {
     // Constant attributes (10 of them):
     // 2: home x coordinate     3: home y coordinate
-    agents = hvr_vertex_create_n(agents_per_pe, ctx);
 
     // RNG to pick a random patch that belongs to this PE
     std::uniform_int_distribution<> pch_rng(patches_start, patches_end - 1);
@@ -227,14 +226,15 @@ void init_agents(hvr_vertex_t*& agents, hvr_ctx_t ctx) {
     std::uniform_int_distribution<> act_rng(0, activities_per_patch - 1);
 
     for (uint64_t i = 0; i < agents_per_pe; i++) {
+        hvr_vertex_t *agent = hvr_vertex_create(ctx);
         // Generate patch ID & activity ID
         const hvr_partition_t patch_id = pch_rng(rng);
         const uint64_t act_id = act_rng(rng);
         int agent_id = mype * agents_per_pe + i;
 
-        hvr_vertex_set(AGENT_ID, agent_id, agents + i, ctx);
-        hvr_vertex_set(AGENT_HOME_PATCH, patch_id, agents + i, ctx);
-        hvr_vertex_set(AGENT_PATCH, patch_id, agents + i, ctx);
+        hvr_vertex_set(AGENT_ID, agent_id, agent, ctx);
+        hvr_vertex_set(AGENT_HOME_PATCH, patch_id, agent, ctx);
+        hvr_vertex_set(AGENT_PATCH, patch_id, agent, ctx);
 
         // Health condition of an agent
         // 0.0:     susceptible
@@ -249,12 +249,12 @@ void init_agents(hvr_vertex_t*& agents, hvr_ctx_t ctx) {
         }
 
         // Dynamic attributes (5 of them):
-        hvr_vertex_set(AGENT_HEALTH, h, agents + i, ctx);    // Health condition
-        hvr_vertex_set(AGENT_ACTIVITY, double(act_id), agents + i, ctx);  // ID of current activity
-        hvr_vertex_set(AGENT_CURRENT_STAY, 0.0, agents + i, ctx);  // Time steps stayed at current activity
-        hvr_vertex_set(AGENT_TIMESTEP, 0, agents + i, ctx);
-        hvr_vertex_set(AGENT_NEXT_TIMESTEP_CREATED, 0, agents + i, ctx);
-        hvr_vertex_set(GRAPH_FEAT, AGENT_GRAPH, agents + i, ctx);
+        hvr_vertex_set(AGENT_HEALTH, h, agent, ctx);    // Health condition
+        hvr_vertex_set(AGENT_ACTIVITY, double(act_id), agent, ctx);  // ID of current activity
+        hvr_vertex_set(AGENT_CURRENT_STAY, 0.0, agent, ctx);  // Time steps stayed at current activity
+        hvr_vertex_set(AGENT_TIMESTEP, 0, agent, ctx);
+        hvr_vertex_set(AGENT_NEXT_TIMESTEP_CREATED, 0, agent, ctx);
+        hvr_vertex_set(GRAPH_FEAT, AGENT_GRAPH, agent, ctx);
     }
 }
 
@@ -369,7 +369,7 @@ void move_to_new_patch(const int home_patch, int& new_patch) {
 }
 
 // Return the current patch/partition ID of an agent
-hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
+hvr_partition_t actor_to_partition(const hvr_vertex_t *actor, hvr_ctx_t ctx) {
     int actor_type = (int)hvr_vertex_get(GRAPH_FEAT, actor, ctx);
     if (actor_type == PATCH_GRAPH) {
         return (hvr_partition_t)hvr_vertex_get(PATCH_ID, actor, ctx);
@@ -504,7 +504,7 @@ static void update_patch(hvr_vertex_t *patch, hvr_vertex_t **neighbors,
     if ((int)hvr_vertex_get(PATCH_TIMESTEP, patch, ctx) <
                 max_agent_timestep - 1 &&
             (int)hvr_vertex_get(PATCH_NEXT_TIMESTEP_CREATED, patch, ctx) == 0) {
-        hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
+        hvr_vertex_t *next = hvr_vertex_create(ctx);
         assert(next);
 
         hvr_vertex_set(GRAPH_FEAT, PATCH_GRAPH, next, ctx);
@@ -614,7 +614,7 @@ static void update_agent(hvr_vertex_t *agent, hvr_vertex_t **neighbors,
     if ((int)hvr_vertex_get(AGENT_TIMESTEP, agent, ctx) <
                 max_agent_timestep - 1 &&
             (int)hvr_vertex_get(AGENT_NEXT_TIMESTEP_CREATED, agent, ctx) == 0) {
-        hvr_vertex_t *next = hvr_vertex_create_n(1, ctx);
+        hvr_vertex_t *next = hvr_vertex_create(ctx);
         assert(next);
 
         hvr_vertex_set(GRAPH_FEAT, AGENT_GRAPH, next, ctx);
@@ -749,7 +749,8 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
  *
  * Each agent should have edges with their current patch on its next timestep.
  */
-hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
+hvr_edge_type_t should_have_edge(const hvr_vertex_t *base,
+        const hvr_vertex_t *neighbor,
         hvr_ctx_t ctx) {
     int base_type =     (int)hvr_vertex_get(GRAPH_FEAT, base, ctx);
     int neighbor_type = (int)hvr_vertex_get(GRAPH_FEAT, neighbor, ctx);
@@ -783,8 +784,8 @@ hvr_edge_type_t should_have_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
             }
         }
     } else {
-        hvr_vertex_t *agent = (base_type == AGENT_GRAPH ? base : neighbor);
-        hvr_vertex_t *patch = (base_type == PATCH_GRAPH ? base : neighbor);
+        const hvr_vertex_t *agent = (base_type == AGENT_GRAPH ? base : neighbor);
+        const hvr_vertex_t *patch = (base_type == PATCH_GRAPH ? base : neighbor);
         int agent_timestep = (int)hvr_vertex_get(AGENT_TIMESTEP, agent, ctx);
         int patch_timestep = (int)hvr_vertex_get(AGENT_TIMESTEP, patch, ctx);
 
@@ -813,11 +814,9 @@ int main() {
     hvr_ctx_t ctx;
     hvr_ctx_create(&ctx);
 
-    hvr_vertex_t *patches, *agents;
+    init_patches(ctx);
 
-    init_patches(patches, ctx);
-
-    init_agents(agents, ctx);
+    init_agents(ctx);
 
     hvr_init(n_partitions,
             update_metadata,
