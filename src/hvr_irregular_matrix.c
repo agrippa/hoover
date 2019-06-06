@@ -56,7 +56,7 @@ void hvr_irr_matrix_resize(hvr_vertex_id_t i, unsigned new_capacity,
 }
 
 void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
-        hvr_irr_matrix_t *m) {
+        hvr_edge_create_type_t create_type, hvr_irr_matrix_t *m) {
     const uint16_t curr_len = m->edges_len[i];
     const uint16_t curr_capacity = m->edges_capacity[i];
     hvr_edge_info_t *curr_edges = m->edges[i];
@@ -79,7 +79,7 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
             m->edges_len[i] = curr_len - 1;
         } else {
             // Overwrite entry
-            curr_edges[found] = construct_edge_info(j, e);
+            curr_edges[found] = construct_edge_info(j, e, create_type);
         }
     } else {
         // Does not exist already
@@ -102,7 +102,7 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
             m->edges_capacity[i] = new_capacity;
         }
 
-        (m->edges[i])[curr_len] = construct_edge_info(j, e);
+        (m->edges[i])[curr_len] = construct_edge_info(j, e, create_type);
         m->edges_len[i] += 1;
     }
 }

@@ -118,6 +118,12 @@ typedef struct _hvr_partition_member_change_t {
     int entered;
 } hvr_partition_member_change_t;
 
+typedef struct _hvr_vertex_subscription_t {
+    int pe;
+    hvr_vertex_id_t vert;
+    int entered;
+} hvr_vertex_subscription_t;
+
 typedef struct _hvr_dead_pe_msg_t {
     int pe;
 } hvr_dead_pe_msg_t;
@@ -285,6 +291,8 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t to_couple_with_mailbox;
     hvr_mailbox_t root_info_mailbox;
 
+    hvr_mailbox_t vert_sub_mailbox;
+
     hvr_map_t producer_info;
     hvr_map_t dead_info;
 
@@ -293,6 +301,7 @@ typedef struct _hvr_internal_ctx_t {
 
     // Edge from PE -> partitions we need to notify it about
     hvr_sparse_arr_t pe_subscription_info;
+    hvr_sparse_arr_t vert_subscription_info;
 
     unsigned max_graph_traverse_depth;
 

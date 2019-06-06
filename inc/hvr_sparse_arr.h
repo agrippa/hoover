@@ -59,6 +59,9 @@ extern int hvr_sparse_arr_contains(unsigned i, unsigned j,
 extern void hvr_sparse_arr_remove(unsigned i, unsigned j,
         hvr_sparse_arr_t *arr);
 
+extern void hvr_sparse_arr_remove_row(unsigned i,
+        hvr_sparse_arr_t *arr);
+
 extern unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
         hvr_sparse_arr_t *arr);
 

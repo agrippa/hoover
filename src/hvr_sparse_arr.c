@@ -145,6 +145,23 @@ void hvr_sparse_arr_remove(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
     }
 }
 
+void hvr_sparse_arr_remove_row(unsigned i, hvr_sparse_arr_t *arr) {
+    const unsigned seg = i / HVR_SPARSE_ARR_SEGMENT_SIZE;
+    const unsigned seg_index = i % HVR_SPARSE_ARR_SEGMENT_SIZE;
+
+    hvr_sparse_arr_seg_t *segment = arr->segs[seg];
+    if (segment == NULL) {
+        return;
+    }
+
+    int *stored_values = segment->seg[seg_index];
+    if (stored_values) {
+        mspace_free(arr->tracker, stored_values);
+        segment->seg[seg_index] = NULL;
+        segment->seg_lengths[seg_index] = 0;
+    }
+}
+
 unsigned hvr_sparse_arr_row_length(unsigned i, hvr_sparse_arr_t *arr) {
     assert(i < arr->capacity);
 

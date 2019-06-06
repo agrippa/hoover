@@ -174,7 +174,7 @@ static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
 #endif
 }
 
-hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
+hvr_partition_t actor_to_partition(const hvr_vertex_t *actor, hvr_ctx_t ctx) {
     if (hvr_vertex_get_uint64(TYPE, actor, ctx) == SUPERNODE_TYPE) {
         // Not in a partition, does not need implicit discovery
         return HVR_INVALID_PARTITION;
@@ -190,7 +190,8 @@ hvr_partition_t actor_to_partition(hvr_vertex_t *actor, hvr_ctx_t ctx) {
         feat2_partition * partitions_by_dim[2] + feat3_partition;
 }
 
-static int supernodes_overlapping(hvr_vertex_t *a, hvr_vertex_t *b) {
+static int supernodes_overlapping(const hvr_vertex_t *a, const hvr_vertex_t *b,
+        hvr_ctx_t ctx) {
     int count_overlapping = 0;
     for (unsigned i = 0; i < K; i++) {
         hvr_vertex_id_t v = hvr_vertex_get_uint64(1 + i, a, ctx);
@@ -207,7 +208,7 @@ static int supernodes_overlapping(hvr_vertex_t *a, hvr_vertex_t *b) {
     return count_overlapping;
 }
 
-hvr_edge_type_t should_have_edge(hvr_vertex_t *a, hvr_vertex_t *b,
+hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
         hvr_ctx_t ctx) {
     if (hvr_vertex_get_uint64(TYPE, a, ctx) == NODE_TYPE &&
             hvr_vertex_get_uint64(TYPE, b, ctx) == NODE_TYPE) {
@@ -224,7 +225,7 @@ hvr_edge_type_t should_have_edge(hvr_vertex_t *a, hvr_vertex_t *b,
         return NO_EDGE;
     } else if (hvr_vertex_get_uint64(TYPE, a, ctx) == SUPERNODE_TYPE &&
             hvr_vertex_get_uint64(TYPE, b, ctx) == SUPERNODE_TYPE) {
-        int count_overlapping = supernodes_overlapping(a, b);
+        int count_overlapping = supernodes_overlapping(a, b, ctx);
 
         if (count_overlapping >= K - 1) {
             return BIDIRECTIONAL;
@@ -326,15 +327,10 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
     const unsigned n_vertices_to_add = min_n_vertices_to_add +
         (fast_rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
 
-    hvr_vertex_t *new_vertices = hvr_vertex_create_n(n_vertices_to_add,
-            ctx);
     n_local_vertices += n_vertices_to_add;
 
     for (unsigned i = 0; i < n_vertices_to_add; i++) {
-        /*
-         * For each PE, have each feature have a gaussian distribution with a
-         * mean of 'pe + 1' and a standard deviation of 0.5.
-         */
+        hvr_vertex_t *new_vertex = hvr_vertex_create(ctx);
         unsigned feat1, feat2, feat3;
         rand_point(&feat1, &feat2, &feat3);
 
@@ -346,10 +342,10 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         feat2 = MIN(feat2, domain_dim[1] - 1);
         feat3 = MIN(feat3, domain_dim[2] - 1);
 
-        hvr_vertex_set(TYPE, NODE_TYPE, &new_vertices[i], ctx);
-        hvr_vertex_set(ATTR0, feat1, &new_vertices[i], ctx);
-        hvr_vertex_set(ATTR1, feat2, &new_vertices[i], ctx);
-        hvr_vertex_set(ATTR2, feat3, &new_vertices[i], ctx);
+        hvr_vertex_set(TYPE, NODE_TYPE, new_vertex, ctx);
+        hvr_vertex_set(ATTR0, feat1, new_vertex, ctx);
+        hvr_vertex_set(ATTR1, feat2, new_vertex, ctx);
+        hvr_vertex_set(ATTR2, feat3, new_vertex, ctx);
     }
 
     const unsigned long long start_search = hvr_current_time_us();
@@ -375,14 +371,13 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
 
     /*
      * All cliques between (previous_n_cliques, n_local_cliques] are new. Need
-     * to insert a node in the super node graph for them.
+     * to insert a node in the super node graph for them and notify each member
+     * vertex of its new parent clique.
      */
 
-    hvr_vertex_t *new_supernodes = hvr_vertex_create_n(
-            n_local_cliques - previous_n_cliques, ctx);
     for (unsigned i = previous_n_cliques; i < n_local_cliques; i++) {
         clique_t *new_clique = &local_cliques[i];
-        hvr_vertex_t *new_supernode = &new_supernodes[i - previous_n_cliques];
+        hvr_vertex_t *new_supernode = hvr_vertex_create(ctx);
 
         hvr_vertex_set(TYPE, SUPERNODE_TYPE, new_supernode, ctx);
         for (unsigned j = 0; j < K; j++) {
@@ -417,6 +412,10 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_vertex_t clique;
         int have_msg = hvr_poll_msg(vertex, &clique, ctx);
         while (have_msg) {
+            /*
+             * As a node receives notifications of wrapping cliques, notify all
+             * existing cliques of it.
+             */
             for (std::set<hvr_vertex_id_t>::iterator i = parents.begin(),
                     e = parents.end(); i != e; i++) {
                 hvr_send_msg(*i, &clique, ctx);
@@ -433,15 +432,16 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         int have_msg = hvr_poll_msg(vertex, &clique, ctx);
         while (have_msg) {
             // New potential neighbor supernode
-            int count_overlapping = supernodes_overlapping(vertex, &clique);
+            int count_overlapping = supernodes_overlapping(vertex, &clique,
+                    ctx);
 
             if (count_overlapping >= K - 1) {
-                hvr_create_edge(vertex, &clique, BIDIRECTIONAL, ctx);
+                // TODO
+                // hvr_create_edge(vertex, &clique, BIDIRECTIONAL, ctx);
             }
 
             have_msg = hvr_poll_msg(vertex, &clique, ctx);
         }
-
     }
 }
 

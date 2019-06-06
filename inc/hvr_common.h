@@ -17,6 +17,11 @@ typedef enum _hvr_edge_type_t {
     BIDIRECTIONAL = 3
 } hvr_edge_type_t;
 
+typedef enum _hvr_edge_create_type_t {
+    IMPLICIT_EDGE = 0,
+    EXPLICIT_EDGE = 1
+} hvr_edge_create_type_t;
+
 /*
  * Type definition for vertex IDs and indices
  *
@@ -88,14 +93,26 @@ static inline hvr_edge_type_t flip_edge_direction(hvr_edge_type_t dir) {
     }
 }
 
-#define EDGE_INFO_VERTEX(my_edge_info) (0x3fffffffffffffff & (my_edge_info))
+// Select out the bottom 61 bits for the vertex ID
+#define EDGE_INFO_VERTEX(my_edge_info) (0x1fffffffffffffff & (my_edge_info))
+// Select out the 62nd bit for the creation type (implicit or explicit)
+#define EDGE_INFO_CREATION(my_edge_info) ((0x2fffffffffffffff & (my_edge_info)) >> (uint64_t)61)
+// Select out the top 2 bits (63 and 64) for edge type
 #define EDGE_INFO_EDGE(my_edge_info) ((my_edge_info) >> 62)
 
 static inline hvr_edge_info_t construct_edge_info(hvr_vertex_id_t vert,
-        hvr_edge_type_t edge) {
+        hvr_edge_type_t edge, hvr_edge_create_type_t creation_type) {
     uint64_t vertex_info = vert;
     uint64_t edge_mask = ((uint64_t)edge) << ((uint64_t)62);
-    vertex_info = (vertex_info | edge_mask);
+    uint64_t creation_mask = ((uint64_t)creation_type) << ((uint64_t)61);
+
+    /*
+     * Assert that top 3 bits are unused in vertex ID, and so that space can be
+     * used by edge and creation type.
+     */
+    assert(EDGE_INFO_VERTEX(vertex_info) == vertex_info);
+
+    vertex_info = (vertex_info | creation_mask | edge_mask);
     return vertex_info;
 }
 
