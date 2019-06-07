@@ -1,0 +1,157 @@
+#include <shmem.h>
+#include <stdio.h>
+#include <hoover.h>
+
+#define VERTEX_TYPE 0
+#define VERTEX_ID 1
+#define CREATED_LAYERED 2
+#define LAYERED_VERTEX 3
+#define SENT_MSG 4
+
+#define BASE_GRAPH 0
+#define LAYERED_GRAPH 1
+
+static int pe, npes;
+
+void start_time_step(hvr_vertex_iter_t *iter,
+        hvr_set_t *couple_with, hvr_ctx_t ctx) {
+}
+
+static void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
+        hvr_ctx_t ctx) {
+    assert(hvr_vertex_get_uint64(VERTEX_ID, vert, ctx) == pe);
+    const int max_neighbors = (pe == 0 || pe == npes - 1) ? 1 : 2;
+
+    if (hvr_vertex_get_uint64(VERTEX_TYPE, vertex, ctx) == BASE_GRAPH) {
+        if (hvr_vertex_get_uint64(CREATED_LAYERED, vertex, ctx) == 0) {
+            hvr_vertex_t *layered = hvr_vertex_create(ctx);
+            hvr_vertex_set_uint64(VERTEX_TYPE,     LAYERED_GRAPH, layered, ctx);
+            hvr_vertex_set_uint64(VERTEX_ID,       pe,         layered, ctx);
+            hvr_vertex_set_uint64(CREATED_LAYERED, 0,          layered, ctx);
+            hvr_vertex_set_uint64(LAYERED_VERTEX,  0,          layered, ctx);
+
+
+            hvr_vertex_set_uint64(CREATED_LAYERED, 1, vertex, ctx);
+            hvr_vertex_set_uint64(LAYERED_VERTEX, vertex->id, vertex, ctx);
+        }
+
+        hvr_vertex_t **verts;
+        hvr_edge_type_t *dirs;
+        int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
+        assert(n_neighbors >= 0 && n_neighbors <= max_neighbors);
+
+        if (neighbors == max_neighbors &&
+                !hvr_vertex_get_uint64(SENT_MSG, vertex, ctx)) {
+            hvr_vertex_id_t msg;
+            hvr_vertex_init(&msg);
+            hvr_vertex_set_uint64(0, n_neighbors, &msg, ctx);
+            for (int i = 0; i < n_neighbors; i++) {
+                hvr_vertex_set_uint64(1 + i, hvr_vertex_get_uint64(
+                            LAYERED_VERTEX, neighbors[i], ctx), &msg, ctx);
+            }
+
+            hvr_send_msg(hvr_vertex_get_uint64(LAYERED_VERTEX, vertex, ctx),
+                    &msg, ctx);
+
+            hvr_vertex_set_uint64(SENT_MSG, 1, vertex, ctx);
+        }
+    } else {
+        assert(hvr_vertex_get_uint64(VERTEX_TYPE, vertex, ctx) ==
+                LAYERED_GRAPH);
+
+        hvr_vertex_t msg;
+        while (hvr_poll_msg(vertex, &msg, ctx)) {
+            int n_neighbors = hvr_vertex_get_uint64(0, &msg, ctx);
+            for (int i = 0; i < n_neighbors; i++) {
+                hvr_create_edge(vertex, hvr_vertex_get_uint64(1 + i, &msg, ctx),
+                        BIDIRECTIONAL, ctx);
+            }
+        }
+    }
+}
+
+static void might_interact(const hvr_partition_t partition,
+        hvr_partition_t *interacting_partitions,
+        unsigned *n_interacting_partitions,
+        unsigned interacting_partitions_capacity,
+        hvr_ctx_t ctx) {
+    assert(partition == 0);
+    interacting_partitions[0] = 0;
+    *n_interacting_partitions = 1;
+}
+
+void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_vertex_t *out_coupled_metric) {
+    hvr_set_uint64(0, 0, out_coupled_metric);
+}
+
+hvr_partition_t actor_to_partition(const hvr_vertex_t *actor, hvr_ctx_t ctx) {
+    if (hvr_vertex_get_uint64(VERTEX_TYPE, actor, ctx) == BASE_GRAPH) {
+        return 0;
+    } else {
+        return HVR_INVALID_PARTITION;
+    }
+}
+
+hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
+        hvr_ctx_t ctx) {
+    assert(hvr_vertex_get_uint64(VERTEX_TYPE, a, ctx) == BASE_GRAPH);
+    assert(hvr_vertex_get_uint64(VERTEX_TYPE, b, ctx) == BASE_GRAPH);
+
+    if (abs(hvr_vertex_get_uint64(VERTEX_ID, a, ctx) -
+                hvr_vertex_get_uint64(VERTEX_ID, b, ctx)) == 1) {
+        return BIDIRECTIONAL;
+    } else {
+        return NO_EDGE;
+    }
+}
+
+int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
+        hvr_vertex_t *local_coupled_metric,
+        hvr_vertex_t *all_coupled_metrics,
+        hvr_vertex_t *global_coupled_metric,
+        hvr_set_t *coupled_pes,
+        int n_coupled_pes, int *updates_on_this_iter,
+        hvr_set_t *terminated_coupled_pes) {
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    shmem_init();
+    pe = shmem_my_pe();
+    npes = shmem_n_pes();
+
+    hvr_ctx_t ctx;
+    hvr_ctx_create(&ctx);
+
+    hvr_vertex_t *vert = hvr_vertex_create(ctx);
+    hvr_vertex_set_uint64(VERTEX_TYPE,     BASE_GRAPH, vert, ctx);
+    hvr_vertex_set_uint64(VERTEX_ID,       pe,         vert, ctx);
+    hvr_vertex_set_uint64(CREATED_LAYERED, 0,          vert, ctx);
+    hvr_vertex_set_uint64(LAYERED_VERTEX,  0,          vert, ctx);
+    hvr_vertex_set_uint64(SENT_MSG,        0,          vert, ctx);
+
+    hvr_init(1, // # partitions
+            update_vertex,
+            might_interact,
+            update_coupled_val,
+            actor_to_partition,
+            start_time_step,
+            should_have_edge,
+            should_terminate,
+            30, // max_elapsed_seconds
+            1, // max_graph_traverse_depth
+            ctx);
+
+    hvr_body(ctx);
+
+    hvr_finalize(ctx);
+
+    shmem_finalize();
+    
+    if (pe == 0) {
+        printf("Success\n");
+    }
+
+    return 0;
+}

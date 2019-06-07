@@ -107,6 +107,10 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
     }
 }
 
+unsigned hvr_irr_matrix_row_len(hvr_vertex_id_t i, hvr_irr_matrix_t *m) {
+    return m->edges_len[i];
+}
+
 unsigned hvr_irr_matrix_linearize_zero_copy(hvr_vertex_id_t i,
         hvr_edge_info_t **out_edges, hvr_irr_matrix_t *m) {
     const unsigned curr_len = m->edges_len[i];

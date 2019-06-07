@@ -124,6 +124,12 @@ typedef struct _hvr_vertex_subscription_t {
     int entered;
 } hvr_vertex_subscription_t;
 
+typedef struct _hvr_edge_create_msg_t {
+    hvr_vertex_t src;
+    hvr_vertex_id_t target;
+    hvr_edge_type_t edge;
+} hvr_edge_create_msg_t;
+
 typedef struct _hvr_dead_pe_msg_t {
     int pe;
 } hvr_dead_pe_msg_t;
@@ -292,6 +298,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t root_info_mailbox;
 
     hvr_mailbox_t vert_sub_mailbox;
+    hvr_mailbox_t edge_create_mailbox;
 
     hvr_map_t producer_info;
     hvr_map_t dead_info;
@@ -395,7 +402,7 @@ extern unsigned long long hvr_current_time_us();
 extern int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
         hvr_edge_type_t **out_dirs, hvr_ctx_t in_ctx);
 
-extern void hvr_create_edge(hvr_vertex_t *base, hvr_vertex_t *neighbor,
+extern void hvr_create_edge(hvr_vertex_t *base, hvr_vertex_id_t neighbor,
         hvr_edge_type_t edge, hvr_ctx_t in_ctx);
 
 extern void hvr_send_msg(hvr_vertex_id_t dst, hvr_vertex_t *msg,
