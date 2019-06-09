@@ -6,8 +6,8 @@
 void hvr_partition_list_init(hvr_partition_t n_partitions,
         hvr_partition_list_t *l);
 
-hvr_partition_t prepend_to_partition_list(hvr_vertex_t *curr,
-        hvr_partition_list_t *l, hvr_internal_ctx_t *ctx);
+void prepend_to_partition_list(hvr_vertex_t *curr,
+        hvr_partition_t part, hvr_partition_list_t *l, hvr_internal_ctx_t *ctx);
 
 void remove_from_partition_list(hvr_vertex_t *curr,
         hvr_partition_list_t *l, hvr_internal_ctx_t *ctx);

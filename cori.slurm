@@ -74,12 +74,15 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
 # srun $SLURM_ARGS $HOME/hoover/bin/simple_nbody_test $SIMULATION_TIMESTEPS $MAX_SECONDS
 
 ##### Functional tests #####
-srun $SLURM_ARGS $HOME/hoover/bin/init_test 400
-echo
-srun -n 2 $HOME/hoover/bin/complex_interact
-echo
-srun -n 2 $HOME/hoover/bin/complex_interact2
-echo
-srun -n 2 $HOME/hoover/bin/stale_state
-echo
+# module load valgrind4hpc
+# valgrind4hpc -n 2 $HOME/hoover/bin/explicit_edge_test
+srun -n 2 $HOME/hoover/bin/explicit_edge_test
+# srun $SLURM_ARGS $HOME/hoover/bin/init_test 400
+# echo
+# srun -n 2 $HOME/hoover/bin/complex_interact
+# echo
+# srun -n 2 $HOME/hoover/bin/complex_interact2
+# echo
+# srun -n 2 $HOME/hoover/bin/stale_state
+# echo
 # srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 480

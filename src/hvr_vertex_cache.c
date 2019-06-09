@@ -124,21 +124,17 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_reserve(hvr_vertex_cache_t *cache,
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         hvr_vertex_cache_t *cache) {
-
-    // Assume that vec is not already in the cache, but don't enforce this
-    hvr_vertex_cache_node_t *new_node = NULL;
-    if (cache->pool_head) {
-        // Look for an already free node
-        new_node = cache->pool_head;
-        cache->pool_head = new_node->local_neighbors_next;
-        if (cache->pool_head) {
-            cache->pool_head->local_neighbors_prev = NULL;
-        }
-    } else {
+    if (!cache->pool_head) {
         // No valid node found, print an error
         fprintf(stderr, "ERROR: PE %d exhausted %u cache slots\n",
                 shmem_my_pe(), cache->pool_size);
         abort();
+    }
+
+    hvr_vertex_cache_node_t *new_node = cache->pool_head;
+    cache->pool_head = new_node->local_neighbors_next;
+    if (cache->pool_head) {
+        cache->pool_head->local_neighbors_prev = NULL;
     }
 
     memset(new_node, 0x00, sizeof(*new_node));

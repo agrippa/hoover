@@ -20,7 +20,7 @@ void hvr_partition_list_destroy(hvr_partition_list_t *l) {
 static void prepend_to_partition_list_helper(hvr_vertex_t *curr,
         hvr_partition_t partition, hvr_partition_list_t *l,
         hvr_internal_ctx_t *ctx) {
-    assert(partition != HVR_INVALID_PARTITION);
+    assert(partition < l->n_partitions);
 
     hvr_vertex_t *head = hvr_map_get(partition, &l->map);
     curr->prev_in_partition = NULL;
@@ -32,18 +32,15 @@ static void prepend_to_partition_list_helper(hvr_vertex_t *curr,
     hvr_map_add(partition, curr, 1, &l->map);
 }
 
-hvr_partition_t prepend_to_partition_list(hvr_vertex_t *curr,
-        hvr_partition_list_t *l, hvr_internal_ctx_t *ctx) {
-    hvr_partition_t partition = wrap_actor_to_partition(curr, ctx);
-
-    prepend_to_partition_list_helper(curr, partition, l, ctx);
-    return partition;
+void prepend_to_partition_list(hvr_vertex_t *curr,
+        hvr_partition_t part, hvr_partition_list_t *l, hvr_internal_ctx_t *ctx) {
+    prepend_to_partition_list_helper(curr, part, l, ctx);
 }
 
 void remove_from_partition_list_helper(const hvr_vertex_t *vert,
         hvr_partition_t partition, hvr_partition_list_t *l,
         hvr_internal_ctx_t *ctx) {
-    assert(partition != HVR_INVALID_PARTITION);
+    assert(partition < l->n_partitions);
 
     if (vert->next_in_partition && vert->prev_in_partition) {
         // Remove from current partition list

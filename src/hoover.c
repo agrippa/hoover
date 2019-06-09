@@ -92,8 +92,9 @@ typedef struct _profiling_info_t {
 #endif
 
 #ifdef DETAILED_PRINTS
-    size_t pe_subscription_info_bytes;
-    size_t vert_subscription_info_bytes;
+    size_t remote_partition_subs_bytes;
+    size_t remote_vert_subs_bytes;
+    size_t my_vert_subs_bytes;
     size_t producer_info_bytes;
     size_t dead_info_bytes;
     size_t vertex_cache_capacity;
@@ -170,10 +171,15 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
         hvr_internal_ctx_t *ctx);
 
 static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
+        int expect_no_edges,
         hvr_internal_ctx_t *ctx);
 
 static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         process_perf_info_t *perf_info);
+
+static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t v,
+        hvr_vertex_t *optional_body,
+        hvr_internal_ctx_t *ctx);
 
 void *malloc_helper(size_t nbytes) {
     static size_t count_bytes = 0;
@@ -225,11 +231,11 @@ static void send_vertex_update_msg(hvr_vertex_update_t *msg, int pe,
     assert(pe != ctx->pe);
 
     for (int i = 0; i < msg->len; i++) {
-        assert(msg->verts[i].curr_part != HVR_INVALID_PARTITION);
         assert(VERTEX_ID_PE(msg->verts[i].id) == ctx->pe);
     }
 
-    int success = hvr_mailbox_send(msg, sizeof(*msg), pe, N_SEND_ATTEMPTS, mbox, 0);
+    int success = hvr_mailbox_send(msg, sizeof(*msg), pe, N_SEND_ATTEMPTS, mbox,
+            0);
     while (!success) {
         // Try processing some inbound messages, then re-sending
         if (perf_info) {
@@ -240,7 +246,8 @@ static void send_vertex_update_msg(hvr_vertex_update_t *msg, int pe,
         } else {
             process_vertex_updates(ctx, perf_info);
         }
-        success = hvr_mailbox_send(msg, sizeof(*msg), pe, N_SEND_ATTEMPTS, mbox, 0);
+        success = hvr_mailbox_send(msg, sizeof(*msg), pe, N_SEND_ATTEMPTS, mbox,
+                0);
     }
     ctx->total_vertex_msgs_sent += msg->len;
     msg->len = 0;
@@ -537,21 +544,27 @@ static void insert_recently_created_in_partitions(hvr_internal_ctx_t *ctx) {
 
         ctx->recently_created = curr->next_in_partition;
 
-        hvr_partition_t part = prepend_to_partition_list(curr,
-                local_partition_lists, ctx);
+        hvr_partition_t part = ctx->actor_to_partition(curr, ctx);
         curr->curr_part = part;
         curr->prev_part = HVR_INVALID_PARTITION;
 
-        unsigned n_interacting = 0;
-        ctx->might_interact(part, ctx->interacting, &n_interacting,
-                MAX_INTERACTING_PARTITIONS, ctx);
+        if (part != HVR_INVALID_PARTITION) {
+            prepend_to_partition_list(curr, part, local_partition_lists, ctx);
 
-        update_existing_edges((hvr_vertex_cache_node_t *)curr,
-                ctx->interacting, n_interacting, ctx);
+            unsigned n_interacting = 0;
+            ctx->might_interact(part, ctx->interacting, &n_interacting,
+                    MAX_INTERACTING_PARTITIONS, ctx);
+
+            update_existing_edges((hvr_vertex_cache_node_t *)curr,
+                    ctx->interacting, n_interacting, ctx);
+        } else {
+            curr->next_in_partition = NULL;
+            curr->prev_in_partition = NULL;
+        }
 
         /*
          * No need for mark_all_downstream_neighbors_for_processing because the
-         * creation of new edges should do that for us.
+         * creation of new edges above should do that for us.
          */
     }
 }
@@ -770,7 +783,7 @@ static void handle_new_unsubscription(hvr_partition_t p,
             &ctx->mirror_partition_lists);
     while (iter) {
         hvr_vertex_t *next = iter->next_in_partition;
-        if (hvr_vertex_get_owning_pe(iter) != ctx->pe && iter->n_explicit) {
+        if (hvr_vertex_get_owning_pe(iter) != ctx->pe) {
             handle_deleted_vertex(iter, 1, ctx);
         }
         iter = next;
@@ -1178,9 +1191,10 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_dist_bitvec_local_subcopy_init(&new_ctx->terminated_pes,
             &new_ctx->local_terminated_pes);
 
-    hvr_sparse_arr_init(&new_ctx->pe_subscription_info, new_ctx->n_partitions);
-    hvr_sparse_arr_init(&new_ctx->vert_subscription_info,
+    hvr_sparse_arr_init(&new_ctx->remote_partition_subs, new_ctx->n_partitions);
+    hvr_sparse_arr_init(&new_ctx->remote_vert_subs,
             new_ctx->vec_cache.pool_size);
+    hvr_sparse_arr_init(&new_ctx->my_vert_subs, new_ctx->npes);
 
     new_ctx->max_graph_traverse_depth = max_graph_traverse_depth;
 
@@ -1370,7 +1384,7 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
             // Entered partition
 
             if (!hvr_sparse_arr_contains(change->partition, change->pe,
-                        &ctx->pe_subscription_info)) {
+                        &ctx->remote_partition_subs)) {
                 /*
                  * This is a new subscription from a remote PE for this
                  * partition. If we find new subscriptions, we need to transmit
@@ -1379,7 +1393,7 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
                 send_all_vertices_in_partition(change->pe, change->partition,
                         ctx);
                 hvr_sparse_arr_insert(change->partition, change->pe,
-                        &ctx->pe_subscription_info);
+                        &ctx->remote_partition_subs);
             }
         } else {
             /*
@@ -1396,9 +1410,9 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
              *      leaving the partition.
              */
             if (hvr_sparse_arr_contains(change->partition, change->pe,
-                        &ctx->pe_subscription_info)) {
+                        &ctx->remote_partition_subs)) {
                 hvr_sparse_arr_remove(change->partition, change->pe,
-                        &ctx->pe_subscription_info);
+                        &ctx->remote_partition_subs);
             }
         }
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
@@ -1421,7 +1435,7 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
 
         if (change->entered) {
             if (!hvr_sparse_arr_contains(offset, change->pe,
-                        &ctx->vert_subscription_info)) {
+                        &ctx->remote_vert_subs)) {
                 /*
                  * Send current state of vertex
                  * TODO there is a problem here if a vertex subscription is sent
@@ -1437,13 +1451,13 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
                         &ctx->vertex_update_mailbox, NULL, ctx, NULL, NULL);
 
                 hvr_sparse_arr_insert(offset, change->pe,
-                        &ctx->vert_subscription_info);
+                        &ctx->remote_vert_subs);
             }
         } else { // change->entered == 0
             if (hvr_sparse_arr_contains(offset, change->pe,
-                        &ctx->vert_subscription_info)) {
+                        &ctx->remote_vert_subs)) {
                 hvr_sparse_arr_remove(offset, change->pe,
-                        &ctx->vert_subscription_info);
+                        &ctx->remote_vert_subs);
             }
         }
 
@@ -1457,17 +1471,17 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
         assert(msg_len == sizeof(hvr_edge_create_msg_t));
         hvr_edge_create_msg_t *msg = (hvr_edge_create_msg_t *)msg_buf_node->ptr;
         assert(VERTEX_ID_PE(msg->target) == ctx->pe &&
-                VERTEX_ID_PE(msg.src.id) != ctx->pe);
+                VERTEX_ID_PE(msg->src.id) != ctx->pe);
 
         // Insert the remote source into our cache
-        hvr_vertex_cache_node_t *cached = set_up_vertex_subscription(&msg.src,
-                ctx);
+        hvr_vertex_cache_node_t *cached = set_up_vertex_subscription(
+                msg->src.id, &msg->src, ctx);
 
         // Insert the explcitly created edge in our local edge info
-        update_edge_info(msg->target, msg.src.id,
+        update_edge_info(msg->target, msg->src.id,
                 cached,
                 ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(msg->target),
-                edge, NULL, EXPLICIT_EDGE, ctx);
+                msg->edge, NULL, EXPLICIT_EDGE, ctx);
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, &ctx->edge_create_mailbox, 0);
@@ -1494,6 +1508,7 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
                 ctx->edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
 
         if (expect_no_edges) assert(n_neighbors == 0);
+        assert(cached->n_explicit_edges == 0);
 
         // Delete all edges
         for (size_t n = 0; n < n_neighbors; n++) {
@@ -1522,13 +1537,18 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
     hvr_vertex_id_t updated_vert_id = new_vert->id;
 
     unsigned n_interacting = 0;
-    ctx->might_interact(new_partition, ctx->interacting, &n_interacting,
-            MAX_INTERACTING_PARTITIONS, ctx);
+    if (new_partition != HVR_INVALID_PARTITION) {
+        ctx->might_interact(new_partition, ctx->interacting, &n_interacting,
+                MAX_INTERACTING_PARTITIONS, ctx);
+    }
 
     hvr_vertex_cache_node_t *updated = hvr_vertex_cache_lookup(
             updated_vert_id, &ctx->vec_cache);
 
-    // Am I subscribed to the partition the vertex is now in
+    /*
+     * Am I subscribed to the partition the vertex is now in, or have explicit
+     * edges on this vertex (meaning I am subscribed specifically to it.
+     */
     int am_subscribed = hvr_set_contains(new_partition,
             ctx->subscribed_partitions) ||
         (updated && updated->n_explicit_edges > 0);
@@ -1585,7 +1605,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
 
             // A brand new vertex, or at least this is our first update on it
             updated = hvr_vertex_cache_add(new_vert, &ctx->vec_cache);
-            prepend_to_partition_list(&updated->vert,
+            prepend_to_partition_list(&updated->vert, new_partition,
                     &ctx->mirror_partition_lists, ctx);
             local_count_new_should_have_edges += create_new_edges(updated,
                     ctx->interacting, n_interacting,
@@ -1619,6 +1639,7 @@ void hvr_send_msg(hvr_vertex_id_t dst_id, hvr_vertex_t *payload,
 
         hvr_vertex_cache_node_t *local = ctx->vec_cache.pool_mem + offset;
         assert(local->vert.id != HVR_INVALID_VERTEX_ID); // Verify is allocated
+        assert(local->vert.id == dst_id);
         mark_for_processing(&local->vert, ctx);
     } else {
         inter_vert_msg_t msg;
@@ -1850,13 +1871,8 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
     return n_neighbors;
 }
 
-/*
- * TODO Right now this doesn't work with dying PEs. We would need to add similar
- * logic to partition subscriptions, in which PEs that are dead have their
- * vertices pulled manually.
- */
 static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t v,
-        hvr_internal_ctx_t *ctx) {
+        hvr_vertex_t *optional_body, hvr_internal_ctx_t *ctx) {
     /*
      * Reserve a cache slot for this remote vertex, pre-populate it with the
      * state passed to hvr_create_edge, notify that PE that we'll need
@@ -1868,35 +1884,52 @@ static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t v,
             &ctx->vec_cache);
     if (!cached) {
         hvr_vertex_t dummy;
-        hvr_vertex_init(&dummy);
-        dummy.id = v;
+        hvr_vertex_init(&dummy, v, ctx->iter);
         cached = hvr_vertex_cache_add(&dummy, &ctx->vec_cache);
     }
 
-    if (owning_pe != ctx->pe) {
-        // Notify owning PE that we are subscribed to this vertex
-        hvr_vertex_subscription_t msg;
-        msg.pe = ctx->pe;
-        msg.vert = v;
-        msg.entered = 1;
-        hvr_mailbox_send(&msg, sizeof(msg), owning_pe, -1,
-                &ctx->vert_sub_mailbox, 0);
+    if (optional_body) {
+        /*
+         * We already have a copy of valid state for this vertex that we can
+         * pre-populate with.
+         */
+        memcpy(&cached->vert, optional_body, sizeof(*optional_body));
     }
+
+    if (owning_pe != ctx->pe) {
+        if (hvr_set_contains(owning_pe, ctx->all_terminated_pes)) {
+            // Already terminated, just pull this vertex's latest value.
+            hvr_vertex_t local;
+            shmem_getmem(&local, ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(v),
+                    sizeof(local), owning_pe);
+            memcpy(&cached->vert, optional_body, sizeof(*optional_body));
+        } else {
+            // Notify owning PE that we are subscribed to this vertex
+            hvr_vertex_subscription_t msg;
+            msg.pe = ctx->pe;
+            msg.vert = v;
+            msg.entered = 1;
+            hvr_mailbox_send(&msg, sizeof(msg), owning_pe, -1,
+                    &ctx->vert_sub_mailbox, 0);
+        }
+    }
+
+    hvr_sparse_arr_insert(owning_pe, VERTEX_ID_OFFSET(v), &ctx->my_vert_subs);
 
     return cached;
 }
 
 // edge is relative to remote
-static void signal_edge_creation(hvr_vertex_t *remote, hvr_vertex_t *base,
+static void signal_edge_creation(hvr_vertex_id_t remote, hvr_vertex_t *base,
         hvr_edge_type_t edge, hvr_internal_ctx_t *ctx) {
-    assert(VERTEX_ID_PE(remote->id) != ctx->pe);
+    assert(VERTEX_ID_PE(remote) != ctx->pe);
 
     hvr_edge_create_msg_t msg;
     memcpy(&msg.src, base, sizeof(*base));
-    msg.target = remote->id;
+    msg.target = remote;
     msg.edge = edge;
 
-    hvr_mailbox_send(&msg, sizeof(msg), VERTEX_ID_PE(remote->id), -1,
+    hvr_mailbox_send(&msg, sizeof(msg), VERTEX_ID_PE(remote), -1,
             &ctx->edge_create_mailbox, 0);
 }
 
@@ -1909,9 +1942,10 @@ static void signal_edge_creation(hvr_vertex_t *remote, hvr_vertex_t *base,
 void hvr_create_edge(hvr_vertex_t *local, hvr_vertex_id_t neighbor,
         hvr_edge_type_t edge, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)ctx;
+    hvr_vertex_id_t id = local->id;
 
     // Assert that at least one of these vertices is locally owned
-    assert(VERTEX_ID_PE(local->id) == ctx->pe);
+    assert(VERTEX_ID_PE(id) == ctx->pe);
 
     /*
      * Assert that both vertices are not in a valid partition, so that they do
@@ -1921,22 +1955,17 @@ void hvr_create_edge(hvr_vertex_t *local, hvr_vertex_id_t neighbor,
 
     hvr_vertex_cache_node_t *cached_local = hvr_vertex_cache_lookup(local->id,
             &ctx->vec_cache);
-    hvr_vertex_cache_node_t *cached_neighbor = set_up_vertex_subscription(
-            neighbor, ctx);
+    // hvr_vertex_cache_node_t *cached_neighbor = set_up_vertex_subscription(
+    //         neighbor, NULL, ctx);
+    // assert(cached_local && cached_neighbor);
 
-    // Create explicit edge
-    update_edge_info(base->id, neighbor->id, cached_base, cached_neighbor, edge,
-            NULL, EXPLICIT_EDGE, ctx);
+    // // Create explicit edge
+    // update_edge_info(local->id, neighbor, cached_local, cached_neighbor, edge,
+    //         NULL, EXPLICIT_EDGE, ctx);
 
-    hvr_vertex_t *remote = NULL;
-    if (VERTEX_ID_PE(base->id) != ctx->pe) remote = base;
-    else if (VERTEX_ID_PE(neighbor->id) != ctx->pe) remote = neighbor;
-
-    if (remote) {
-        signal_edge_creation(remote, base,
-                remote == base ? edge : flip_edge_direction(edge),
-                ctx);
-    }
+    // if (VERTEX_ID_PE(neighbor) != ctx->pe) {
+    //     signal_edge_creation(neighbor, local, flip_edge_direction(edge), ctx);
+    // }
 }
 
 static int update_vertices(hvr_set_t *to_couple_with,
@@ -1955,22 +1984,30 @@ static int update_vertices(hvr_set_t *to_couple_with,
 
         if (curr->needs_processing) {
             curr->needs_processing = 0;
-            const hvr_partition_t old_part = wrap_actor_to_partition(curr, ctx);
+            const hvr_partition_t old_part = ctx->actor_to_partition(curr, ctx);
+
             ctx->update_metadata(curr, to_couple_with, ctx);
 
-            hvr_partition_t new_partition = wrap_actor_to_partition(curr, ctx);
+            hvr_partition_t new_partition = ctx->actor_to_partition(curr, ctx);
             curr->curr_part = new_partition;
             curr->prev_part = old_part;
 
-            update_partition_list_membership(curr, old_part, new_partition,
-                    &ctx->local_partition_lists, ctx);
+            if (new_partition == HVR_INVALID_PARTITION) {
+                assert(old_part == HVR_INVALID_PARTITION);
+            } else {
+                update_partition_list_membership(curr, old_part, new_partition,
+                        &ctx->local_partition_lists, ctx);
+                if (curr->needs_send) {
+                    // Something changed
+                    unsigned n_interacting = 0;
+                    ctx->might_interact(new_partition, ctx->interacting,
+                            &n_interacting, MAX_INTERACTING_PARTITIONS, ctx);
+                    update_existing_edges((hvr_vertex_cache_node_t *)curr,
+                            ctx->interacting, n_interacting, ctx);
+                }
+            }
+
             if (curr->needs_send) {
-                // Something changed
-                unsigned n_interacting = 0;
-                ctx->might_interact(new_partition, ctx->interacting,
-                        &n_interacting, MAX_INTERACTING_PARTITIONS, ctx);
-                update_existing_edges((hvr_vertex_cache_node_t *)curr,
-                        ctx->interacting, n_interacting, ctx);
                 /*
                  * Mark all downstream neighbors because attributes of this
                  * local vertex changed.
@@ -2031,14 +2068,14 @@ void send_updates_to_all_subscribed_pes(
     // Find subscribers to part and send message to them
     int *subscribers = NULL;
     unsigned n_subscribers = hvr_sparse_arr_linearize_row(part,
-            &subscribers, &ctx->pe_subscription_info);
+            &subscribers, &ctx->remote_partition_subs);
     send_updates_to_all_subscribed_pes_helper(vert, subscribers, n_subscribers,
             is_delete, is_invalidation, mbox, ctx, perf_info, &start,
             time_sending);
 
     // Find subscribers to this particular vertex and send update to them
     n_subscribers = hvr_sparse_arr_linearize_row(VERTEX_ID_OFFSET(vert->id),
-            &subscribers, &ctx->vert_subscription_info);
+            &subscribers, &ctx->remote_vert_subs);
     send_updates_to_all_subscribed_pes_helper(vert, subscribers, n_subscribers,
             is_delete, is_invalidation, mbox, ctx, perf_info, &start,
             time_sending);
@@ -2064,15 +2101,19 @@ static unsigned send_vertex_updates(hvr_internal_ctx_t *ctx,
             hvr_partition_t new_partition = curr->curr_part;
             hvr_partition_t old_partition = curr->prev_part;
 
-            if (old_partition != HVR_INVALID_PARTITION &&
-                    old_partition != new_partition) {
-                send_updates_to_all_subscribed_pes(curr, old_partition, 1, 0,
-                        perf_info, time_sending, ctx);
-            }
+            if (new_partition == HVR_INVALID_PARTITION) {
+                assert(old_partition == HVR_INVALID_PARTITION);
+            } else {
+                if (old_partition != HVR_INVALID_PARTITION &&
+                        old_partition != new_partition) {
+                    send_updates_to_all_subscribed_pes(curr, old_partition, 1,
+                            0, perf_info, time_sending, ctx);
+                }
 
-            send_updates_to_all_subscribed_pes(curr, new_partition, 0, 0,
-                    perf_info, time_sending, ctx);
-            n_updates_sent++;
+                send_updates_to_all_subscribed_pes(curr, new_partition, 0, 0,
+                        perf_info, time_sending, ctx);
+                n_updates_sent++;
+            }
             curr->needs_send = 0;
         }
     }
@@ -2287,9 +2328,30 @@ static int wait_for_coupling_ack(hvr_msg_buf_node_t *msg_buf_node,
                 &ctx->coupling_ack_and_dead_mailbox, 0);
         if (success) {
             if (msg_len == sizeof(hvr_dead_pe_msg_t)) {
+                // A PE has left the simulation, update our set of terminated PEs
                 hvr_dead_pe_msg_t *msg = (hvr_dead_pe_msg_t *)msg_buf_node->ptr;
                 assert(!hvr_set_contains(msg->pe, ctx->all_terminated_pes));
                 hvr_set_insert(msg->pe, ctx->all_terminated_pes);
+
+                /*
+                 * Check if we were subscribed to any vertices on that PE, and
+                 * if so go grab their final state.
+                 */
+                int *subscriptions = NULL;
+                unsigned n_subscriptions = hvr_sparse_arr_linearize_row(msg->pe,
+                        &subscriptions, &ctx->my_vert_subs);
+                for (unsigned i = 0; i < n_subscriptions; i++) {
+                    hvr_vertex_t local;
+                    shmem_getmem(&local,
+                            ctx->vec_cache.pool_mem + subscriptions[i],
+                            sizeof(local), msg->pe);
+                    hvr_vertex_id_t id = construct_vertex_id(msg->pe,
+                            subscriptions[i]);
+                    hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(
+                            id, &ctx->vec_cache);
+                    assert(cached);
+                    memcpy(&cached->vert, &local, sizeof(local));
+                }
             } else if (msg_len == sizeof(new_coupling_msg_ack_t)) {
                 got_ack = 1;
             } else {
@@ -2847,10 +2909,12 @@ static void save_profiling_info(
     hvr_vertex_cache_mem_used(&vertex_cache_used, &vertex_cache_capacity,
             &ctx->vec_cache);
 
-    saved_profiling_info[n_profiled_iters].pe_subscription_info_bytes =
-        hvr_sparse_arr_used_bytes(&ctx->pe_subscription_info);
-    saved_profiling_info[n_profiled_iters].vert_subscription_info_bytes =
-        hvr_sparse_arr_used_bytes(&ctx->vert_subscription_info);
+    saved_profiling_info[n_profiled_iters].remote_partition_subs_bytes =
+        hvr_sparse_arr_used_bytes(&ctx->remote_partition_subs);
+    saved_profiling_info[n_profiled_iters].remote_vert_subs_bytes =
+        hvr_sparse_arr_used_bytes(&ctx->remote_vert_subs);
+    saved_profiling_info[n_profiled_iters].my_vert_subs_bytes =
+        hvr_sparse_arr_used_bytes(&ctx->my_vert_subs);
 
     size_t producer_info_capacity, producer_info_used;
     hvr_map_size_in_bytes(&ctx->producer_info, &producer_info_capacity,
@@ -3006,9 +3070,11 @@ static void print_profiling_info(profiling_info_t *info) {
 #ifdef DETAILED_PRINTS
     fprintf(profiling_fp, "  mem usage info:\n");
     fprintf(profiling_fp, "    PE sub info = %f MB\n",
-            (double)info->pe_subscription_info_bytes / (1024.0 * 1024.0));
+            (double)info->remote_partition_subs_bytes / (1024.0 * 1024.0));
     fprintf(profiling_fp, "    Vert sub info = %f MB\n",
-            (double)info->vert_subscription_info_bytes / (1024.0 * 1024.0));
+            (double)info->remote_vert_subs_bytes / (1024.0 * 1024.0));
+    fprintf(profiling_fp, "    My vert sub info = %f MB\n",
+            (double)info->my_vert_subs_bytes / (1024.0 * 1024.0));
     fprintf(profiling_fp, "    producer info = %f MB, dead info = %f MB\n",
             (double)info->producer_info_bytes / (1024.0 * 1024.0),
             (double)info->dead_info_bytes / (1024.0 * 1024.0));
@@ -3178,7 +3244,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      * Receive and process updates sent in update_pes_on_neighbors, and adjust
      * our local neighbors based on those updates. This stores a mapping from
      * partition to the PEs that are subscribed to updates in that partition
-     * inside of ctx->pe_subscription_info.
+     * inside of ctx->remote_partition_subs.
      */
     process_neighbor_updates(ctx, &perf_info);
     const unsigned long long end_neighbor_updates = hvr_current_time_us();
@@ -3373,6 +3439,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
             &coupling_sharing_info, &coupling_waiting_for_info,
             &coupling_negotiating, 1);
 
+    // Notify all PEs that I have terminated
     hvr_dead_pe_msg_t dead_msg;
     dead_msg.pe = ctx->pe;
     for (int p = 0; p < ctx->npes; p++) {
@@ -3382,6 +3449,10 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     this_pe_has_exited = 1;
 
+    /*
+     * For each local vertex, persist its partition so that other PEs can come
+     * look it up after I have terminated.
+     */
     for (unsigned i = 0; i < ctx->vec_cache.pool_size; i++) {
         (ctx->vertex_partitions)[i] = HVR_INVALID_PARTITION;
     }
@@ -3394,6 +3465,10 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         (ctx->vertex_partitions)[offset] = curr_node->vert.curr_part;
     }
 
+    /*
+     * For each partition that I am a producer for, mark myself as a terminated
+     * producer of that partition.
+     */
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
         if (hvr_partition_list_head(p, &ctx->local_partition_lists)) {
             hvr_dist_bitvec_set(p, ctx->pe, &ctx->terminated_pes, 0);
@@ -3454,8 +3529,9 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     hvr_mailbox_destroy(&ctx->coupling_val_mailbox);
     hvr_mailbox_destroy(&ctx->root_info_mailbox);
 
-    hvr_sparse_arr_destroy(&ctx->pe_subscription_info);
-    hvr_sparse_arr_destroy(&ctx->vert_subscription_info);
+    hvr_sparse_arr_destroy(&ctx->remote_partition_subs);
+    hvr_sparse_arr_destroy(&ctx->remote_vert_subs);
+    hvr_sparse_arr_destroy(&ctx->my_vert_subs);
 
     hvr_map_destroy(&ctx->producer_info);
     hvr_map_destroy(&ctx->dead_info);

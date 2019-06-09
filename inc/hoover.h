@@ -306,9 +306,12 @@ typedef struct _hvr_internal_ctx_t {
     hvr_time_t *next_producer_info_check;
     hvr_time_t *curr_producer_info_interval;
 
-    // Edge from PE -> partitions we need to notify it about
-    hvr_sparse_arr_t pe_subscription_info;
-    hvr_sparse_arr_t vert_subscription_info;
+    // Mapping from partition -> remote PE subscribing to each partition
+    hvr_sparse_arr_t remote_partition_subs;
+    // Mapping from local vertex offset -> remote PE subscribing to each vertex
+    hvr_sparse_arr_t remote_vert_subs;
+    // Mapping from remote PE -> subscriptions I have to vertices on that PE
+    hvr_sparse_arr_t my_vert_subs;
 
     unsigned max_graph_traverse_depth;
 

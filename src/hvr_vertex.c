@@ -29,7 +29,7 @@ void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     remove_from_partition_list(vert, &ctx->local_partition_lists, ctx);
 
     hvr_sparse_arr_remove_row(VERTEX_ID_OFFSET(vert->id),
-            &ctx->vert_subscription_info);
+            &ctx->remote_vert_subs);
 
     hvr_vertex_cache_delete((hvr_vertex_cache_node_t *)vert, &ctx->vec_cache);
 }
