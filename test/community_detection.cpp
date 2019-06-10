@@ -436,8 +436,8 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
                     ctx);
 
             if (count_overlapping >= K - 1) {
-                // TODO
-                // hvr_create_edge(vertex, &clique, BIDIRECTIONAL, ctx);
+                hvr_create_edge_with_vertex(vertex, &clique, BIDIRECTIONAL,
+                        ctx);
             }
 
             have_msg = hvr_poll_msg(vertex, &clique, ctx);

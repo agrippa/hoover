@@ -405,8 +405,12 @@ extern unsigned long long hvr_current_time_us();
 extern int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
         hvr_edge_type_t **out_dirs, hvr_ctx_t in_ctx);
 
-extern void hvr_create_edge(hvr_vertex_t *base, hvr_vertex_id_t neighbor,
-        hvr_edge_type_t edge, hvr_ctx_t in_ctx);
+extern void hvr_create_edge_with_vertex_id(hvr_vertex_t *base,
+        hvr_vertex_id_t neighbor, hvr_edge_type_t edge, hvr_ctx_t in_ctx);
+
+extern void hvr_create_edge_with_vertex(hvr_vertex_t *base,
+        hvr_vertex_t *neighbor, hvr_edge_type_t edge, hvr_ctx_t in_ctx);
+
 
 extern void hvr_send_msg(hvr_vertex_id_t dst, hvr_vertex_t *msg,
         hvr_internal_ctx_t *ctx);
@@ -429,6 +433,12 @@ static inline hvr_partition_t wrap_actor_to_partition(const hvr_vertex_t *vec,
     hvr_partition_t partition = ctx->actor_to_partition(vec, ctx);
     assert(partition < ctx->n_partitions);
     return partition;
+}
+
+static inline void mark_for_processing(hvr_vertex_t *vert,
+        hvr_internal_ctx_t *ctx) {
+    vert->needs_processing = 1;
+    ctx->any_needs_processing = 1;
 }
 
 size_t hvr_n_allocated(hvr_ctx_t in_ctx);

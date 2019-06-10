@@ -127,10 +127,13 @@ uint64_t hvr_set_min_contained(hvr_set_t *s) {
 
 uint64_t hvr_set_max_contained(hvr_set_t *s) {
     assert(hvr_set_count(s) > 0);
-    for (uint64_t i = s->max_n_contained - 1; i >= 0; i--) {
+    uint64_t i = s->max_n_contained - 1U;
+    while (1) {
         if (hvr_set_contains(i, s)) {
             return i;
         }
+        if (i == 0) break;
+        i--;
     }
     abort();
 }

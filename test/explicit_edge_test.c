@@ -71,22 +71,23 @@ static void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
             hvr_vertex_set_uint64(SENT_MSG, 1, vertex, ctx);
         }
     } else {
-        // assert(hvr_vertex_get_uint64(VERTEX_TYPE, vertex, ctx) ==
-        //         LAYERED_GRAPH);
+        assert(hvr_vertex_get_uint64(VERTEX_TYPE, vertex, ctx) ==
+                LAYERED_GRAPH);
 
         // // fprintf(stderr, "PE %d running layered vertex %llu\n", pe,
         // //         hvr_vertex_get_id(vertex));
 
-        // hvr_vertex_t msg;
-        // while (hvr_poll_msg(vertex, &msg, ctx)) {
-        //     int n_neighbors = hvr_vertex_get_uint64(0, &msg, ctx);
-        //     // fprintf(stderr, "PE %d receiving msg at layered vertex containing "
-        //     //         "%d neighbors\n", pe, n_neighbors);
-        //     for (int i = 0; i < n_neighbors; i++) {
-        //         hvr_create_edge(vertex, hvr_vertex_get_uint64(1 + i, &msg, ctx),
-        //                 BIDIRECTIONAL, ctx);
-        //     }
-        // }
+        hvr_vertex_t msg;
+        while (hvr_poll_msg(vertex, &msg, ctx)) {
+            int n_neighbors = hvr_vertex_get_uint64(0, &msg, ctx);
+            // fprintf(stderr, "PE %d receiving msg at layered vertex containing "
+            //         "%d neighbors\n", pe, n_neighbors);
+            for (int i = 0; i < n_neighbors; i++) {
+                hvr_create_edge_with_vertex_id(vertex,
+                        hvr_vertex_get_uint64(1 + i, &msg, ctx), BIDIRECTIONAL,
+                        ctx);
+            }
+        }
     }
 }
 
