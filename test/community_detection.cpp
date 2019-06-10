@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <stdlib.h>
+#include <limits.h>
 
 #include <map>
 #include <set>
@@ -342,7 +343,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         feat2 = MIN(feat2, domain_dim[1] - 1);
         feat3 = MIN(feat3, domain_dim[2] - 1);
 
-        hvr_vertex_set(TYPE, NODE_TYPE, new_vertex, ctx);
+        hvr_vertex_set_uint64(TYPE, NODE_TYPE, new_vertex, ctx);
         hvr_vertex_set(ATTR0, feat1, new_vertex, ctx);
         hvr_vertex_set(ATTR1, feat2, new_vertex, ctx);
         hvr_vertex_set(ATTR2, feat3, new_vertex, ctx);
@@ -355,19 +356,37 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
      * permutations of them to see if any combination leads to a k-clique.
      */
     unsigned previous_n_cliques = n_local_cliques;
+    unsigned n_local_nodes = 0;
+    unsigned n_local_supernodes = 0;
+    unsigned min_supernode_edges = UINT_MAX;
+    unsigned max_supernode_edges = 0;
     for (hvr_vertex_t *vertex = hvr_vertex_iter_next(iter); vertex;
             vertex = hvr_vertex_iter_next(iter)) {
         hvr_vertex_t **verts;
         hvr_edge_type_t *dirs;
         int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
 
-        clique_t clique;
-        clique.vertices[0] = vertex->id;
-        unsigned n_inserted = 1;
+        if (hvr_vertex_get_uint64(TYPE, vertex, ctx) == NODE_TYPE) {
+            clique_t clique;
+            clique.vertices[0] = vertex->id;
+            unsigned n_inserted = 1;
 
-        find_cliques(&clique, n_inserted, &local_cliques, &n_local_cliques,
-                verts, n_neighbors, ctx);
+            find_cliques(&clique, n_inserted, &local_cliques, &n_local_cliques,
+                    verts, n_neighbors, ctx);
+            n_local_nodes++;
+        } else {
+            assert(hvr_vertex_get_uint64(TYPE, vertex, ctx) == SUPERNODE_TYPE);
+            n_local_supernodes++;
+
+            if (n_neighbors < min_supernode_edges) {
+                min_supernode_edges = n_neighbors;
+            }
+            if (n_neighbors > max_supernode_edges) {
+                max_supernode_edges = n_neighbors;
+            }
+        }
     }
+    assert(n_local_supernodes == previous_n_cliques);
 
     /*
      * All cliques between (previous_n_cliques, n_local_cliques] are new. Need
@@ -379,7 +398,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         clique_t *new_clique = &local_cliques[i];
         hvr_vertex_t *new_supernode = hvr_vertex_create(ctx);
 
-        hvr_vertex_set(TYPE, SUPERNODE_TYPE, new_supernode, ctx);
+        hvr_vertex_set_uint64(TYPE, SUPERNODE_TYPE, new_supernode, ctx);
         for (unsigned j = 0; j < K; j++) {
             hvr_vertex_set_uint64(1 + j, new_clique->vertices[j], new_supernode,
                     ctx);
@@ -391,8 +410,10 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
     }
 
     if (n_local_cliques > 0) {
-        printf("PE %d has %d k-cliques on iter %d\n", ctx->pe,
-                n_local_cliques, ctx->iter);
+        printf("PE %d has %d k-cliques/supernodes, %u nodes on iter %d. Min / "
+                "max supernode edges = %u / %u\n", ctx->pe, n_local_cliques,
+                n_local_nodes, ctx->iter, min_supernode_edges,
+                max_supernode_edges);
     }
 }
 
