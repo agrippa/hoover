@@ -119,7 +119,7 @@ extern int hvr_vertex_equal(hvr_vertex_t *a, hvr_vertex_t *b, hvr_ctx_t in_ctx);
  */
 extern void hvr_vertex_trigger_update(hvr_vertex_t *vert, hvr_ctx_t in_ctx);
 
-static inline hvr_vertex_id_t hvr_vertex_get_id(hvr_vertex_t *vert) {
+static inline hvr_vertex_id_t hvr_vertex_get_id(const hvr_vertex_t *vert) {
     return vert->id;
 }
 

@@ -714,14 +714,14 @@ void might_interact(const hvr_partition_t partition,
         partitions_by_dim[1];
     hvr_partition_t feat3_partition = partition % partitions_by_dim[2];
 
-    unsigned feat1_min = feat1_partition * partitions_size[0];
-    unsigned feat1_max = (feat1_partition + 1) * partitions_size[0];
+    int64_t feat1_min = feat1_partition * partitions_size[0];
+    int64_t feat1_max = (feat1_partition + 1) * partitions_size[0];
 
-    unsigned feat2_min = feat2_partition * partitions_size[1];
-    unsigned feat2_max = (feat2_partition + 1) * partitions_size[1];
+    int64_t feat2_min = feat2_partition * partitions_size[1];
+    int64_t feat2_max = (feat2_partition + 1) * partitions_size[1];
 
-    unsigned feat3_min = feat3_partition * partitions_size[2];
-    unsigned feat3_max = (feat3_partition + 1) * partitions_size[2];
+    int64_t feat3_min = feat3_partition * partitions_size[2];
+    int64_t feat3_max = (feat3_partition + 1) * partitions_size[2];
 
     feat1_min -= distance_threshold;
     feat1_max += distance_threshold;

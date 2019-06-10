@@ -213,6 +213,10 @@ hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
         hvr_ctx_t ctx) {
     if (hvr_vertex_get_uint64(TYPE, a, ctx) == NODE_TYPE &&
             hvr_vertex_get_uint64(TYPE, b, ctx) == NODE_TYPE) {
+        if (hvr_vertex_get_id(a) == hvr_vertex_get_id(b)) {
+            return NO_EDGE;
+        }
+
         const double delta0 = hvr_vertex_get(ATTR0, b, ctx) -
             hvr_vertex_get(ATTR0, a, ctx);
         const double delta1 = hvr_vertex_get(ATTR1, b, ctx) -
@@ -223,15 +227,6 @@ hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
                 distance_threshold * distance_threshold) {
             return BIDIRECTIONAL;
         }
-        return NO_EDGE;
-    } else if (hvr_vertex_get_uint64(TYPE, a, ctx) == SUPERNODE_TYPE &&
-            hvr_vertex_get_uint64(TYPE, b, ctx) == SUPERNODE_TYPE) {
-        int count_overlapping = supernodes_overlapping(a, b, ctx);
-
-        if (count_overlapping >= K - 1) {
-            return BIDIRECTIONAL;
-        }
-
         return NO_EDGE;
     } else {
         abort();
@@ -274,7 +269,10 @@ static void find_cliques(clique_t *clique, unsigned n_inserted,
         clique_t **cliques, unsigned *ncliques, hvr_vertex_t **candidates,
         unsigned ncandidates, hvr_ctx_t ctx) {
     if (n_inserted == K) {
-        // If we get here, we have a clique
+        /*
+         * If we get here, we have a clique. Cross-PE cliques will be
+         * represented on both PEs.
+         */
         unsigned current_n = *ncliques;
         if (!list_of_clique_contains(clique, *cliques, current_n)) {
             *cliques = (clique_t *)realloc(*cliques,
@@ -325,8 +323,13 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
      * features which are designed to be most likely to just interact with
      * vertices on this node (but possibly with vertices on other nodes).
      */
-    const unsigned n_vertices_to_add = min_n_vertices_to_add +
-        (fast_rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
+    unsigned n_vertices_to_add;
+    if (min_n_vertices_to_add == max_n_vertices_to_add) {
+        n_vertices_to_add = min_n_vertices_to_add;
+    } else {
+        n_vertices_to_add = min_n_vertices_to_add +
+            (fast_rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
+    }
 
     n_local_vertices += n_vertices_to_add;
 
@@ -483,14 +486,14 @@ void might_interact(const hvr_partition_t partition,
         partitions_by_dim[1];
     hvr_partition_t feat3_partition = partition % partitions_by_dim[2];
 
-    unsigned feat1_min = feat1_partition * partitions_size[0];
-    unsigned feat1_max = (feat1_partition + 1) * partitions_size[0];
+    int64_t feat1_min = feat1_partition * partitions_size[0];
+    int64_t feat1_max = (feat1_partition + 1) * partitions_size[0];
 
-    unsigned feat2_min = feat2_partition * partitions_size[1];
-    unsigned feat2_max = (feat2_partition + 1) * partitions_size[1];
+    int64_t feat2_min = feat2_partition * partitions_size[1];
+    int64_t feat2_max = (feat2_partition + 1) * partitions_size[1];
 
-    unsigned feat3_min = feat3_partition * partitions_size[2];
-    unsigned feat3_max = (feat3_partition + 1) * partitions_size[2];
+    int64_t feat3_min = feat3_partition * partitions_size[2];
+    int64_t feat3_max = (feat3_partition + 1) * partitions_size[2];
 
     feat1_min -= distance_threshold;
     feat1_max += distance_threshold;
@@ -510,13 +513,13 @@ void might_interact(const hvr_partition_t partition,
     unsigned n_interacting_partitions = 0;
 
     for (unsigned other_feat1_partition = feat1_min / partitions_size[0];
-            other_feat1_partition < feat1_max / partitions_size[0];
+            other_feat1_partition <= feat1_max / partitions_size[0];
             other_feat1_partition++) {
         for (unsigned other_feat2_partition = feat2_min / partitions_size[1];
-                other_feat2_partition < feat2_max / partitions_size[1];
+                other_feat2_partition <= feat2_max / partitions_size[1];
                 other_feat2_partition++) {
             for (unsigned other_feat3_partition = feat3_min / partitions_size[2];
-                    other_feat3_partition < feat3_max / partitions_size[2];
+                    other_feat3_partition <= feat3_max / partitions_size[2];
                     other_feat3_partition++) {
 
                 unsigned this_part = other_feat1_partition *
@@ -550,12 +553,12 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
-    if (argc != 14) {
+    if (argc != 14 && argc != 13) {
         fprintf(stderr, "usage: %s <time-limit-in-seconds> "
                 "<distance-threshold> <domain-size-0> <domain-size-1> "
                 "<domain-size-2> <pe-dim-0> <pe-dim-1> <pe-dim-2> "
                 "<partition-dim-0> <partition-dim-1> <partition-dim-2>"
-                "<min-vertices-to-add> <max-vertices-to-add>\n",
+                "[<min-vertices-to-add> <max-vertices-to-add> | <test-file>]\n",
                 argv[0]);
         return 1;
     }
@@ -571,10 +574,18 @@ int main(int argc, char **argv) {
     partitions_by_dim[0] = atoi(argv[9]);
     partitions_by_dim[1] = atoi(argv[10]);
     partitions_by_dim[2] = atoi(argv[11]);
-    min_n_vertices_to_add = atoi(argv[12]);
-    max_n_vertices_to_add = atoi(argv[13]);
 
-    if (min_n_vertices_to_add >= max_n_vertices_to_add) {
+    char *test_filename = NULL;
+    if (argc == 13) {
+        test_filename = argv[12];
+        min_n_vertices_to_add = 0;
+        max_n_vertices_to_add = 0;
+    } else {
+        min_n_vertices_to_add = atoi(argv[12]);
+        max_n_vertices_to_add = atoi(argv[13]);
+    }
+
+    if (min_n_vertices_to_add > max_n_vertices_to_add) {
         fprintf(stderr, "Minimum # vertices to add must be less than the "
                 "maximum. Minimum = %u, maximum = %u.\n", min_n_vertices_to_add,
                 max_n_vertices_to_add);
@@ -632,6 +643,9 @@ int main(int argc, char **argv) {
     printf("PE %d responsible for (%u, %u, %u) -> (%u, %u, %u)\n", pe,
             min_point[0], min_point[1], min_point[2], max_point[0],
             max_point[1], max_point[2]);
+    fflush(stdout);
+
+    shmem_barrier_all();
 
     hvr_ctx_create(&hvr_ctx);
 
@@ -651,6 +665,60 @@ int main(int argc, char **argv) {
 
     shmem_barrier_all();
 
+    if (test_filename) {
+        FILE *fp = fopen(test_filename, "r");
+        if (!fp) {
+            fprintf(stderr, "Failed opening file \"%s\"\n", test_filename);
+            abort();
+        }
+
+        char *line = NULL;
+        size_t len = 0; // length of buffer, so strlen + 1
+        ssize_t read;
+        unsigned line_no = 0;
+        while ((read = getline(&line, &len, fp)) != -1) {
+            if (line_no % npes == pe) {
+                hvr_vertex_t *vert = hvr_vertex_create(hvr_ctx);
+                hvr_vertex_set_uint64(TYPE, NODE_TYPE, vert, hvr_ctx);
+                unsigned feat = 1;
+
+                unsigned start_index = 0;
+                unsigned end_index = 1;
+                while (line[end_index] != '\0' && line[end_index] != '\n') {
+                    if (line[end_index] == ',') {
+                        // Parse digit from start_index
+                        line[end_index] = '\0';
+                        hvr_vertex_set(feat++, atof(line + start_index), vert,
+                                hvr_ctx);
+                        start_index = end_index + 1;
+                        end_index = start_index;
+                    } else {
+                        end_index++;
+                    }
+                }
+
+                assert(start_index != end_index);
+                line[end_index] = '\0';
+                hvr_vertex_set(feat, atof(line + start_index), vert, hvr_ctx);
+                assert(feat == 3);
+
+                printf("PE %d creating vertex at (%f, %f, %f)\n",
+                        pe,
+                        hvr_vertex_get(1, vert, hvr_ctx),
+                        hvr_vertex_get(2, vert, hvr_ctx),
+                        hvr_vertex_get(3, vert, hvr_ctx));
+
+                n_local_vertices++;
+            }
+            line_no++;
+        }
+
+        if (line) free(line);
+
+        fclose(fp);
+        shmem_barrier_all();
+    }
+
     start_time = hvr_current_time_us();
     hvr_exec_info info = hvr_body(hvr_ctx);
     elapsed_time = hvr_current_time_us() - start_time;
@@ -663,6 +731,40 @@ int main(int argc, char **argv) {
     // Get a max wallclock time across all PEs
     shmem_longlong_max_to_all(&max_elapsed, &elapsed_time, 1, 0, 0, npes, p_wrk,
             p_sync);
+    shmem_barrier_all();
+
+    hvr_vertex_iter_t iter;
+    hvr_vertex_iter_init(&iter, hvr_ctx);
+    unsigned n_local_nodes = 0;
+    unsigned n_local_supernodes = 0;
+    unsigned min_node_edges = UINT_MAX;
+    unsigned max_node_edges = 0;
+    for (hvr_vertex_t *vertex = hvr_vertex_iter_next(&iter); vertex;
+            vertex = hvr_vertex_iter_next(&iter)) {
+        hvr_vertex_t **neighbors;
+        hvr_edge_type_t *neighbor_dirs;
+        int n_neighbors = hvr_get_neighbors(vertex, &neighbors,
+                &neighbor_dirs, hvr_ctx);
+
+        if (hvr_vertex_get_uint64(TYPE, vertex, hvr_ctx) == NODE_TYPE) {
+            min_node_edges = (n_neighbors < min_node_edges ?
+                    n_neighbors : min_node_edges);
+            max_node_edges = (n_neighbors > max_node_edges ?
+                    n_neighbors : max_node_edges);
+            n_local_nodes++;
+        } else {
+            n_local_supernodes++;
+        }
+    }
+
+    fflush(stdout);
+    shmem_barrier_all();
+
+    printf("PE %d, %u nodes, %u supernodes. min, max node edges = %u, %u\n", pe,
+            n_local_nodes,
+            n_local_supernodes, min_node_edges, max_node_edges);
+    fflush(stdout);
+
     shmem_barrier_all();
 
     if (pe == 0) {
