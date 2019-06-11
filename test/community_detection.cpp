@@ -30,6 +30,8 @@
  * overlapping communities.
  */
 
+#define K 4
+
 // #define VERBOSE
 
 #define TYPE 0
@@ -37,6 +39,8 @@
 #define ATTR1 2
 #define ATTR2 3
 #define VERT_ID 4
+#define SUPERNODE_ID (K + 1)
+#define SUPERNODE_LBL (K + 2)
 
 typedef enum {
     NODE_TYPE = 0,
@@ -49,22 +53,6 @@ typedef enum {
 
 #define MAX(a, b) (((a) > (b)) ? a : b)
 #define MIN(a, b) (((a) < (b)) ? a : b)
-
-// Maximum # of vertices allowed in a subgraph
-#define MAX_SUBGRAPH_VERTICES 5
-
-// Number of patterns to share with other PEs
-#define N_PATTERNS_SHARED 5
-
-#define N_PATTERNS_TO_CONSIDER 6
-
-/*
- * Maximum distance between two patterns for them to be considered anomalous
- * relative to each other. Must be >= 1.
- */
-#define MAX_DISTANCE_FOR_ANOMALY 1
-
-#define K 4
 
 typedef struct _clique_t {
     hvr_vertex_id_t vertices[K];
@@ -419,7 +407,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                     ctx);
             supernode_id += new_clique->vertices[j];
         }
-        hvr_vertex_set_uint64(K + 1, supernode_id, new_supernode, ctx);
+        hvr_vertex_set_uint64(SUPERNODE_ID, supernode_id, new_supernode, ctx);
+        hvr_vertex_set_uint64(SUPERNODE_LBL, hvr_vertex_get_id(new_supernode),
+                new_supernode, ctx);
 
         for (unsigned j = 0; j < K; j++) {
             hvr_send_msg(new_clique->vertices[j], new_supernode, ctx);
@@ -472,7 +462,8 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         int have_msg = hvr_poll_msg(vertex, &clique, ctx);
         while (have_msg) {
             // New potential neighbor supernode
-            int count_overlapping = supernodes_overlapping(vertex, &clique, ctx);
+            int count_overlapping = supernodes_overlapping(vertex, &clique,
+                    ctx);
             if (count_overlapping >= K - 1) {
                 hvr_create_edge_with_vertex(vertex, &clique, BIDIRECTIONAL,
                         ctx);
@@ -481,6 +472,28 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
 
             have_msg = hvr_poll_msg(vertex, &clique, ctx);
         }
+
+        // Find connected components in supernode graph via label propagation
+        hvr_vertex_t **neighbors;
+        hvr_edge_type_t *neighbor_dirs;
+        int n_neighbors = hvr_get_neighbors(vertex, &neighbors,
+                &neighbor_dirs, ctx);
+
+        uint64_t min_supernode_lbl = hvr_vertex_get_uint64(SUPERNODE_LBL, vertex,
+                ctx);
+        for (int i = 0; i < n_neighbors; i++) {
+            uint64_t neighbor_lbl = hvr_vertex_get_uint64(SUPERNODE_LBL,
+                    neighbors[i], ctx);
+            if (neighbor_lbl < min_supernode_lbl) {
+                min_supernode_lbl = neighbor_lbl;
+            }
+        }
+
+        hvr_vertex_set_uint64(SUPERNODE_LBL, min_supernode_lbl, vertex,
+                ctx);
+
+        hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors,
+                ctx);
     }
 }
 
@@ -759,6 +772,10 @@ int main(int argc, char **argv) {
     unsigned max_supernode_edges = 0;
     for (int p = 0; p < npes; p++) {
         if (p == pe) {
+            FILE *dump_file = (pe == 0 ? fopen("supernodes.txt", "w") :
+                    fopen("supernodes.txt", "a"));
+            assert(dump_file);
+
             for (hvr_vertex_t *vertex = hvr_vertex_iter_next(&iter); vertex;
                     vertex = hvr_vertex_iter_next(&iter)) {
                 hvr_vertex_t **neighbors;
@@ -788,20 +805,31 @@ int main(int argc, char **argv) {
                             n_neighbors : max_supernode_edges);
                     if (test_filename) {
                         printf("Supernode %lu, %d neighbors, children",
-                                hvr_vertex_get_uint64(K + 1, vertex, hvr_ctx),
-                                n_neighbors);
+                                hvr_vertex_get_uint64(SUPERNODE_ID, vertex,
+                                    hvr_ctx), n_neighbors);
                         for (int i = 0; i < K; i++) {
                             printf(" %lu", hvr_vertex_get_uint64(1 + i, vertex,
                                         hvr_ctx));
                         }
                         printf("\n");
                     }
+
+                    fprintf(dump_file, "Supernode %lu : community %lu :",
+                            hvr_vertex_get_uint64(SUPERNODE_ID, vertex, hvr_ctx),
+                            hvr_vertex_get_uint64(SUPERNODE_LBL, vertex, hvr_ctx));
+                    for (int i = 0; i < K; i++) {
+                        fprintf(dump_file, " %lu", hvr_vertex_get_uint64(1 + i,
+                                    vertex, hvr_ctx));
+                    }
+                    fprintf(dump_file, "\n");
+
                     n_local_supernodes++;
                 }
 
                 hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors,
                         hvr_ctx);
             }
+            fclose(dump_file);
         }
 
         fflush(stdout);
