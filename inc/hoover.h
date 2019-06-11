@@ -358,6 +358,10 @@ typedef struct _hvr_internal_ctx_t {
     size_t max_active_partitions;
 
     int any_needs_processing;
+
+    mspace edge_list_allocator;
+    void *edge_list_pool;
+    size_t edge_list_pool_size;
 } hvr_internal_ctx_t;
 
 /*
@@ -404,6 +408,9 @@ extern unsigned long long hvr_current_time_us();
 
 extern int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
         hvr_edge_type_t **out_dirs, hvr_ctx_t in_ctx);
+
+extern void hvr_release_neighbors(hvr_vertex_t **out_verts,
+        hvr_edge_type_t *out_dirs, int n_neighbors, hvr_ctx_t in_ctx);
 
 extern void hvr_create_edge_with_vertex_id(hvr_vertex_t *base,
         hvr_vertex_id_t neighbor, hvr_edge_type_t edge, hvr_ctx_t in_ctx);

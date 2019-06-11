@@ -36,6 +36,7 @@
 #define ATTR0 1
 #define ATTR1 2
 #define ATTR2 3
+#define VERT_ID 4
 
 typedef enum {
     NODE_TYPE = 0,
@@ -149,9 +150,14 @@ inline void fast_srand(int seed) {
 
 // Compute a pseudorandom integer.
 // Output value in range [0, 32767]
-inline int fast_rand(void) {
+inline uint64_t fast_rand(void) {
     g_seed = (214013*g_seed+2531011);
-    return (g_seed>>16)&0x7FFF;
+    int lower = (g_seed>>16)&0x7FFF;
+
+    g_seed = (214013*g_seed+2531011);
+    int upper = (g_seed>>16)&0x7FFF;
+
+    return (((uint64_t)upper) << 32) + lower;
 }
 
 static void rand_point(unsigned *f0, unsigned *f1, unsigned *f2) {
@@ -295,12 +301,15 @@ static void find_cliques(clique_t *clique, unsigned n_inserted,
             int edges_with_all = 1;
             for (unsigned j = 0; j < n_inserted; j++) {
                 hvr_vertex_id_t to_find = clique->vertices[j];
-                int has_edge_with = neighbors_contains(to_find, neighbors, n_neighbors);
+                int has_edge_with = neighbors_contains(to_find, neighbors,
+                        n_neighbors);
                 if (!has_edge_with) {
                     edges_with_all = 0;
                     break;
                 }
             }
+
+            hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors, ctx);
 
             if (edges_with_all) {
                 clique->vertices[n_inserted] = id;
@@ -350,6 +359,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         hvr_vertex_set(ATTR0, feat1, new_vertex, ctx);
         hvr_vertex_set(ATTR1, feat2, new_vertex, ctx);
         hvr_vertex_set(ATTR2, feat3, new_vertex, ctx);
+        hvr_vertex_set(VERT_ID, fast_rand(), new_vertex, ctx);
     }
 
     const unsigned long long start_search = hvr_current_time_us();
@@ -388,6 +398,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 max_supernode_edges = n_neighbors;
             }
         }
+        hvr_release_neighbors(verts, dirs, n_neighbors, ctx);
     }
     assert(n_local_supernodes == previous_n_cliques);
 
@@ -401,23 +412,28 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         clique_t *new_clique = &local_cliques[i];
         hvr_vertex_t *new_supernode = hvr_vertex_create(ctx);
 
+        uint64_t supernode_id = 0;
         hvr_vertex_set_uint64(TYPE, SUPERNODE_TYPE, new_supernode, ctx);
         for (unsigned j = 0; j < K; j++) {
             hvr_vertex_set_uint64(1 + j, new_clique->vertices[j], new_supernode,
                     ctx);
+            supernode_id += new_clique->vertices[j];
         }
+        hvr_vertex_set_uint64(K + 1, supernode_id, new_supernode, ctx);
 
         for (unsigned j = 0; j < K; j++) {
             hvr_send_msg(new_clique->vertices[j], new_supernode, ctx);
         }
     }
 
+#if 0
     if (n_local_cliques > 0) {
         printf("PE %d has %d k-cliques/supernodes, %u nodes on iter %d. Min / "
                 "max supernode edges = %u / %u\n", ctx->pe, n_local_cliques,
                 n_local_nodes, ctx->iter, min_supernode_edges,
                 max_supernode_edges);
     }
+#endif
 }
 
 void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
@@ -700,10 +716,11 @@ int main(int argc, char **argv) {
                 assert(start_index != end_index);
                 line[end_index] = '\0';
                 hvr_vertex_set(feat, atof(line + start_index), vert, hvr_ctx);
-                assert(feat == 3);
+                assert(feat == 4);
 
-                printf("PE %d creating vertex at (%f, %f, %f)\n",
+                printf("PE %d creating vertex %f at (%f, %f, %f)\n",
                         pe,
+                        hvr_vertex_get(4, vert, hvr_ctx),
                         hvr_vertex_get(1, vert, hvr_ctx),
                         hvr_vertex_get(2, vert, hvr_ctx),
                         hvr_vertex_get(3, vert, hvr_ctx));
@@ -739,22 +756,46 @@ int main(int argc, char **argv) {
     unsigned n_local_supernodes = 0;
     unsigned min_node_edges = UINT_MAX;
     unsigned max_node_edges = 0;
-    for (hvr_vertex_t *vertex = hvr_vertex_iter_next(&iter); vertex;
-            vertex = hvr_vertex_iter_next(&iter)) {
-        hvr_vertex_t **neighbors;
-        hvr_edge_type_t *neighbor_dirs;
-        int n_neighbors = hvr_get_neighbors(vertex, &neighbors,
-                &neighbor_dirs, hvr_ctx);
+    for (int p = 0; p < npes; p++) {
+        if (p == pe) {
+            for (hvr_vertex_t *vertex = hvr_vertex_iter_next(&iter); vertex;
+                    vertex = hvr_vertex_iter_next(&iter)) {
+                hvr_vertex_t **neighbors;
+                hvr_edge_type_t *neighbor_dirs;
+                int n_neighbors = hvr_get_neighbors(vertex, &neighbors,
+                        &neighbor_dirs, hvr_ctx);
 
-        if (hvr_vertex_get_uint64(TYPE, vertex, hvr_ctx) == NODE_TYPE) {
-            min_node_edges = (n_neighbors < min_node_edges ?
-                    n_neighbors : min_node_edges);
-            max_node_edges = (n_neighbors > max_node_edges ?
-                    n_neighbors : max_node_edges);
-            n_local_nodes++;
-        } else {
-            n_local_supernodes++;
+                if (hvr_vertex_get_uint64(TYPE, vertex, hvr_ctx) == NODE_TYPE) {
+                    min_node_edges = (n_neighbors < min_node_edges ?
+                            n_neighbors : min_node_edges);
+                    max_node_edges = (n_neighbors > max_node_edges ?
+                            n_neighbors : max_node_edges);
+                    printf("Vertex %f, neighbors",
+                            hvr_vertex_get(VERT_ID, vertex, hvr_ctx));
+                    for (int i = 0; i < n_neighbors; i++) {
+                        printf(" %f", hvr_vertex_get(VERT_ID, neighbors[i],
+                                    hvr_ctx));
+                    }
+                    printf("\n");
+                    n_local_nodes++;
+                } else {
+                    printf("Supernode %lu, children",
+                            hvr_vertex_get_uint64(K + 1, vertex, hvr_ctx));
+                    for (int i = 0; i < K; i++) {
+                        printf(" %lu",
+                                hvr_vertex_get_uint64(1 + i, vertex, hvr_ctx));
+                    }
+                    printf("\n");
+                    n_local_supernodes++;
+                }
+
+                hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors,
+                        hvr_ctx);
+            }
         }
+
+        fflush(stdout);
+        shmem_barrier_all();
     }
 
     fflush(stdout);

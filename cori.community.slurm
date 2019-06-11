@@ -123,6 +123,9 @@ cd $SCRATCH
 mkdir -p job.$SLURM_JOB_ID
 cd job.$SLURM_JOB_ID
 
+export TEST_FILE=$HOME/hoover/community_test_cases/4_vert_1_cliq.csv
+export TEST_FILE=$HOME/hoover/community_test_cases/8_vert_2_cliq.csv
+
 srun $SLURM_ARGS \
     $HOME/hoover/bin/$EXE \
     $TIME_LIMIT_IN_SECONDS \
@@ -130,6 +133,6 @@ srun $SLURM_ARGS \
     $DOMAIN_SIZE \
     $PE_CHUNKS \
     $PARTITIONS \
-    $HOME/hoover/community_test_cases/4_vert_1_cliq.csv
+    $TEST_FILE
     # $MIN_N_VERTICES_TO_ADD $MAX_N_VERTICES_TO_ADD
 

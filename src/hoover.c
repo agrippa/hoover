@@ -1295,6 +1295,16 @@ void hvr_init(const hvr_partition_t n_partitions,
     new_ctx->n_prev_subscriber_partitions = 0;
     new_ctx->any_needs_processing = 1;
 
+    new_ctx->edge_list_pool_size = 128 * 1024;
+    if (getenv("HVR_EDGE_LIST_POOL_SIZE")) {
+        new_ctx->edge_list_pool_size = atoi(getenv("HVR_EDGE_LIST_POOL_SIZE"));
+    }
+    new_ctx->edge_list_pool = malloc(new_ctx->edge_list_pool_size);
+    assert(new_ctx->edge_list_pool);
+    new_ctx->edge_list_allocator = create_mspace_with_base(
+            new_ctx->edge_list_pool, new_ctx->edge_list_pool_size, 0);
+    assert(new_ctx->edge_list_allocator);
+
     // Print the number of bytes allocated
 #ifdef DETAILED_PRINTS
     shmem_malloc_wrapper(0);
@@ -1864,16 +1874,34 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
             CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
             &edge_buffer, &ctx->edges);
 
+    void *tmp_buf = mspace_malloc(ctx->edge_list_allocator,
+            n_neighbors * (sizeof(hvr_vertex_t *) + sizeof(hvr_edge_type_t)));
+    if (!tmp_buf) {
+        fprintf(stderr, "Ran out of edge pool space, consider increasing "
+                "HVR_EDGE_LIST_POOL_SIZE (%lu)\n", ctx->edge_list_pool_size);
+        exit(1);
+    }
+    hvr_vertex_t **tmp_vert_ptr_buffer = (hvr_vertex_t **)tmp_buf;
+    hvr_edge_type_t *tmp_dir_buffer = (hvr_edge_type_t *)(tmp_vert_ptr_buffer +
+            n_neighbors);
+
     for (size_t n = 0; n < n_neighbors; n++) {
         hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
                 EDGE_INFO_VERTEX(edge_buffer[n]), &ctx->vec_cache);
-        ctx->vert_ptr_buffer[n] = &cached_neighbor->vert;
-        ctx->dir_buffer[n] = EDGE_INFO_EDGE(edge_buffer[n]);
+        tmp_vert_ptr_buffer[n] = &cached_neighbor->vert;
+        tmp_dir_buffer[n] = EDGE_INFO_EDGE(edge_buffer[n]);
     }
         
-    *out_verts = ctx->vert_ptr_buffer;
-    *out_dirs = ctx->dir_buffer;
+    *out_verts = tmp_vert_ptr_buffer;
+    *out_dirs = tmp_dir_buffer;
     return n_neighbors;
+}
+
+void hvr_release_neighbors(hvr_vertex_t **out_verts, hvr_edge_type_t *out_dirs,
+        int n_neighbors, hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    assert((hvr_vertex_t **)out_dirs == out_verts + n_neighbors);
+    mspace_free(ctx->edge_list_allocator, out_verts);
 }
 
 static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t v,
