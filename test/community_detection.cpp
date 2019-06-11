@@ -472,12 +472,11 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         int have_msg = hvr_poll_msg(vertex, &clique, ctx);
         while (have_msg) {
             // New potential neighbor supernode
-            int count_overlapping = supernodes_overlapping(vertex, &clique,
-                    ctx);
-
+            int count_overlapping = supernodes_overlapping(vertex, &clique, ctx);
             if (count_overlapping >= K - 1) {
                 hvr_create_edge_with_vertex(vertex, &clique, BIDIRECTIONAL,
                         ctx);
+                hvr_set_insert(hvr_vertex_get_owning_pe(&clique), couple_with);
             }
 
             have_msg = hvr_poll_msg(vertex, &clique, ctx);
@@ -813,9 +812,10 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     printf("PE %d, %u nodes, %u supernodes. min, max node edges = %u, %u. min, "
-            "max supernode edges = %u, %u\n", pe,
+            "max supernode edges = %u, %u. Coupled to %lu PEs.\n", pe,
             n_local_nodes, n_local_supernodes, min_node_edges, max_node_edges,
-            min_supernode_edges, max_supernode_edges);
+            min_supernode_edges, max_supernode_edges,
+            hvr_set_count(hvr_ctx->coupled_pes));
     fflush(stdout);
 
     shmem_barrier_all();
