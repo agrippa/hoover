@@ -1299,7 +1299,7 @@ void hvr_init(const hvr_partition_t n_partitions,
     if (getenv("HVR_EDGE_LIST_POOL_SIZE")) {
         new_ctx->edge_list_pool_size = atoi(getenv("HVR_EDGE_LIST_POOL_SIZE"));
     }
-    new_ctx->edge_list_pool = malloc(new_ctx->edge_list_pool_size);
+    new_ctx->edge_list_pool = malloc_helper(new_ctx->edge_list_pool_size);
     assert(new_ctx->edge_list_pool);
     new_ctx->edge_list_allocator = create_mspace_with_base(
             new_ctx->edge_list_pool, new_ctx->edge_list_pool_size, 0);

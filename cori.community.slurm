@@ -102,7 +102,7 @@ if [[ $PE_PER_SOCKET -eq 1 ]]; then
     export MIN_N_VERTICES_TO_ADD=$(($MIN_N_VERTICES_TO_ADD * $CORES_PER_SOCKET))
     export MAX_N_VERTICES_TO_ADD=$(($MAX_N_VERTICES_TO_ADD * $CORES_PER_SOCKET))
 fi
-export TIME_LIMIT_IN_SECONDS=60
+export TIME_LIMIT_IN_SECONDS=180
 export EDGE_DISTANCE=10
 export DOMAIN_SIZE="12000 12000 10000"
 
@@ -123,8 +123,9 @@ cd $SCRATCH
 mkdir -p job.$SLURM_JOB_ID
 cd job.$SLURM_JOB_ID
 
-export TEST_FILE=$HOME/hoover/community_test_cases/4_vert_1_cliq.csv
-export TEST_FILE=$HOME/hoover/community_test_cases/8_vert_2_cliq.csv
+# export TEST_FILE=$HOME/hoover/community_test_cases/4_vert_1_cliq.csv
+# export TEST_FILE=$HOME/hoover/community_test_cases/8_vert_2_cliq.csv
+export TEST_FILE=$HOME/hoover/community_test_cases/8_vert_2_cliq_overlapping.csv
 
 srun $SLURM_ARGS \
     $HOME/hoover/bin/$EXE \
@@ -133,6 +134,6 @@ srun $SLURM_ARGS \
     $DOMAIN_SIZE \
     $PE_CHUNKS \
     $PARTITIONS \
-    $TEST_FILE
-    # $MIN_N_VERTICES_TO_ADD $MAX_N_VERTICES_TO_ADD
+    $MIN_N_VERTICES_TO_ADD $MAX_N_VERTICES_TO_ADD
+    # $TEST_FILE
 

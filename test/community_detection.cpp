@@ -756,6 +756,8 @@ int main(int argc, char **argv) {
     unsigned n_local_supernodes = 0;
     unsigned min_node_edges = UINT_MAX;
     unsigned max_node_edges = 0;
+    unsigned min_supernode_edges = UINT_MAX;
+    unsigned max_supernode_edges = 0;
     for (int p = 0; p < npes; p++) {
         if (p == pe) {
             for (hvr_vertex_t *vertex = hvr_vertex_iter_next(&iter); vertex;
@@ -770,22 +772,31 @@ int main(int argc, char **argv) {
                             n_neighbors : min_node_edges);
                     max_node_edges = (n_neighbors > max_node_edges ?
                             n_neighbors : max_node_edges);
-                    printf("Vertex %f, neighbors",
-                            hvr_vertex_get(VERT_ID, vertex, hvr_ctx));
-                    for (int i = 0; i < n_neighbors; i++) {
-                        printf(" %f", hvr_vertex_get(VERT_ID, neighbors[i],
-                                    hvr_ctx));
+                    if (test_filename) {
+                        printf("Vertex %f, neighbors",
+                                hvr_vertex_get(VERT_ID, vertex, hvr_ctx));
+                        for (int i = 0; i < n_neighbors; i++) {
+                            printf(" %f", hvr_vertex_get(VERT_ID, neighbors[i],
+                                        hvr_ctx));
+                        }
+                        printf("\n");
                     }
-                    printf("\n");
                     n_local_nodes++;
                 } else {
-                    printf("Supernode %lu, children",
-                            hvr_vertex_get_uint64(K + 1, vertex, hvr_ctx));
-                    for (int i = 0; i < K; i++) {
-                        printf(" %lu",
-                                hvr_vertex_get_uint64(1 + i, vertex, hvr_ctx));
+                    min_supernode_edges = (n_neighbors < min_supernode_edges ?
+                            n_neighbors : min_supernode_edges);
+                    max_supernode_edges = (n_neighbors > max_supernode_edges ?
+                            n_neighbors : max_supernode_edges);
+                    if (test_filename) {
+                        printf("Supernode %lu, %d neighbors, children",
+                                hvr_vertex_get_uint64(K + 1, vertex, hvr_ctx),
+                                n_neighbors);
+                        for (int i = 0; i < K; i++) {
+                            printf(" %lu", hvr_vertex_get_uint64(1 + i, vertex,
+                                        hvr_ctx));
+                        }
+                        printf("\n");
                     }
-                    printf("\n");
                     n_local_supernodes++;
                 }
 
@@ -801,9 +812,10 @@ int main(int argc, char **argv) {
     fflush(stdout);
     shmem_barrier_all();
 
-    printf("PE %d, %u nodes, %u supernodes. min, max node edges = %u, %u\n", pe,
-            n_local_nodes,
-            n_local_supernodes, min_node_edges, max_node_edges);
+    printf("PE %d, %u nodes, %u supernodes. min, max node edges = %u, %u. min, "
+            "max supernode edges = %u, %u\n", pe,
+            n_local_nodes, n_local_supernodes, min_node_edges, max_node_edges,
+            min_supernode_edges, max_supernode_edges);
     fflush(stdout);
 
     shmem_barrier_all();
