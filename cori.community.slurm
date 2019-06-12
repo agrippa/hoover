@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:05:00
+#SBATCH -t 00:10:00
 #SBATCH -J hoover-community
 #SBATCH --exclusive
 ###SBATCH --contiguous
@@ -102,8 +102,9 @@ if [[ $PE_PER_SOCKET -eq 1 ]]; then
     export MIN_N_VERTICES_TO_ADD=$(($MIN_N_VERTICES_TO_ADD * $CORES_PER_SOCKET))
     export MAX_N_VERTICES_TO_ADD=$(($MAX_N_VERTICES_TO_ADD * $CORES_PER_SOCKET))
 fi
-export TIME_LIMIT_IN_SECONDS=180
-export EDGE_DISTANCE=10
+
+export TIME_LIMIT_IN_SECONDS=300
+export EDGE_DISTANCE=15
 export DOMAIN_SIZE="12000 12000 10000"
 
 # export HVR_DISABLE_PROFILING_PRINTS=1
