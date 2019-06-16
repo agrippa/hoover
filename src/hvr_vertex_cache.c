@@ -93,36 +93,7 @@ void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *node,
     }
 }
 
-hvr_vertex_cache_node_t *hvr_vertex_cache_reserve(hvr_vertex_cache_t *cache,
-        int pe, hvr_time_t iter) {
-    // Assume that vec is not already in the cache, but don't enforce this
-    hvr_vertex_cache_node_t *new_node = NULL;
-    if (cache->pool_head) {
-        // Look for an already free node
-        new_node = cache->pool_head;
-        cache->pool_head = new_node->local_neighbors_next;
-        if (cache->pool_head) {
-            cache->pool_head->local_neighbors_prev = NULL;
-        }
-    } else {
-        // No valid node found, print an error
-        fprintf(stderr, "ERROR: PE %d exhausted %u cache slots\n",
-                shmem_my_pe(), cache->pool_size);
-        abort();
-    }
-
-    memset(new_node, 0x00, sizeof(*new_node));
-    hvr_vertex_init(&new_node->vert,
-            construct_vertex_id(pe, new_node - cache->pool_mem), iter);
-
-    hvr_map_add(new_node->vert.id, new_node, 0, &cache->cache_map);
-
-    cache->n_local_vertices++;
-
-    return new_node;
-}
-
-hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
+static inline hvr_vertex_cache_node_t *allocate_node_from_pool(
         hvr_vertex_cache_t *cache) {
     if (!cache->pool_head) {
         // No valid node found, print an error
@@ -138,6 +109,30 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
     }
 
     memset(new_node, 0x00, sizeof(*new_node));
+    new_node->populated = 1;
+
+    return new_node;
+}
+
+hvr_vertex_cache_node_t *hvr_vertex_cache_reserve(hvr_vertex_cache_t *cache,
+        int pe, hvr_time_t iter) {
+    // Assume that vec is not already in the cache, but don't enforce this
+    hvr_vertex_cache_node_t *new_node = allocate_node_from_pool(cache);
+
+    hvr_vertex_init(&new_node->vert,
+            construct_vertex_id(pe, new_node - cache->pool_mem), iter);
+
+    hvr_map_add(new_node->vert.id, new_node, 0, &cache->cache_map);
+
+    cache->n_local_vertices++;
+
+    return new_node;
+}
+
+hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
+        hvr_vertex_cache_t *cache) {
+    hvr_vertex_cache_node_t *new_node = allocate_node_from_pool(cache);
+
     memcpy(&new_node->vert, vert, sizeof(*vert));
 
     hvr_map_add(vert->id, new_node, 0, &cache->cache_map);

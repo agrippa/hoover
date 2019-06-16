@@ -24,6 +24,7 @@ typedef struct _hvr_vertex_cache_node_t {
     // Contents of the vec itself
     hvr_vertex_t vert;
 
+    // Used to be able to create linked lists of cache nodes, when needed
     struct _hvr_vertex_cache_node_t *tmp;
 
     /*
@@ -39,6 +40,7 @@ typedef struct _hvr_vertex_cache_node_t {
     hvr_time_t dist_from_local_vert_iter;
 
     int flag;
+    int populated;
 } hvr_vertex_cache_node_t;
 
 /*

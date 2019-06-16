@@ -1573,6 +1573,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
              */
             memcpy(&updated->vert, new_vert,
                     offsetof(hvr_vertex_t, next_in_partition));
+            updated->populated = 1;
 
             if (new_partition != HVR_INVALID_PARTITION) {
                 update_partition_list_membership(&updated->vert, old_partition,
@@ -1869,13 +1870,30 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
         return 0;
     }
 
+    // Lookup edge information in ctx->edges
     hvr_edge_info_t *edge_buffer;
     unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
             CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
             &edge_buffer, &ctx->edges);
 
+    /*
+     * Figure out how many of these neighbors have populated vertex info. A
+     * cached vertex may not be populated in the case of a vertex subscription
+     * which we haven't received data for yet.
+     */
+    unsigned n_populated_neighbors = 0;
+    for (unsigned n = 0; n < n_neighbors; n++) {
+        hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
+                EDGE_INFO_VERTEX(edge_buffer[n]), &ctx->vec_cache);
+        if (cached_neighbor->populated) {
+            n_populated_neighbors++;
+        }
+    }
+
+    // Allocate buffer space to store the edges in before handing back to user
     void *tmp_buf = mspace_malloc(ctx->edge_list_allocator,
-            n_neighbors * (sizeof(hvr_vertex_t *) + sizeof(hvr_edge_type_t)));
+            n_populated_neighbors * (sizeof(hvr_vertex_t *) +
+                sizeof(hvr_edge_type_t)));
     if (!tmp_buf) {
         fprintf(stderr, "Ran out of edge pool space, consider increasing "
                 "HVR_EDGE_LIST_POOL_SIZE (%lu)\n", ctx->edge_list_pool_size);
@@ -1883,18 +1901,22 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
     }
     hvr_vertex_t **tmp_vert_ptr_buffer = (hvr_vertex_t **)tmp_buf;
     hvr_edge_type_t *tmp_dir_buffer = (hvr_edge_type_t *)(tmp_vert_ptr_buffer +
-            n_neighbors);
+            n_populated_neighbors);
 
-    for (size_t n = 0; n < n_neighbors; n++) {
+    n_populated_neighbors = 0;
+    for (unsigned n = 0; n < n_neighbors; n++) {
         hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
                 EDGE_INFO_VERTEX(edge_buffer[n]), &ctx->vec_cache);
-        tmp_vert_ptr_buffer[n] = &cached_neighbor->vert;
-        tmp_dir_buffer[n] = EDGE_INFO_EDGE(edge_buffer[n]);
+        if (cached_neighbor->populated) {
+            tmp_vert_ptr_buffer[n_populated_neighbors] = &cached_neighbor->vert;
+            tmp_dir_buffer[n_populated_neighbors++] =
+                EDGE_INFO_EDGE(edge_buffer[n]);
+        }
     }
         
     *out_verts = tmp_vert_ptr_buffer;
     *out_dirs = tmp_dir_buffer;
-    return n_neighbors;
+    return n_populated_neighbors;
 }
 
 void hvr_release_neighbors(hvr_vertex_t **out_verts, hvr_edge_type_t *out_dirs,
@@ -1904,21 +1926,22 @@ void hvr_release_neighbors(hvr_vertex_t **out_verts, hvr_edge_type_t *out_dirs,
     mspace_free(ctx->edge_list_allocator, out_verts);
 }
 
-static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t v,
+static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t vid,
         hvr_vertex_t *optional_body, hvr_internal_ctx_t *ctx) {
     /*
      * Reserve a cache slot for this remote vertex, pre-populate it with the
      * state passed to hvr_create_edge, notify that PE that we'll need
      * updates from it on this vertex, and then return.
      */
-    int owning_pe = VERTEX_ID_PE(v);
+    int owning_pe = VERTEX_ID_PE(vid);
 
-    hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(v,
+    hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(vid,
             &ctx->vec_cache);
     if (!cached) {
         hvr_vertex_t dummy;
-        hvr_vertex_init(&dummy, v, ctx->iter);
+        hvr_vertex_init(&dummy, vid, ctx->iter);
         cached = hvr_vertex_cache_add(&dummy, &ctx->vec_cache);
+        cached->populated = 0;
     }
 
     if (optional_body) {
@@ -1927,27 +1950,30 @@ static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t v,
          * pre-populate with.
          */
         memcpy(&cached->vert, optional_body, sizeof(*optional_body));
+        cached->populated = 1;
     }
 
     if (owning_pe != ctx->pe) {
         if (hvr_set_contains(owning_pe, ctx->all_terminated_pes)) {
             // Already terminated, just pull this vertex's latest value.
             hvr_vertex_t local;
-            shmem_getmem(&local, ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(v),
+            shmem_getmem(&local,
+                    ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(vid),
                     sizeof(local), owning_pe);
             memcpy(&cached->vert, optional_body, sizeof(*optional_body));
+            cached->populated = 1;
         } else {
             // Notify owning PE that we are subscribed to this vertex
             hvr_vertex_subscription_t msg;
             msg.pe = ctx->pe;
-            msg.vert = v;
+            msg.vert = vid;
             msg.entered = 1;
             hvr_mailbox_send(&msg, sizeof(msg), owning_pe, -1,
                     &ctx->vert_sub_mailbox, 0);
         }
     }
 
-    hvr_sparse_arr_insert(owning_pe, VERTEX_ID_OFFSET(v), &ctx->my_vert_subs);
+    hvr_sparse_arr_insert(owning_pe, VERTEX_ID_OFFSET(vid), &ctx->my_vert_subs);
 
     return cached;
 }
@@ -1976,10 +2002,10 @@ static void hvr_create_edge_helper(hvr_vertex_t *local,
         hvr_vertex_id_t neighbor, hvr_vertex_t *optional_neighbor_body,
         hvr_edge_type_t edge, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    hvr_vertex_id_t id = local->id;
+    hvr_vertex_id_t local_id = local->id;
 
     // Assert that at least one of these vertices is locally owned
-    assert(VERTEX_ID_PE(id) == ctx->pe);
+    assert(VERTEX_ID_PE(local_id) == ctx->pe);
 
     /*
      * Assert that both vertices are not in a valid partition, so that they do
@@ -1987,14 +2013,14 @@ static void hvr_create_edge_helper(hvr_vertex_t *local,
      */
     assert(local->curr_part == HVR_INVALID_PARTITION);
 
-    hvr_vertex_cache_node_t *cached_local = hvr_vertex_cache_lookup(local->id,
+    hvr_vertex_cache_node_t *cached_local = hvr_vertex_cache_lookup(local_id,
             &ctx->vec_cache);
     hvr_vertex_cache_node_t *cached_neighbor = set_up_vertex_subscription(
             neighbor, optional_neighbor_body, ctx);
     assert(cached_local && cached_neighbor);
 
     // Create explicit edge
-    update_edge_info(local->id, neighbor, cached_local, cached_neighbor, edge,
+    update_edge_info(local_id, neighbor, cached_local, cached_neighbor, edge,
             NULL, EXPLICIT_EDGE, ctx);
 
     if (VERTEX_ID_PE(neighbor) != ctx->pe) {
@@ -2395,6 +2421,7 @@ static int wait_for_coupling_ack(hvr_msg_buf_node_t *msg_buf_node,
                             id, &ctx->vec_cache);
                     assert(cached);
                     memcpy(&cached->vert, &local, sizeof(local));
+                    cached->populated = 1;
                 }
             } else if (msg_len == sizeof(new_coupling_msg_ack_t)) {
                 got_ack = 1;
