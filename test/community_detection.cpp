@@ -568,16 +568,6 @@ void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     hvr_vertex_set(0, 0.0, out_coupled_metric, ctx);
 }
 
-int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_vertex_t *local_coupled_val,
-        hvr_vertex_t *all_coupled_vals,
-        hvr_vertex_t *global_coupled_val,
-        hvr_set_t *coupled_pes, int n_coupled_pes,
-        int *updates_on_this_iter,
-        hvr_set_t *terminated_coupled_pes) {
-    return 0;
-}
-
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
@@ -686,7 +676,7 @@ int main(int argc, char **argv) {
             actor_to_partition,
             start_time_step,
             should_have_edge,
-            should_terminate,
+            NULL, // should_terminate
             time_limit_s,
             1,
             hvr_ctx);

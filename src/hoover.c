@@ -2811,13 +2811,17 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
 
     int should_abort = 1;
     if (!terminating) {
-        hvr_vertex_iter_all_init(&iter, ctx);
-        should_abort = ctx->should_terminate(&iter, ctx,
-                ctx->coupled_pes_values + ctx->pe, // Local coupled metric
-                ctx->coupled_pes_values, // Coupled values for each PE
-                coupled_metric, // Global coupled metric (sum reduction)
-                ctx->coupled_pes, ncoupled, ctx->updates_on_this_iter,
-                ctx->all_terminated_cluster_pes);
+        if (ctx->should_terminate) {
+            hvr_vertex_iter_all_init(&iter, ctx);
+            should_abort = ctx->should_terminate(&iter, ctx,
+                    ctx->coupled_pes_values + ctx->pe, // Local coupled metric
+                    ctx->coupled_pes_values, // Coupled values for each PE
+                    coupled_metric, // Global coupled metric (sum reduction)
+                    ctx->coupled_pes, ncoupled, ctx->updates_on_this_iter,
+                    ctx->all_terminated_cluster_pes);
+        } else {
+            should_abort = 0;
+        }
     }
 
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
@@ -3502,7 +3506,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         }
     }
 
-    should_abort = update_coupled_values(ctx, &coupled_metric,
+    update_coupled_values(ctx, &coupled_metric,
             0, &coupling_coupling,
             &coupling_waiting, &coupling_after,
             &coupling_should_terminate, &coupling_naborts,
