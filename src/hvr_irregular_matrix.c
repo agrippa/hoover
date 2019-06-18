@@ -56,18 +56,21 @@ void hvr_irr_matrix_resize(hvr_vertex_id_t i, unsigned new_capacity,
 }
 
 void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
-        hvr_edge_create_type_t create_type, hvr_irr_matrix_t *m) {
+        hvr_edge_create_type_t create_type, hvr_irr_matrix_t *m,
+        int known_no_edge) {
     const uint16_t curr_len = m->edges_len[i];
     const uint16_t curr_capacity = m->edges_capacity[i];
     hvr_edge_info_t *curr_edges = m->edges[i];
 
     int found = -1;
-    for (unsigned iter = 0; iter < curr_len; iter++) {
-        hvr_edge_info_t e = curr_edges[iter];
-        hvr_vertex_id_t neighbor = EDGE_INFO_VERTEX(e);
-        if (neighbor == j) {
-            found = iter;
-            break;
+    if (!known_no_edge) {
+        for (unsigned iter = 0; iter < curr_len; iter++) {
+            hvr_edge_info_t e = curr_edges[iter];
+            hvr_vertex_id_t neighbor = EDGE_INFO_VERTEX(e);
+            if (neighbor == j) {
+                found = iter;
+                break;
+            }
         }
     }
 
@@ -98,7 +101,12 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
 
             m->edges[i] = mspace_realloc(m->allocator, curr_edges,
                     new_capacity * sizeof(*curr_edges));
-            assert(m->edges[i]);
+            if (!m->edges[i]) {
+                fprintf(stderr, "ERROR exhausted edge memory pool (%llu "
+                        "edges). Increase HVR_EDGES_POOL_SIZE.\n",
+                        m->nvertices);
+                abort();
+            }
             m->edges_capacity[i] = new_capacity;
         }
 

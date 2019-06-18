@@ -422,6 +422,7 @@ extern void hvr_create_edge_with_vertex(hvr_vertex_t *base,
 extern void hvr_send_msg(hvr_vertex_id_t dst, hvr_vertex_t *msg,
         hvr_internal_ctx_t *ctx);
 
+// Messages are returned in the opposite of the order in which they are received
 extern int hvr_poll_msg(hvr_vertex_t *vert,
         hvr_vertex_t *out, hvr_internal_ctx_t *ctx);
 

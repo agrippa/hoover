@@ -348,18 +348,18 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
     if (existing_edge == NO_EDGE) {
         // new edge != NO_EDGE (creating a completely new edge)
         hvr_irr_matrix_set(base_offset, neighbor_offset, new_edge,
-                creation_type, &ctx->edges);
+                creation_type, &ctx->edges, 1);
         hvr_irr_matrix_set(neighbor_offset, base_offset,
-                flip_edge_direction(new_edge), creation_type, &ctx->edges);
+                flip_edge_direction(new_edge), creation_type, &ctx->edges, 1);
 
         base->n_local_neighbors += neighbor_is_local;
         neighbor->n_local_neighbors += base_is_local;
     } else if (new_edge == NO_EDGE) {
         // existing edge != NO_EDGE (deleting an existing edge)
         hvr_irr_matrix_set(base_offset, neighbor_offset, NO_EDGE, creation_type,
-                &ctx->edges);
+                &ctx->edges, 0);
         hvr_irr_matrix_set(neighbor_offset, base_offset, NO_EDGE, creation_type,
-                &ctx->edges);
+                &ctx->edges, 0);
 
         // Decrement if condition holds true
         base->n_local_neighbors -= neighbor_is_local;
@@ -367,9 +367,9 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
     } else {
         // Neither new or existing is NO_EDGE (updating existing edge)
         hvr_irr_matrix_set(base_offset, neighbor_offset, new_edge,
-                creation_type, &ctx->edges);
+                creation_type, &ctx->edges, 0);
         hvr_irr_matrix_set(neighbor_offset, base_offset, new_edge,
-                creation_type, &ctx->edges);
+                creation_type, &ctx->edges, 0);
     }
 
     if (creation_type == EXPLICIT_EDGE) {
@@ -1691,12 +1691,14 @@ static void process_incoming_messages(hvr_internal_ctx_t *ctx) {
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
 }
 
+#define MAX_MSGS_PROCESSED 1000
 static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         process_perf_info_t *perf_info) {
     unsigned n_updates = 0;
     size_t msg_len;
 
     const unsigned long long start = hvr_current_time_us();
+    unsigned count_msgs = 0;
     // Handle deletes, then updates
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
@@ -1712,11 +1714,15 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         }
         ctx->total_vertex_msgs_recvd += msg->len;
 
+        count_msgs++;
+        if (count_msgs >= MAX_MSGS_PROCESSED) break;
+
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, &ctx->vertex_delete_mailbox, 0);
     }
 
     const unsigned long long midpoint = hvr_current_time_us();
+    count_msgs = 0;
     success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
             &msg_len, &ctx->vertex_update_mailbox, 0);
     while (success) {
@@ -1734,6 +1740,9 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
             n_updates++;
         }
         ctx->total_vertex_msgs_recvd += msg->len;
+
+        count_msgs++;
+        if (count_msgs >= MAX_MSGS_PROCESSED) break;
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, &ctx->vertex_update_mailbox, 0);
