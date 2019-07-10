@@ -1,2 +1,4 @@
 *.class
 *.jar
+flink.out
+flink.err
