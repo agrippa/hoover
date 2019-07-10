@@ -57,11 +57,14 @@ cat $FLINK_CONF | grep -v "^taskmanager.heap.size" > ${FLINK_CONF}.tmp
 mv ${FLINK_CONF}.tmp $FLINK_CONF
 cat $FLINK_CONF | grep -v "^env.java.home" > ${FLINK_CONF}.tmp
 mv ${FLINK_CONF}.tmp $FLINK_CONF
+cat $FLINK_CONF | grep -v "^taskmanager.numberOfTaskSlots" > ${FLINK_CONF}.tmp
+mv ${FLINK_CONF}.tmp $FLINK_CONF
 
 echo "jobmanager.rpc.address: $MASTER_NODE" >> $FLINK_CONF
 echo "jobmanager.heap.size: 4096m" >> $FLINK_CONF
 echo "taskmanager.heap.size: 4096m" >> $FLINK_CONF
 echo "env.java.home: $JAVA_HOME" >> $FLINK_CONF
+echo "taskmanager.numberOfTaskSlots: 32" >> $FLINK_CONF
 
 scontrol show hostname | tail -n +2 > $FLINK_HOME/conf/slaves
 

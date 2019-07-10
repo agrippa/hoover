@@ -9,6 +9,8 @@ import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.graph.pregel.ComputeFunction;
 import org.apache.flink.graph.pregel.MessageIterator;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.graph.pregel.VertexCentricConfiguration;
+import org.apache.flink.api.common.aggregators.LongSumAggregator;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -18,7 +20,16 @@ import java.util.ArrayList;
 public class VertexCentric {
     public static final class ComputeMinVertexVal extends ComputeFunction<Long, Tuple2<Double, Double>, String, Double> {
 
+        LongSumAggregator aggregator = new LongSumAggregator();
+
+        public void preSuperstep() {
+            aggregator = getIterationAggregator("sumAggregator");
+        }
+
         public void compute(Vertex<Long, Tuple2<Double, Double>> vertex, MessageIterator<Double> messages) {
+
+            long aggregatedValueFromPriorSuperstep =
+                (aggregator.getAggregate() == null ? 0 : aggregator.getAggregate().getValue());
 
             double minVal = vertex.getValue().f1;
 
@@ -30,6 +41,8 @@ public class VertexCentric {
 
             setNewVertexValue(new Tuple2<Double, Double>(vertex.getValue().f0,
                         minVal));
+
+            aggregator.aggregate(1);
 
             for (Edge<Long, String> e: getEdges()) {
                 sendMessageTo(e.getTarget(), minVal);
@@ -59,9 +72,14 @@ public class VertexCentric {
         Graph<Long, Tuple2<Double, Double>, String> graph = Graph.fromCollection(
             vertexList, edgeList, env);
 
+        VertexCentricConfiguration parameters = new VertexCentricConfiguration();
+        parameters.setName("Vertex Centric Example");
+        parameters.setParallelism(16);
+        parameters.registerAggregator("sumAggregator", new LongSumAggregator());
+
         Graph<Long, Tuple2<Double, Double>, String> result =
             graph.runVertexCentricIteration(new ComputeMinVertexVal(),
-                null, maxIterations);
+                null, maxIterations, parameters);
 
         DataSet<Vertex<Long, Tuple2<Double, Double>>> updatedVertices =
             result.getVertices();
