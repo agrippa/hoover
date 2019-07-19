@@ -11,6 +11,7 @@ import org.apache.flink.graph.gsa.GatherFunction;
 import org.apache.flink.graph.gsa.Neighbor;
 import org.apache.flink.graph.gsa.SumFunction;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.graph.gsa.GSAConfiguration;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -65,20 +66,25 @@ public class CommunityDetection {
         Graph<Long, Tuple2<Double, Double>, String> graph = Graph.fromCollection(
             vertexList, edgeList, env);
 
-        for (int iter = 0; iter < maxIterations; iter++) {
-            long start = System.currentTimeMillis();
-            graph = graph.runGatherSumApplyIteration(new ComputeMinVertexValGather(),
-                    new ComputeMinVertexValSum(), new ComputeMinVertexValApply(), 1);
-            long newVertId = (long)nvertices + iter + 1;
-            Tuple2<Double, Double> newVertVal = new Tuple2<Double, Double>(
-                    (double)newVertId, (double)newVertId);
-            Vertex<Long, Tuple2<Double, Double>> newVert =
-                new Vertex<Long, Tuple2<Double, Double>>(newVertId, newVertVal);
+        GSAConfiguration config = new GSAConfiguration();
 
-            // graph = graph.addVertex(newVert);
-            long elapsed = System.currentTimeMillis() - start;
-            System.out.println("Iteration " + iter + " took " + elapsed + " ms");
-        }
+        graph = graph.runGatherSumApplyIteration(new ComputeMinVertexValGather(),
+                new ComputeMinVertexValSum(), new ComputeMinVertexValApply(), maxIterations, config);
+
+        // for (int iter = 0; iter < maxIterations; iter++) {
+        //     long start = System.currentTimeMillis();
+        //     graph = graph.runGatherSumApplyIteration(new ComputeMinVertexValGather(),
+        //             new ComputeMinVertexValSum(), new ComputeMinVertexValApply(), 1, config);
+        //     long newVertId = (long)nvertices + iter + 1;
+        //     Tuple2<Double, Double> newVertVal = new Tuple2<Double, Double>(
+        //             (double)newVertId, (double)newVertId);
+        //     Vertex<Long, Tuple2<Double, Double>> newVert =
+        //         new Vertex<Long, Tuple2<Double, Double>>(newVertId, newVertVal);
+
+        //     // graph = graph.addVertex(newVert);
+        //     long elapsed = System.currentTimeMillis() - start;
+        //     System.out.println("Iteration " + iter + " took " + elapsed + " ms");
+        // }
 
         long start_post = System.currentTimeMillis();
 
