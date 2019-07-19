@@ -40,8 +40,15 @@ public class CommunityDetection {
     public static void main(String[] args) throws Exception {
         ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
-        int maxIterations = 1000;
+        int maxIterations = 100;
         int nvertices = 100;
+
+        if (args.length > 0) {
+            maxIterations = Integer.parseInt(args[0]);
+        }
+        if (args.length > 1) {
+            nvertices = Integer.parseInt(args[1]);
+        }
 
         List<Vertex<Long, Tuple2<Double, Double>>> vertexList =
             new ArrayList<Vertex<Long, Tuple2<Double, Double>>>();
@@ -58,15 +65,32 @@ public class CommunityDetection {
         Graph<Long, Tuple2<Double, Double>, String> graph = Graph.fromCollection(
             vertexList, edgeList, env);
 
-        Graph<Long, Tuple2<Double, Double>, String> result =
-            graph.runGatherSumApplyIteration(new ComputeMinVertexValGather(), new ComputeMinVertexValSum(),
-                    new ComputeMinVertexValApply(), maxIterations);
+        for (int iter = 0; iter < maxIterations; iter++) {
+            long start = System.currentTimeMillis();
+            graph = graph.runGatherSumApplyIteration(new ComputeMinVertexValGather(),
+                    new ComputeMinVertexValSum(), new ComputeMinVertexValApply(), 1);
+            long newVertId = (long)nvertices + iter + 1;
+            Tuple2<Double, Double> newVertVal = new Tuple2<Double, Double>(
+                    (double)newVertId, (double)newVertId);
+            Vertex<Long, Tuple2<Double, Double>> newVert =
+                new Vertex<Long, Tuple2<Double, Double>>(newVertId, newVertVal);
+
+            // graph = graph.addVertex(newVert);
+            long elapsed = System.currentTimeMillis() - start;
+            System.out.println("Iteration " + iter + " took " + elapsed + " ms");
+        }
+
+        long start_post = System.currentTimeMillis();
 
         DataSet<Vertex<Long, Tuple2<Double, Double>>> updatedVertices =
-            result.getVertices();
+            graph.getVertices();
+
+        long mid_post1 = System.currentTimeMillis();
 
         List<Vertex<Long, Tuple2<Double, Double>>> lupdatedVertices =
             updatedVertices.collect();
+
+        long mid_post2 = System.currentTimeMillis();
 
         for (Vertex<Long, Tuple2<Double, Double>> v : lupdatedVertices) {
             Long id = v.getId();
@@ -74,5 +98,11 @@ public class CommunityDetection {
             Double minVal = v.getValue().f1;
             System.out.println(id + " : " + myVal + " : " + minVal);
         }
+
+        long end_post = System.currentTimeMillis();
+
+        System.out.println("Post took " + (end_post -start_post) + " ms, " +
+                (mid_post1 - start_post) + " " + (mid_post2 - mid_post1) + " " +
+                (end_post - mid_post2));
     }
 }

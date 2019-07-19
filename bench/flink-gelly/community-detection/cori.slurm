@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 2
 #SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:20:00
 #SBATCH -J flink
 #SBATCH -o flink.out
 #SBATCH -e flink.err
@@ -59,19 +59,31 @@ cat $FLINK_CONF | grep -v "^env.java.home" > ${FLINK_CONF}.tmp
 mv ${FLINK_CONF}.tmp $FLINK_CONF
 cat $FLINK_CONF | grep -v "^taskmanager.numberOfTaskSlots" > ${FLINK_CONF}.tmp
 mv ${FLINK_CONF}.tmp $FLINK_CONF
+cat $FLINK_CONF | grep -v "^io.tmp.dirs" > ${FLINK_CONF}.tmp
+mv ${FLINK_CONF}.tmp $FLINK_CONF
+cat $FLINK_CONF | grep -v "^taskmanager.debug.memory.log:" > ${FLINK_CONF}.tmp
+mv ${FLINK_CONF}.tmp $FLINK_CONF
+cat $FLINK_CONF | grep -v "^taskmanager.debug.memory.log-interval:" > ${FLINK_CONF}.tmp
+mv ${FLINK_CONF}.tmp $FLINK_CONF
+cat $FLINK_CONF | grep -v "^resourcemanager.taskmanager-timeout:" > ${FLINK_CONF}.tmp
+mv ${FLINK_CONF}.tmp $FLINK_CONF
 
 echo "jobmanager.rpc.address: $MASTER_NODE" >> $FLINK_CONF
 echo "jobmanager.heap.size: 4096m" >> $FLINK_CONF
-echo "taskmanager.heap.size: 4096m" >> $FLINK_CONF
+echo "taskmanager.heap.size: 16g" >> $FLINK_CONF
 echo "env.java.home: $JAVA_HOME" >> $FLINK_CONF
 echo "taskmanager.numberOfTaskSlots: 32" >> $FLINK_CONF
+echo "io.tmp.dirs: /tmp/" >> $FLINK_CONF
+echo "taskmanager.debug.memory.log: false" >> $FLINK_CONF
+echo "taskmanager.debug.memory.log-interval: 500" >> $FLINK_CONF
+echo "resourcemanager.taskmanager-timeout: 60000" >> $FLINK_CONF
 
 scontrol show hostname | tail -n +2 > $FLINK_HOME/conf/slaves
 
 $FLINK_HOME/bin/start-cluster.sh
 
 # ./flink-1.8.1/bin/flink run ./flink-1.8.1/examples/gelly/flink-gelly-examples_*.jar --algorithm PageRank --input HypercubeGraph --dimensions 3 --output Print
-$FLINK_HOME/bin/flink run CommunityDetection.jar
+$FLINK_HOME/bin/flink run CommunityDetection.jar 27
 
 # ./flink-1.8.1/bin/stop-cluster.sh
 
