@@ -13,6 +13,8 @@ import org.apache.flink.graph.gsa.SumFunction;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.graph.gsa.GSAConfiguration;
 
+import org.apache.flink.graph.streaming.GraphStream;
+
 import java.util.List;
 import java.util.ArrayList;
 

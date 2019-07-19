@@ -19,6 +19,7 @@ echo "Running on:"
 echo $SLURM_NODELIST
 
 export FLINK_HOME=$HOME/hoover/bench/flink-gelly/flink-1.8.1
+export GELLY_STREAMING_HOME=$HOME/hoover/bench/flink-gelly/gelly-streaming
 
 # module load spark/2.3.0
 # module load scala/2.11.8
@@ -44,7 +45,7 @@ MASTER_NODE=$(scontrol show hostname | head -n 1)
 rm $FLINK_HOME/log/*
 
 rm -f *.class *.jar
-javac -cp $FLINK_HOME/lib/flink-dist_2.11-1.8.1.jar:$FLINK_HOME/lib/flink-gelly_2.11-1.8.1.jar:$FLINK_HOME/lib/flink-gelly-scala_2.11-1.8.1.jar CommunityDetection.java
+javac -cp $FLINK_HOME/lib/flink-dist_2.11-1.8.1.jar:$FLINK_HOME/lib/flink-gelly_2.11-1.8.1.jar:$FLINK_HOME/lib/flink-gelly-scala_2.11-1.8.1.jar:${GELLY_STREAMING_HOME}/target/flink-gelly-streaming-0.1.0.jar CommunityDetection.java
 jar cvfm CommunityDetection.jar Manifest.txt *.class
 
 FLINK_CONF=$FLINK_HOME/conf/flink-conf.yaml
