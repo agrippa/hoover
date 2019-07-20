@@ -16,7 +16,6 @@
  * limitations under the License.
  */
 
-package org.apache.flink.graph.streaming.example;
 
 import java.util.HashSet;
 import java.util.Set;

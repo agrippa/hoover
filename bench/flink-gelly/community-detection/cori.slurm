@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 2
+#SBATCH -N 3
 #SBATCH -C haswell
 #SBATCH -t 00:20:00
 #SBATCH -J flink
@@ -44,9 +44,24 @@ MASTER_NODE=$(scontrol show hostname | head -n 1)
 # Extracted from flink-1.8.1-bin-scala_2.11.tgz
 rm $FLINK_HOME/log/*
 
-rm -f *.class *.jar
-javac -cp $FLINK_HOME/lib/flink-dist_2.11-1.8.1.jar:$FLINK_HOME/lib/flink-gelly_2.11-1.8.1.jar:$FLINK_HOME/lib/flink-gelly-scala_2.11-1.8.1.jar:${GELLY_STREAMING_HOME}/target/flink-gelly-streaming-0.1.0.jar CommunityDetection.java
+rm -f *.jar
+
+export CUSTOM_CLASSPATH=$FLINK_HOME/lib/flink-dist_2.11-1.8.1.jar
+export CUSTOM_CLASSPATH=$CUSTOM_CLASSPATH:$FLINK_HOME/lib/flink-gelly_2.11-1.8.1.jar
+export CUSTOM_CLASSPATH=$CUSTOM_CLASSPATH:$FLINK_HOME/lib/flink-gelly-scala_2.11-1.8.1.jar
+export CUSTOM_CLASSPATH=$CUSTOM_CLASSPATH:${GELLY_STREAMING_HOME}/target/flink-gelly-streaming-0.1.0.jar
+
+rm -f *.class
+javac -Xlint:deprecation -cp $CUSTOM_CLASSPATH CommunityDetection.java
 jar cvfm CommunityDetection.jar Manifest.txt *.class
+
+rm -f *.class
+javac -Xlint:deprecation -cp $CUSTOM_CLASSPATH MyConnectedComponentsExample.java
+jar cvfm MyConnectedComponentsExample.jar CCManifest.txt *.class
+
+rm -f *.class
+javac -Xlint:deprecation -cp $CUSTOM_CLASSPATH WindowTriangles.java
+jar cvfm WindowTriangles.jar WTManifest.txt *.class
 
 FLINK_CONF=$FLINK_HOME/conf/flink-conf.yaml
 
@@ -84,7 +99,9 @@ scontrol show hostname | tail -n +2 > $FLINK_HOME/conf/slaves
 $FLINK_HOME/bin/start-cluster.sh
 
 # ./flink-1.8.1/bin/flink run ./flink-1.8.1/examples/gelly/flink-gelly-examples_*.jar --algorithm PageRank --input HypercubeGraph --dimensions 3 --output Print
-$FLINK_HOME/bin/flink run CommunityDetection.jar 27
+# $FLINK_HOME/bin/flink run CommunityDetection.jar 27
+# $FLINK_HOME/bin/flink run MyConnectedComponentsExample.jar
+$FLINK_HOME/bin/flink run WindowTriangles.jar
 
 # ./flink-1.8.1/bin/stop-cluster.sh
 
