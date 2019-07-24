@@ -34,8 +34,19 @@ import org.apache.flink.streaming.api.functions.AscendingTimestampExtractor;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.types.NullValue;
 import org.apache.flink.util.Collector;
+import org.apache.flink.streaming.api.functions.source.ParallelSourceFunction;
+import org.apache.flink.streaming.api.functions.source.SourceFunction;
+import org.apache.flink.streaming.api.functions.source.SourceFunction.SourceContext;
+import org.apache.flink.streaming.api.functions.sink.SinkFunction;
+import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
+import org.apache.flink.streaming.api.functions.source.RichSourceFunction;
+import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 
 import java.util.concurrent.TimeUnit;
+import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The Connected Components algorithm assigns a component ID to each vertex in the graph.
@@ -52,17 +63,33 @@ public class MyConnectedComponentsExample implements ProgramDescription {
 			return;
 		}
 
-		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		StreamExecutionEnvironment env =
+            StreamExecutionEnvironment.getExecutionEnvironment();
 
-		GraphStream<Long, NullValue, NullValue> edges = getGraphStream(env);
-
+		GraphStream<Long, NullValue, NullValue> edgesStream = getGraphStream(env);
+        DataStream<Edge<Long, NullValue>> edges = edgesStream.getEdges();
+        edges.addSink(new RichSinkFunction<Edge<Long, NullValue>>() {
+            private long count = 0;
+            @Override
+            public void invoke(Edge<Long, NullValue> value,
+                    SinkFunction.Context context) throws Exception {
+                // Do nothing?
+                count++;
+                if (count % 50_000_000 == 0) {
+                    int task = ((StreamingRuntimeContext) getRuntimeContext()).getIndexOfThisSubtask();
+                    System.out.println(task + "> Sink count = " + count);
+                }
+            }
+        });
+/*
 		DataStream<DisjointSet<Long>> cc = edges.aggregate(new ConnectedComponents<Long, NullValue>(mergeWindowTime));
 
 		// flatten the elements of the disjoint set and print
 		// in windows of printWindowTime
 		cc.flatMap(new FlattenSet()).keyBy(0)
 				.timeWindow(Time.of(printWindowTime, TimeUnit.MILLISECONDS))
-				.fold(new Tuple2<Long, Long>(0l, 0l), new IdentityFold()).print();
+				.fold(new Tuple2<Long, Long>(0l, 0l), new IdentityFold()).print(); // These prints appear in the .out taskexecutor files under the flink install
+*/
 
 		env.execute("Streaming Connected Components");
 	}
@@ -71,24 +98,20 @@ public class MyConnectedComponentsExample implements ProgramDescription {
 	//     UTIL METHODS
 	// *************************************************************************
 
-	private static boolean fileOutput = false;
-	private static String edgeInputPath = null;
 	private static long mergeWindowTime = 1000;
 	private static long printWindowTime = 2000;
 
 	private static boolean parseParameters(String[] args) {
 
 		if (args.length > 0) {
-			if (args.length != 3) {
-				System.err.println("Usage: ConnectedComponentsExample <input edges path> <merge window time (ms)> "
+			if (args.length != 2) {
+				System.err.println("Usage: ConnectedComponentsExample <merge window time (ms)> "
 						+ "print window time (ms)");
 				return false;
 			}
 
-			fileOutput = true;
-			edgeInputPath = args[0];
-			mergeWindowTime = Long.parseLong(args[1]);
-			printWindowTime = Long.parseLong(args[2]);
+			mergeWindowTime = Long.parseLong(args[0]);
+			printWindowTime = Long.parseLong(args[1]);
 		} else {
 			System.out.println("Executing ConnectedComponentsExample example with default parameters and built-in default data.");
 			System.out.println("  Provide parameters to read input data from files.");
@@ -99,40 +122,36 @@ public class MyConnectedComponentsExample implements ProgramDescription {
 		return true;
 	}
 
+    public static class RandomEdgeSource extends RichParallelSourceFunction<Edge<Long, NullValue>> {
+        private volatile boolean isRunning = true;
+        private long startTime = System.currentTimeMillis();
+        AtomicLong count = new AtomicLong(0);
+
+        @Override
+        public void run(SourceContext<Edge<Long, NullValue>> ctx) {
+            isRunning = true;
+            long privateCount = 0;
+            while (isRunning && System.currentTimeMillis() - startTime < 30000) {
+                ctx.collect(new Edge<>(Math.abs(ThreadLocalRandom.current().nextLong()) % 100,
+                            Math.abs(ThreadLocalRandom.current().nextLong()) % 100,
+                            NullValue.getInstance()));
+                privateCount++;
+            }
+            long acc = count.addAndGet(privateCount);
+            int task = ((StreamingRuntimeContext) getRuntimeContext()).getIndexOfThisSubtask();
+            System.out.println(task + "> Source count = " + acc);
+        }
+
+        @Override
+        public void cancel() {
+            isRunning = false;
+        }
+    }
+
 	@SuppressWarnings("serial")
 	private static GraphStream<Long, NullValue, NullValue> getGraphStream(StreamExecutionEnvironment env) {
-		if (fileOutput) {
-			return new SimpleEdgeStream<Long, NullValue>(env.readTextFile(edgeInputPath)
-					.map(new MapFunction<String, Edge<Long, NullValue>>() {
-						@Override
-						public Edge<Long, NullValue> map(String s) {
-							String[] fields = s.split("\\s");
-							long src = Long.parseLong(fields[0]);
-							long trg = Long.parseLong(fields[1]);
-							return new Edge<>(src, trg, NullValue.getInstance());
-						}
-					}), env);
-		}
-
-		return new SimpleEdgeStream<>(env.generateSequence(1, 1000).flatMap(
-				new FlatMapFunction<Long, Edge<Long, Long>>() {
-					@Override
-					public void flatMap(Long key, Collector<Edge<Long, Long>> out) throws Exception {
-						out.collect(new Edge<>(key, key + 2, key * 100));
-					}
-				}),
-				new AscendingTimestampExtractor<Edge<Long, Long>>() {
-					@Override
-
-					public long extractAscendingTimestamp(Edge<Long, Long> element) {
-						return element.getValue();
-					}
-				}, env).mapEdges(new MapFunction<Edge<Long, Long>, NullValue>() {
-			@Override
-			public NullValue map(Edge<Long, Long> edge) {
-				return NullValue.getInstance();
-			}
-		});
+        DataStream<Edge<Long, NullValue>> src = env.addSource(new RandomEdgeSource());
+        return new SimpleEdgeStream<Long, NullValue>(src, env);
 	}
 
 	@SuppressWarnings("serial")
