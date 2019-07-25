@@ -67,23 +67,10 @@ public class MyConnectedComponentsExample implements ProgramDescription {
             StreamExecutionEnvironment.getExecutionEnvironment();
 
 		GraphStream<Long, NullValue, NullValue> edgesStream = getGraphStream(env);
-        DataStream<Edge<Long, NullValue>> edges = edgesStream.getEdges();
-        edges.addSink(new RichSinkFunction<Edge<Long, NullValue>>() {
-            private long count = 0;
-            @Override
-            public void invoke(Edge<Long, NullValue> value,
-                    SinkFunction.Context context) throws Exception {
-                // Do nothing?
-                count++;
-                if (count % 50_000_000 == 0) {
-                    int task = ((StreamingRuntimeContext) getRuntimeContext()).getIndexOfThisSubtask();
-                    System.out.println(task + "> Sink count = " + count);
-                }
-            }
-        });
-/*
-		DataStream<DisjointSet<Long>> cc = edges.aggregate(new ConnectedComponents<Long, NullValue>(mergeWindowTime));
+		DataStream<DisjointSet<Long>> cc = edgesStream.aggregate(
+                new ConnectedComponents<Long, NullValue>(mergeWindowTime));
 
+/*
 		// flatten the elements of the disjoint set and print
 		// in windows of printWindowTime
 		cc.flatMap(new FlattenSet()).keyBy(0)
@@ -100,13 +87,18 @@ public class MyConnectedComponentsExample implements ProgramDescription {
 
 	private static long mergeWindowTime = 1000;
 	private static long printWindowTime = 2000;
+    private static long executionTime = 30000;
+    private static long nvertices = 100;
 
 	private static boolean parseParameters(String[] args) {
 
 		if (args.length > 0) {
-			if (args.length != 2) {
-				System.err.println("Usage: ConnectedComponentsExample <merge window time (ms)> "
-						+ "print window time (ms)");
+			if (args.length != 4) {
+				System.err.println("Usage: ConnectedComponentsExample " +
+                        "<merge window time (ms)> " +
+                        "<print window time (ms)> " +
+                        "<execution time (ms)> " +
+                        "<nvertices>");
 				return false;
 			}
 
@@ -131,9 +123,9 @@ public class MyConnectedComponentsExample implements ProgramDescription {
         public void run(SourceContext<Edge<Long, NullValue>> ctx) {
             isRunning = true;
             long privateCount = 0;
-            while (isRunning && System.currentTimeMillis() - startTime < 30000) {
-                ctx.collect(new Edge<>(Math.abs(ThreadLocalRandom.current().nextLong()) % 100,
-                            Math.abs(ThreadLocalRandom.current().nextLong()) % 100,
+            while (isRunning && System.currentTimeMillis() - startTime < executionTime) {
+                ctx.collect(new Edge<>(Math.abs(ThreadLocalRandom.current().nextLong()) % nvertices,
+                            Math.abs(ThreadLocalRandom.current().nextLong()) % nvertices,
                             NullValue.getInstance()));
                 privateCount++;
             }

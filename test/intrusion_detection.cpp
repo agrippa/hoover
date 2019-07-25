@@ -554,7 +554,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
     unsigned long long accum_tracking_time = 0;
 
 #ifdef MULTITHREADED
-    const size_t n_local = hvr_n_allocated(ctx);
+    const size_t n_local = hvr_n_local_vertices(ctx);
 
     hvr_conc_vertex_iter_t conc_iter;
     hvr_conc_vertex_iter_init(&conc_iter, n_local / (nthreads * 5), ctx);

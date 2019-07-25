@@ -418,6 +418,7 @@ extern void hvr_create_edge_with_vertex_id(hvr_vertex_t *base,
 extern void hvr_create_edge_with_vertex(hvr_vertex_t *base,
         hvr_vertex_t *neighbor, hvr_edge_type_t edge, hvr_ctx_t in_ctx);
 
+extern hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t id, hvr_ctx_t in_ctx);
 
 extern void hvr_send_msg(hvr_vertex_id_t dst, hvr_vertex_t *msg,
         hvr_internal_ctx_t *ctx);
@@ -449,7 +450,7 @@ static inline void mark_for_processing(hvr_vertex_t *vert,
     ctx->any_needs_processing = 1;
 }
 
-size_t hvr_n_allocated(hvr_ctx_t in_ctx);
+size_t hvr_n_local_vertices(hvr_ctx_t in_ctx);
 
 #ifdef __cplusplus
 }

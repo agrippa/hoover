@@ -2047,6 +2047,17 @@ void hvr_create_edge_with_vertex(hvr_vertex_t *local,
     hvr_create_edge_helper(local, neighbor->id, neighbor, edge, in_ctx);
 }
 
+hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t id, hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(id,
+            &ctx->vec_cache);
+    if (cached) {
+        return &cached->vert;
+    } else {
+        return NULL;
+    }
+}
+
 static int update_vertices(hvr_set_t *to_couple_with,
         hvr_internal_ctx_t *ctx) {
     if (ctx->update_metadata == NULL || !ctx->any_needs_processing) {
@@ -2961,7 +2972,7 @@ static void save_profiling_info(
     saved_profiling_info[n_profiled_iters].n_subscriber_partitions =
         hvr_set_count(ctx->subscribed_partitions);
     saved_profiling_info[n_profiled_iters].n_allocated_verts =
-        hvr_n_allocated(ctx);
+        hvr_n_local_vertices(ctx);
     saved_profiling_info[n_profiled_iters].n_mirrored_verts =
         ctx->vec_cache.n_cached_vertices;
 
@@ -3652,7 +3663,7 @@ unsigned long long hvr_current_time_us() {
     // return curr_time.tv_sec * 1000000ULL + curr_time.tv_usec;
 }
 
-size_t hvr_n_allocated(hvr_ctx_t in_ctx) {
+size_t hvr_n_local_vertices(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     return ctx->vec_cache.n_local_vertices;
 }

@@ -661,7 +661,7 @@ int main(int argc, char **argv) {
         printf("In total %lu msgs sent, %lu msgs received\n", total_msgs_sent,
                 total_msgs_recv);
         printf("Max modeled timestep across all PEs = %d, # vertices on PE 0 = "
-                "%lu\n", all_max_modeled_timestep, hvr_n_allocated(hvr_ctx));
+                "%lu\n", all_max_modeled_timestep, hvr_n_local_vertices(hvr_ctx));
         for (int p = 0; p < npes; p++) {
             printf("  PE %d got to timestep %d\n", p, modeled_timesteps[p]);
         }

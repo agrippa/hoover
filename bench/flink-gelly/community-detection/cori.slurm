@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 5
+#SBATCH -N 3
 #SBATCH -C haswell
 #SBATCH -t 00:20:00
 #SBATCH -J flink
@@ -100,8 +100,8 @@ $FLINK_HOME/bin/start-cluster.sh
 
 # ./flink-1.8.1/bin/flink run ./flink-1.8.1/examples/gelly/flink-gelly-examples_*.jar --algorithm PageRank --input HypercubeGraph --dimensions 3 --output Print
 # $FLINK_HOME/bin/flink run CommunityDetection.jar 27
-$FLINK_HOME/bin/flink run --parallelism 128 \
-    MyConnectedComponentsExample.jar
+$FLINK_HOME/bin/flink run --parallelism 64 \
+    MyConnectedComponentsExample.jar 10000 2000 30000 10000000
 # $FLINK_HOME/bin/flink run WindowTriangles.jar
 
 $FLINK_HOME/bin/stop-cluster.sh
