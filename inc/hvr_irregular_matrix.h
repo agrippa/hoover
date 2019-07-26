@@ -2,6 +2,7 @@
 #define _HVR_IRREGULAR_MATRIX_H
 
 #include "hvr_common.h"
+#include "hvr_bloom.h"
 #include "dlmalloc.h"
 
 typedef struct _hvr_irr_matrix_t {
@@ -9,6 +10,8 @@ typedef struct _hvr_irr_matrix_t {
     uint16_t *edges_capacity;
     uint16_t *edges_len;
     size_t nvertices;
+
+    hvr_bloom_t *blms;
 
     void *pool;
     size_t pool_size;
