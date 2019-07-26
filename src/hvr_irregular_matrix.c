@@ -33,6 +33,7 @@ hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i,
     const uint16_t curr_len = m->edges_len[i];
     const hvr_edge_info_t *curr_edges = m->edges[i];
 
+#pragma unroll
     for (unsigned iter = 0; iter < curr_len; iter++) {
         if (EDGE_INFO_VERTEX(curr_edges[iter]) == j) {
             return (hvr_edge_type_t)EDGE_INFO_EDGE(curr_edges[iter]);

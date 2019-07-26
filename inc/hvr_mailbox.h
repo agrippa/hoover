@@ -1,6 +1,9 @@
 #ifndef _HVR_MAILBOX
 #define _HVR_MAILBOX
 
+#include <stdint.h>
+#include <stdlib.h>
+
 typedef struct _hvr_mailbox_t {
     uint64_t *indices;
     uint64_t indices_curr_val;

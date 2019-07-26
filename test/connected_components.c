@@ -64,7 +64,8 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         uint64_t dst_vertex_pe = fast_rand() % npes;
         uint64_t dst_vertex_offset = fast_rand() % nvertices_per_pe;
 
-        hvr_vertex_id_t src_vert_id = construct_vertex_id(pe, src_vertex_offset);
+        hvr_vertex_id_t src_vert_id = construct_vertex_id(pe,
+                src_vertex_offset);
         hvr_vertex_id_t dst_vert_id = construct_vertex_id(dst_vertex_pe,
                 dst_vertex_offset);
 

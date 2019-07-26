@@ -14,6 +14,7 @@ extern "C" {
 #include "hvr_common.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
+#include "hvr_mailbox_buffer.h"
 #include "hvr_set.h"
 #include "hvr_dist_bitvec.h"
 #include "hvr_sparse_arr.h"
@@ -105,12 +106,16 @@ typedef hvr_edge_type_t (*hvr_should_have_edge)(const hvr_vertex_t *target,
 /*
  * All message definitions.
  */
-#define VERT_PER_UPDATE 16
 typedef struct _hvr_vertex_update_t {
-    hvr_vertex_t verts[VERT_PER_UPDATE];
-    uint8_t is_invalidation[VERT_PER_UPDATE];
-    unsigned len;
+    hvr_vertex_t vert;
+    uint8_t is_invalidation;
 } hvr_vertex_update_t;
+
+static void inline hvr_vertex_update_init(hvr_vertex_update_t *msg,
+        const hvr_vertex_t *vert, uint8_t is_invalidation) {
+    memcpy(&(msg->vert), vert, sizeof(*vert));
+    msg->is_invalidation = is_invalidation;
+}
 
 typedef struct _hvr_partition_member_change_t {
     int pe;
@@ -300,6 +305,11 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t vert_sub_mailbox;
     hvr_mailbox_t edge_create_mailbox;
 
+    hvr_mailbox_buffer_t vertex_update_mailbox_buffer;
+    hvr_mailbox_buffer_t vertex_delete_mailbox_buffer;
+    hvr_mailbox_buffer_t vert_sub_mailbox_buffer;
+    hvr_mailbox_buffer_t edge_create_mailbox_buffer;
+
     hvr_map_t producer_info;
     hvr_map_t dead_info;
 
@@ -314,9 +324,6 @@ typedef struct _hvr_internal_ctx_t {
     hvr_sparse_arr_t my_vert_subs;
 
     unsigned max_graph_traverse_depth;
-
-    hvr_vertex_update_t *buffered_updates;
-    hvr_vertex_update_t *buffered_deletes;
 
     hvr_msg_buf_pool_t msg_buf_pool;
 
