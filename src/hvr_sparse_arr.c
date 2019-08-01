@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <assert.h>
 
-static void hvr_sparse_arr_seg_init(hvr_sparse_arr_seg_t *seg) {
+static inline void hvr_sparse_arr_seg_init(hvr_sparse_arr_seg_t *seg) {
     memset(seg, 0x00, sizeof(*seg));
 }
 
@@ -71,21 +71,21 @@ void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
 
     // Check if this value is already stored
     int *stored_values = segment->seg[seg_index];
-    for (unsigned index = 0; index < segment->seg_lengths[seg_index]; index++) {
+    const unsigned seg_len = segment->seg_lengths[seg_index];
+    for (unsigned index = 0; index < seg_len; index++) {
         if (stored_values[index] == j) {
             return;
         }
     }
 
-    if ((segment->seg_lengths)[seg_index] == 0) {
+    if (seg_len == 0) {
         // First initialization
         const unsigned initial_capacity = 16;
         segment->seg_capacities[seg_index] = initial_capacity;
         segment->seg[seg_index] = (int *)mspace_malloc(arr->tracker,
                 initial_capacity * sizeof(int));
         assert(segment->seg[seg_index]);
-    } else if ((segment->seg_lengths)[seg_index] ==
-            (segment->seg_capacities)[seg_index]) {
+    } else if (seg_len == (segment->seg_capacities)[seg_index]) {
         // No more space left
         segment->seg_capacities[seg_index] *= 2;
         segment->seg[seg_index] = (int *)mspace_realloc(arr->tracker,
@@ -94,9 +94,8 @@ void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
         assert(segment->seg[seg_index]);
     }
 
-    stored_values = segment->seg[seg_index];
-    stored_values[(segment->seg_lengths)[seg_index]] = j;
-    (segment->seg_lengths)[seg_index] += 1;
+    (segment->seg[seg_index])[seg_len] = j;
+    (segment->seg_lengths)[seg_index] = seg_len + 1;
 }
 
 int hvr_sparse_arr_contains(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
@@ -110,8 +109,8 @@ int hvr_sparse_arr_contains(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
         return 0;
     }
 
-    int *stored_values = segment->seg[seg_index];
-    int n_stored_values = segment->seg_lengths[seg_index];
+    const int *stored_values = segment->seg[seg_index];
+    const int n_stored_values = segment->seg_lengths[seg_index];
 
     for (int index = 0; index < n_stored_values; index++) {
         if (stored_values[index] == j) {

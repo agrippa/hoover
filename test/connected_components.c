@@ -32,13 +32,13 @@ static uint64_t nvertices = 0;
 static uint64_t nvertices_per_pe = 0;
 
 // Used to seed the generator.
-inline void fast_srand(int seed) {
+static inline void fast_srand(int seed) {
     g_seed = seed;
 }
 
 // Compute a pseudorandom integer.
 // Output value in range [0, 32767]
-inline uint64_t fast_rand(void) {
+static inline uint64_t fast_rand(void) {
     g_seed = (214013*g_seed+2531011);
     int lower = (g_seed>>16)&0x7FFF;
 
@@ -190,6 +190,38 @@ int main(int argc, char **argv) {
                 (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
                 info.executed_iters);
         printf("%lld edges inserted across all PEs\n", total_n_edges_added);
+
+        for (size_t i = 0; i < hvr_ctx->my_vert_subs.nsegs; i++) {
+            hvr_sparse_arr_seg_t *seg = (hvr_ctx->my_vert_subs.segs)[i];
+            if (seg) {
+                for (int j = 0; j < HVR_SPARSE_ARR_SEGMENT_SIZE; j++) {
+                    unsigned len = seg->seg_lengths[j];
+                    if (len > 0) {
+                        printf("%lu %d %d\n", i, j, len);
+                    }
+                }
+            }
+        }
+
+#if 0
+        hvr_vertex_iter_t iter;
+        hvr_vertex_iter_init(&iter, hvr_ctx);
+        for (hvr_vertex_t *vert = hvr_vertex_iter_next(&iter); vert;
+                vert = hvr_vertex_iter_next(&iter)) {
+            
+            hvr_vertex_t **neighbors;
+            hvr_edge_type_t *neighbor_dirs;
+            int n_neighbors = hvr_get_neighbors(vert, &neighbors,
+                    &neighbor_dirs, hvr_ctx);
+
+            if (n_neighbors > 0) {
+                printf("PE %d vert %llu # neighbors %d\n",
+                        hvr_ctx->pe, vert->id, n_neighbors);
+            }
+
+            hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors, hvr_ctx);
+        }
+#endif
     }
 
     hvr_finalize(hvr_ctx);

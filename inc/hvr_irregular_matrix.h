@@ -11,8 +11,6 @@ typedef struct _hvr_irr_matrix_t {
     uint16_t *edges_len;
     size_t nvertices;
 
-    hvr_bloom_t *blms;
-
     void *pool;
     size_t pool_size;
     mspace allocator;

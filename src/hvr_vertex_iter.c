@@ -5,7 +5,7 @@
  * Don't iterate over vertices that were created during our current internal
  * iteration, as they will not have updated edge information.
  */
-static int is_valid_vertex(hvr_vertex_t *vertex, hvr_vertex_iter_t *iter) {
+static inline int is_valid_vertex(hvr_vertex_t *vertex, hvr_vertex_iter_t *iter) {
     return (VERTEX_ID_PE(vertex->id) == iter->ctx->pe) &&
         (iter->include_all || vertex->creation_iter < iter->ctx->iter);
 }

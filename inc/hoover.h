@@ -316,11 +316,20 @@ typedef struct _hvr_internal_ctx_t {
     hvr_time_t *next_producer_info_check;
     hvr_time_t *curr_producer_info_interval;
 
-    // Mapping from partition -> remote PE subscribing to each partition
+    /*
+     * Mapping from partition -> remote PE subscribing to each partition
+     * Dimensions: (# partitions x # PEs)
+     */
     hvr_sparse_arr_t remote_partition_subs;
-    // Mapping from local vertex offset -> remote PE subscribing to each vertex
+    /*
+     * Mapping from local vertex offset -> remote PE subscribing to each vertex
+     * Dimensions: (# pre-allocated vertices per PE x # PEs)
+     */
     hvr_sparse_arr_t remote_vert_subs;
-    // Mapping from remote PE -> subscriptions I have to vertices on that PE
+    /*
+     * Mapping from remote PE -> subscriptions I have to vertices on that PE
+     * Dimensions: (# PEs x # pre-allocated vertices per PE)
+     */
     hvr_sparse_arr_t my_vert_subs;
 
     unsigned max_graph_traverse_depth;

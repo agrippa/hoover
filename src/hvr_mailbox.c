@@ -253,6 +253,6 @@ void hvr_mailbox_destroy(hvr_mailbox_t *mailbox) {
 }
 
 size_t hvr_mailbox_mem_used(hvr_mailbox_t *mailbox) {
-    return sizeof(*mailbox) + sizeof(mailbox->indices[0]) +
+    return sizeof(mailbox->indices[0]) +
         mailbox->capacity_in_bytes;
 }

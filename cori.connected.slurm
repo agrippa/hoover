@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 2
 #SBATCH -C haswell
-#SBATCH -t 00:05:00
+#SBATCH -t 00:20:00
 #SBATCH -J hoover-connected
 #SBATCH --exclusive
 ###SBATCH --contiguous
@@ -39,19 +39,19 @@ export CORES_PER_NODE=$(($SOCKETS_PER_NODE * $CORES_PER_SOCKET))
 cd $SCRATCH
 
 export TIME_LIMIT_IN_SECONDS=30
-export NVERTICES=10048
+export NVERTICES=10000000
 export NEDGES_PER_STEP=10000
 
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
 
-export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024))
-export HVR_VERT_CACHE_PREALLOCS=$((2 * 1024 * 1024))
+export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
+export HVR_VERT_CACHE_PREALLOCS=$((3 * 1024 * 1024))
 export HVR_VERT_CACHE_SEGS=40000
 export HVR_SPARSE_ARR_POOL=$((64 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=4096
 export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
-export HVR_EDGES_POOL_SIZE=$((256 * 1024 * 1024))
+export HVR_EDGES_POOL_SIZE=$((128 * 1024 * 1024))
 export HVR_PRODUCER_INFO_SEGS=10240
 export HVR_PARTITION_LIST_SEGS=10240
 
@@ -61,6 +61,6 @@ cd job.$SLURM_JOB_ID
 
 export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1"
 srun $SLURM_ARGS \
-    $HOME/hoover/connected_components+pat \
+    $HOME/hoover/bin/connected_components \
     $TIME_LIMIT_IN_SECONDS $NVERTICES $NEDGES_PER_STEP
 

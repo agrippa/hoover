@@ -20,12 +20,6 @@ void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
 
     m->nvertices = nvertices;
 
-    m->blms = (hvr_bloom_t *)malloc(nvertices * sizeof(hvr_bloom_t));
-    assert(m->blms);
-    for (size_t i = 0; i < nvertices; i++) {
-        hvr_bloom_init(m->blms + i);
-    }
-
     m->pool = malloc_helper(pool_size);
     assert(m->pool);
     memset(m->pool, 0xff, pool_size);
@@ -34,17 +28,17 @@ void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
     assert(m->allocator);
 }
 
-hvr_edge_type_t hvr_irr_matrix_get(hvr_vertex_id_t i,
-        hvr_vertex_id_t j, const hvr_irr_matrix_t *m) {
+hvr_edge_type_t hvr_irr_matrix_get(const hvr_vertex_id_t i,
+        const hvr_vertex_id_t j, const hvr_irr_matrix_t *m) {
     const uint16_t curr_len = m->edges_len[i];
     const hvr_edge_info_t *curr_edges = m->edges[i];
 
-    if (hvr_bloom_check(j, m->blms + i)) {
 #pragma unroll
-        for (unsigned iter = 0; iter < curr_len; iter++) {
-            if (EDGE_INFO_VERTEX(curr_edges[iter]) == j) {
-                return (hvr_edge_type_t)EDGE_INFO_EDGE(curr_edges[iter]);
-            }
+    for (uint16_t iter = 0; iter < curr_len; iter++) {
+        const hvr_edge_info_t info = curr_edges[iter];
+        const hvr_vertex_id_t neighbor = EDGE_INFO_VERTEX(info);
+        if (neighbor == j) {
+            return (hvr_edge_type_t)EDGE_INFO_EDGE(info);
         }
     }
     return NO_EDGE;
@@ -73,10 +67,10 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
 
     int found = -1;
     if (!known_no_edge) {
-        for (unsigned iter = 0; iter < curr_len; iter++) {
-            hvr_edge_info_t e = curr_edges[iter];
-            hvr_vertex_id_t neighbor = EDGE_INFO_VERTEX(e);
-            if (neighbor == j) {
+        for (uint16_t iter = 0; iter < curr_len; iter++) {
+            const hvr_edge_info_t e = curr_edges[iter];
+            const hvr_vertex_id_t neighbor = EDGE_INFO_VERTEX(e);
+            if  (neighbor == j) {
                 found = iter;
                 break;
             }
@@ -86,10 +80,9 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
     if (found >= 0) {
         // Existing neighbor
         if (e == NO_EDGE) {
-            // Delete entry
+            // Delete existing entry, shift all following entries down
             curr_edges[found] = curr_edges[curr_len - 1];
             m->edges_len[i] = curr_len - 1;
-            hvr_bloom_remove(j, m->blms + i);
         } else {
             // Overwrite entry
             curr_edges[found] = construct_edge_info(j, e, create_type);
@@ -118,11 +111,13 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
                 abort();
             }
             m->edges_capacity[i] = new_capacity;
+
+            // Update local variable after realloc
+            curr_edges = m->edges[i];
         }
 
-        (m->edges[i])[curr_len] = construct_edge_info(j, e, create_type);
+        curr_edges[curr_len] = construct_edge_info(j, e, create_type);
         m->edges_len[i] += 1;
-        hvr_bloom_set(j, m->blms + i);
     }
 }
 

@@ -1,6 +1,6 @@
 /* For license: see LICENSE.txt file at top-level */
 
-#define _BSD_SOURCE
+#define _DEFAULT_SOURCE
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -97,8 +97,10 @@ typedef struct _profiling_info_t {
     size_t my_vert_subs_bytes;
     size_t producer_info_bytes;
     size_t dead_info_bytes;
-    size_t vertex_cache_capacity;
+    size_t vertex_cache_allocated;
     size_t vertex_cache_used;
+    size_t vertex_cache_symm_allocated;
+    size_t vertex_cache_symm_used;
     unsigned vertex_cache_max_len;
 
     size_t edge_bytes_used;
@@ -1121,11 +1123,11 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_mailbox_init(&new_ctx->vert_sub_mailbox,              32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->edge_create_mailbox,           32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_msg_mailbox,            32 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->coupling_mailbox,              16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->coupling_ack_and_dead_mailbox, 16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->coupling_val_mailbox,          16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->to_couple_with_mailbox,        16 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->root_info_mailbox,             16 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->coupling_mailbox,              8 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->coupling_ack_and_dead_mailbox, 8 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->coupling_val_mailbox,          8 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->to_couple_with_mailbox,        8 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->root_info_mailbox,             8 * 1024 * 1024);
 
     const unsigned n_to_buffer = 32;
     hvr_mailbox_buffer_init(&new_ctx->vert_sub_mailbox_buffer,
@@ -1520,11 +1522,11 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
 
     /*
      * Am I subscribed to the partition the vertex is now in, or have explicit
-     * edges on this vertex (meaning I am subscribed specifically to it.
+     * edges on this vertex (meaning I am subscribed specifically to it).
      */
-    int am_subscribed = hvr_set_contains(new_partition,
-            ctx->subscribed_partitions) ||
-        (updated && updated->n_explicit_edges > 0);
+    int am_subscribed = (updated && updated->n_explicit_edges > 0) ||
+        (new_partition != HVR_INVALID_PARTITION &&
+         hvr_set_contains(new_partition, ctx->subscribed_partitions));
 
     /*
      * If this is a vertex we already know about then we have
@@ -1936,11 +1938,9 @@ static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t vid,
     if (owning_pe != ctx->pe) {
         if (hvr_set_contains(owning_pe, ctx->all_terminated_pes)) {
             // Already terminated, just pull this vertex's latest value.
-            hvr_vertex_t local;
-            shmem_getmem(&local,
+            shmem_getmem(&cached->vert,
                     ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(vid),
-                    sizeof(local), owning_pe);
-            memcpy(&cached->vert, optional_body, sizeof(*optional_body));
+                    sizeof(cached->vert), owning_pe);
             cached->populated = 1;
         } else {
             // Notify owning PE that we are subscribed to this vertex
@@ -2962,14 +2962,16 @@ static void save_profiling_info(
 #endif
 
 #ifdef DETAILED_PRINTS
-    size_t vertex_cache_capacity, vertex_cache_used;
+    size_t vertex_cache_allocated, vertex_cache_used,
+           vertex_cache_symm_allocated, vertex_cache_symm_used;
 
     size_t edge_bytes_used, edge_bytes_allocated, edge_bytes_capacity,
            max_edges, max_edges_index;
     hvr_irr_matrix_usage(&edge_bytes_used, &edge_bytes_capacity,
             &edge_bytes_allocated, &max_edges, &max_edges_index, &ctx->edges);
 
-    hvr_vertex_cache_mem_used(&vertex_cache_used, &vertex_cache_capacity,
+    hvr_vertex_cache_mem_used(&vertex_cache_used, &vertex_cache_allocated,
+            &vertex_cache_symm_used, &vertex_cache_symm_allocated,
             &ctx->vec_cache);
 
     saved_profiling_info[n_profiled_iters].remote_partition_subs_bytes =
@@ -2991,10 +2993,14 @@ static void save_profiling_info(
     saved_profiling_info[n_profiled_iters].dead_info_bytes =
         dead_info_capacity;
 
-    saved_profiling_info[n_profiled_iters].vertex_cache_capacity =
-        vertex_cache_capacity;
+    saved_profiling_info[n_profiled_iters].vertex_cache_allocated =
+        vertex_cache_allocated;
     saved_profiling_info[n_profiled_iters].vertex_cache_used =
         vertex_cache_used;
+    saved_profiling_info[n_profiled_iters].vertex_cache_symm_allocated =
+        vertex_cache_symm_allocated;
+    saved_profiling_info[n_profiled_iters].vertex_cache_symm_used =
+        vertex_cache_symm_used;
     saved_profiling_info[n_profiled_iters].edge_bytes_used =
         edge_bytes_used;
     saved_profiling_info[n_profiled_iters].edge_bytes_allocated =
@@ -3141,11 +3147,16 @@ static void print_profiling_info(profiling_info_t *info) {
     fprintf(profiling_fp, "    producer info = %f MB, dead info = %f MB\n",
             (double)info->producer_info_bytes / (1024.0 * 1024.0),
             (double)info->dead_info_bytes / (1024.0 * 1024.0));
-    fprintf(profiling_fp, "    vertex cache = %f MB / %f MB (%f%%)\n",
+    fprintf(profiling_fp, "    vertex cache = %f MB / %f MB (%f%%), symm = "
+            "%f MB / %f MB (%f%%)\n",
             (double)info->vertex_cache_used / (1024.0 * 1024.0),
-            (double)info->vertex_cache_capacity / (1024.0 * 1024.0),
+            (double)info->vertex_cache_allocated / (1024.0 * 1024.0),
             100.0 * (double)info->vertex_cache_used /
-            (double)info->vertex_cache_capacity);
+            (double)info->vertex_cache_allocated,
+            (double)info->vertex_cache_symm_used / (1024.0 * 1024.0),
+            (double)info->vertex_cache_symm_allocated / (1024.0 * 1024.0),
+            100.0 * (double)info->vertex_cache_symm_used /
+            (double)info->vertex_cache_symm_allocated);
     fprintf(profiling_fp, "    edge set: used=%f MB, allocated=%f MB, "
             "capacity=%f MB, max # edges=%lu, max edges index=%llu\n",
             (double)info->edge_bytes_used / (1024.0 * 1024.0),
