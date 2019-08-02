@@ -274,6 +274,80 @@ hvr_graph_id_t hvr_graph_create(hvr_ctx_t in_ctx) {
     return (1 << next_graph);
 }
 
+static void collect_impacted_vertices(hvr_vertex_cache_node_t *node,
+        hvr_vertex_cache_node_t **head, hvr_internal_ctx_t *ctx) {
+    if (node->tmp) {
+        // Already traversed and in the list
+        return;
+    }
+
+    node->tmp = *head;
+    *head = node;
+
+    hvr_edge_info_t *edge_buffer;
+    unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
+            CACHE_NODE_OFFSET(node, &ctx->vec_cache),
+            &edge_buffer, &ctx->edges);
+
+    for (unsigned n = 0; n < n_neighbors; n++) {
+        hvr_vertex_id_t offset = EDGE_INFO_VERTEX(edge_buffer[n]);
+        hvr_vertex_cache_node_t *neighbor = CACHE_NODE_BY_OFFSET(offset,
+                &ctx->vec_cache);
+        if (neighbor->dist_from_local_vert == node->dist_from_local_vert + 1) {
+            collect_impacted_vertices(neighbor, head, ctx);
+        }
+    }
+
+    node->dist_from_local_vert = UINT8_MAX;
+}
+
+static int update_dist_from_neighbors(hvr_vertex_cache_node_t *node,
+        hvr_internal_ctx_t *ctx) {
+    uint8_t new_dist = node->dist_from_local_vert;
+
+    hvr_edge_info_t *edge_buffer;
+    unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
+            CACHE_NODE_OFFSET(node, &ctx->vec_cache),
+            &edge_buffer, &ctx->edges);
+
+    for (unsigned n = 0; n < n_neighbors; n++) {
+        hvr_vertex_id_t offset = EDGE_INFO_VERTEX(edge_buffer[n]);
+        hvr_vertex_cache_node_t *neighbor = CACHE_NODE_BY_OFFSET(offset,
+                &ctx->vec_cache);
+        uint8_t dist = neighbor->dist_from_local_vert;
+        if (dist != UINT8_MAX && dist + 1 < new_dist) {
+            new_dist = dist + 1;
+        }
+    }
+
+    int changed = (node->dist_from_local_vert != new_dist);
+    node->dist_from_local_vert = new_dist;
+    return changed;
+}
+
+static void update_distance_after_edge_update(hvr_vertex_cache_node_t *node,
+        hvr_internal_ctx_t *ctx) {
+    hvr_vertex_cache_node_t *head = NULL;
+    collect_impacted_vertices(node, &head, ctx);
+
+    int changed;
+    do {
+        changed = 0;
+        hvr_vertex_cache_node_t *iter = head;
+        while (iter) {
+            changed = (changed || update_dist_from_neighbors(iter, ctx));
+            iter = iter->tmp;
+        }
+    } while (changed);
+
+    // Clear our list
+    while (head) {
+        hvr_vertex_cache_node_t *next = head->tmp;
+        head->tmp = NULL;
+        head = next;
+    }
+}
+
 // The only place where edges between vertices are created/deleted
 static inline void update_edge_info(hvr_vertex_id_t base_id,
         hvr_vertex_id_t neighbor_id,
@@ -315,11 +389,19 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
         neighbor->n_local_neighbors += base_is_local;
 
         /*
-         * TODO Find if either vertex's distance-to-local is < the other's
+         * Find if either vertex's distance-to-local is < the other's
          * minus one. If so, update the other's distance to be the new lower
          * value, and cascade those updates through any neighbors whose
          * distances are == the old value + 1.
          */
+        if (base->dist_from_local_vert < neighbor->dist_from_local_vert - 1) {
+            // Need to update neighbor and cascade
+            update_distance_after_edge_update(neighbor, ctx);
+        } else if (neighbor->dist_from_local_vert <
+                base->dist_from_local_vert - 1) {
+            // Need to update base and cascade
+            update_distance_after_edge_update(base, ctx);
+        }
     } else if (new_edge == NO_EDGE) {
         // existing edge != NO_EDGE (deleting an existing edge)
         hvr_irr_matrix_set(base_offset, neighbor_offset, NO_EDGE, creation_type,
@@ -332,10 +414,20 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
         neighbor->n_local_neighbors -= base_is_local;
 
         /*
-         * TODO check if either vertex's distance is equal to the other's
+         * Check if either vertex's distance is equal to the other's
          * distance + 1. If so, its shortest path may be through that neighbor.
          * Re-compute and update its distances.
          */
+        assert(abs(base->dist_from_local_vert -
+                    neighbor->dist_from_local_vert) <= 1);
+        if (base->dist_from_local_vert == neighbor->dist_from_local_vert + 1) {
+            // Need to update base
+            update_distance_after_edge_update(base, ctx);
+        } else if (neighbor->dist_from_local_vert ==
+                base->dist_from_local_vert + 1) {
+            // Need to update neighbor
+            update_distance_after_edge_update(neighbor, ctx);
+        }
     } else {
         // Neither new or existing is NO_EDGE (updating existing edge)
         hvr_irr_matrix_set(base_offset, neighbor_offset, new_edge,
@@ -1746,31 +1838,6 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
     return n_updates;
 }
 
-static hvr_vertex_cache_node_t *add_neighbors_to_q(
-        hvr_vertex_cache_node_t *node,
-        hvr_vertex_cache_node_t *newq,
-        hvr_internal_ctx_t *ctx) {
-    hvr_edge_info_t *edge_buffer;
-    unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
-            CACHE_NODE_OFFSET(node, &ctx->vec_cache),
-            &edge_buffer, &ctx->edges);
-
-    for (size_t n = 0; n < n_neighbors; n++) {
-        hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
-                EDGE_INFO_VERTEX(edge_buffer[n]), &ctx->vec_cache);
-
-        if (get_dist_from_local_vert(cached_neighbor, ctx->iter, ctx->pe,
-                    &ctx->vec_cache) == UINT8_MAX) {
-            set_dist_from_local_vert(cached_neighbor, UINT8_MAX - 1, ctx->iter);
-            cached_neighbor->tmp = newq;
-            newq = cached_neighbor;
-        }
-    }
-
-    node->tmp = NULL;
-    return newq;
-}
-
 static inline void update_partition_distance(hvr_vertex_cache_node_t *node,
         uint8_t dist, uint8_t *partition_min_dist_from_local_vert) {
     const hvr_partition_t curr_part = node->vert.curr_part;
@@ -1793,35 +1860,23 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
     memset(partition_min_dist_from_local_vert, 0xff,
             sizeof(*partition_min_dist_from_local_vert) * ctx->n_partitions);
 
-    if (max_graph_traverse_depth == 1) {
-        // Common case, allows us to avoid extra add_neighbors_to_q
-        while (q) {
-            set_dist_from_local_vert(q, 1, ctx->iter);
-            update_partition_distance(q, 1, partition_min_dist_from_local_vert);
-            q = q->local_neighbors_next;
-        }
-    } else {
-        hvr_vertex_cache_node_t *newq = NULL;
-        while (q) {
-            set_dist_from_local_vert(q, 1, ctx->iter);
-            update_partition_distance(q, 1, partition_min_dist_from_local_vert);
-            newq = add_neighbors_to_q(q, newq, ctx);
-            q = q->local_neighbors_next;
-        }
-
-        // Save distances for all vertices within the required graph depth
-        for (unsigned l = 2; l <= max_graph_traverse_depth; l++) {
-            newq = NULL;
-            while (q) {
-                hvr_vertex_cache_node_t *next_q = q->tmp;
-                set_dist_from_local_vert(q, l, ctx->iter);
-                update_partition_distance(q, l,
-                        partition_min_dist_from_local_vert);
-                newq = add_neighbors_to_q(q, newq, ctx);
-                q = next_q;
+    for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
+        hvr_vertex_t *iter = hvr_partition_list_head(p,
+                &ctx->local_partition_lists);
+        if (iter) {
+            partition_min_dist_from_local_vert[p] = 0;
+        } else {
+            uint8_t min_dist = UINT8_MAX;
+            iter = hvr_partition_list_head(p, &ctx->mirror_partition_lists);
+            while (iter) {
+                const uint8_t distance =
+                    ((hvr_vertex_cache_node_t *)iter)->dist_from_local_vert;
+                if (distance < min_dist) {
+                    min_dist = distance;
+                }
+                iter = iter->next_in_partition;
             }
-
-            q = newq;
+            partition_min_dist_from_local_vert[p] = min_dist;
         }
     }
 }

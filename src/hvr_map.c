@@ -141,7 +141,12 @@ void hvr_map_add(hvr_vertex_id_t key, void *to_insert, int replace,
             if (last_seg_in_bucket->nkeys == HVR_MAP_SEG_SIZE) {
                 // Have to append new segment
                 hvr_map_seg_t *new_seg = m->seg_pool;
-                assert(new_seg);
+                if (!new_seg) {
+                    fprintf(stderr, "ERROR> Ran out of map segments (%u "
+                            "pre-allocated) Consider increasing %s.\n",
+                            m->n_prealloc, m->seg_env_var);
+                    abort();
+                }
                 m->seg_pool = new_seg->next;
                 memset(new_seg, 0x00, sizeof(*new_seg));
 

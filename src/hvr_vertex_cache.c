@@ -102,13 +102,16 @@ static inline hvr_vertex_cache_node_t *allocate_node_from_pool(
 
     memset(new_node, 0x00, sizeof(*new_node));
     new_node->populated = 1;
+    new_node->dist_from_local_vert = UINT8_MAX;
 
     return new_node;
 }
 
+// Used for local vertices
 hvr_vertex_cache_node_t *hvr_vertex_cache_reserve(hvr_vertex_cache_t *cache,
         int pe, hvr_time_t iter) {
     hvr_vertex_cache_node_t *new_node = allocate_node_from_pool(cache);
+    new_node->dist_from_local_vert = 0;
 
     hvr_vertex_init(&new_node->vert,
             construct_vertex_id(pe, new_node - cache->pool_mem), iter);
@@ -120,6 +123,7 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_reserve(hvr_vertex_cache_t *cache,
     return new_node;
 }
 
+// Used for mirrored vertices
 hvr_vertex_cache_node_t *hvr_vertex_cache_add(hvr_vertex_t *vert,
         hvr_vertex_cache_t *cache) {
     hvr_vertex_cache_node_t *new_node = allocate_node_from_pool(cache);

@@ -41,7 +41,6 @@ typedef struct _hvr_vertex_cache_node_t {
     unsigned n_local_neighbors;
     unsigned n_explicit_edges;
     uint8_t dist_from_local_vert;
-    hvr_time_t dist_from_local_vert_iter;
 
     int flag;
     int populated;
@@ -80,23 +79,6 @@ static inline hvr_vertex_cache_node_t *CACHE_NODE_BY_OFFSET(
         hvr_vertex_id_t offset, hvr_vertex_cache_t *cache) {
     assert(offset < cache->pool_size);
     return cache->pool_mem + offset;
-}
-
-static inline void set_dist_from_local_vert(hvr_vertex_cache_node_t *node,
-        uint8_t dist, hvr_time_t curr_iter) {
-    node->dist_from_local_vert = dist;
-    node->dist_from_local_vert_iter = curr_iter;
-}
-
-static inline uint8_t get_dist_from_local_vert(hvr_vertex_cache_node_t *node,
-        hvr_time_t curr_iter, int my_pe, hvr_vertex_cache_t *cache) {
-    if (VERTEX_ID_PE(node->vert.id) == my_pe) {
-        return 0;
-    } else if (node->dist_from_local_vert_iter != curr_iter) {
-        return UINT8_MAX;
-    } else {
-        return node->dist_from_local_vert;
-    }
 }
 
 static inline int local_neighbor_list_contains(hvr_vertex_cache_node_t *node,
