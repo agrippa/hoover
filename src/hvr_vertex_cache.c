@@ -68,15 +68,7 @@ void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *node,
     hvr_map_remove(node->vert.id, node, &cache->cache_map);
 
     // Remove from local neighbors list if it is present
-    if (local_neighbor_list_contains(node, cache)) {
-        linked_list_remove_helper(node, node->local_neighbors_prev,
-                node->local_neighbors_next,
-                node->local_neighbors_prev ?
-                    &(node->local_neighbors_prev->local_neighbors_next) : NULL,
-                node->local_neighbors_next ?
-                    &(node->local_neighbors_next->local_neighbors_prev) : NULL,
-                &(cache->local_neighbors_head));
-    }
+    hvr_vertex_cache_remove_from_local_neighbor_list(node, cache);
 
     // Insert into pool using bucket pointers
     if (cache->pool_head) {
@@ -116,7 +108,6 @@ static inline hvr_vertex_cache_node_t *allocate_node_from_pool(
 
 hvr_vertex_cache_node_t *hvr_vertex_cache_reserve(hvr_vertex_cache_t *cache,
         int pe, hvr_time_t iter) {
-    // Assume that vec is not already in the cache, but don't enforce this
     hvr_vertex_cache_node_t *new_node = allocate_node_from_pool(cache);
 
     hvr_vertex_init(&new_node->vert,

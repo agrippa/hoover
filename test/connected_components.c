@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
             hvr_sparse_arr_seg_t *seg = (hvr_ctx->my_vert_subs.segs)[i];
             if (seg) {
                 for (int j = 0; j < HVR_SPARSE_ARR_SEGMENT_SIZE; j++) {
-                    unsigned len = seg->seg_lengths[j];
+                    unsigned len = seg->seg_size[j];
                     if (len > 0) {
                         printf("%lu %d %d\n", i, j, len);
                     }

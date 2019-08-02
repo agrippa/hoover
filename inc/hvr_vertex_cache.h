@@ -34,6 +34,10 @@ typedef struct _hvr_vertex_cache_node_t {
     struct _hvr_vertex_cache_node_t *local_neighbors_next;
     struct _hvr_vertex_cache_node_t *local_neighbors_prev;
 
+    // Construct a list of local vertices only.
+    struct _hvr_vertex_cache_node_t *locals_next;
+    struct _hvr_vertex_cache_node_t *locals_prev;
+
     unsigned n_local_neighbors;
     unsigned n_explicit_edges;
     uint8_t dist_from_local_vert;
@@ -48,6 +52,7 @@ typedef struct _hvr_vertex_cache_node_t {
  */
 typedef struct _hvr_vertex_cache_t {
     hvr_vertex_cache_node_t *local_neighbors_head;
+    hvr_vertex_cache_node_t *locals_head;
 
     /*
      * A map datastructure used to enable quick lookup of
@@ -67,6 +72,7 @@ typedef struct _hvr_vertex_cache_t {
     // Keeps a count of mirrored vertices
     unsigned long long n_cached_vertices;
     unsigned long long n_local_vertices;
+
     int pe;
 } hvr_vertex_cache_t;
 
@@ -97,6 +103,11 @@ static inline int local_neighbor_list_contains(hvr_vertex_cache_node_t *node,
         hvr_vertex_cache_t *cache) {
     return node->local_neighbors_next || node->local_neighbors_prev ||
         cache->local_neighbors_head == node;
+}
+
+static inline int locals_list_contains(hvr_vertex_cache_node_t *node,
+        hvr_vertex_cache_t *cache) {
+    return node->locals_next || node->locals_prev || cache->locals_head == node;
 }
 
 static inline void linked_list_remove_helper(hvr_vertex_cache_node_t *to_remove,
@@ -147,7 +158,35 @@ static inline void hvr_vertex_cache_add_to_local_neighbor_list(
             cache->local_neighbors_head->local_neighbors_prev = node;
         }
         node->local_neighbors_next = cache->local_neighbors_head;
+        node->local_neighbors_prev = NULL;
         cache->local_neighbors_head = node;
+    }
+}
+
+static inline void hvr_vertex_cache_remove_from_locals_list(
+        hvr_vertex_cache_node_t *node, hvr_vertex_cache_t *cache) {
+    if (locals_list_contains(node, cache)) {
+        linked_list_remove_helper(node, node->locals_prev,
+                node->locals_next,
+                node->locals_prev ?
+                &(node->locals_prev->locals_next) : NULL,
+                node->locals_next ?
+                &(node->locals_next->locals_prev) : NULL,
+                &(cache->locals_head));
+        node->locals_prev = NULL;
+        node->locals_next = NULL;
+    }
+}
+
+static inline void hvr_vertex_cache_add_to_locals_list(
+        hvr_vertex_cache_node_t *node, hvr_vertex_cache_t *cache) {
+    if (!locals_list_contains(node, cache)) {
+        if (cache->locals_head) {
+            cache->locals_head->locals_prev = node;
+        }
+        node->locals_next = cache->locals_head;
+        node->locals_prev = NULL;
+        cache->locals_head = node;
     }
 }
 

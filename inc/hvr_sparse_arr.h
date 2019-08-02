@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include "dlmalloc.h"
+#include "hvr_avl_tree.h"
 
 /*
  * A HOOVER sparse array allows the insertion, deletion, and check for tuple
@@ -28,10 +29,9 @@
 #define HVR_SPARSE_ARR_SEGMENT_SIZE 1024
 
 typedef struct _hvr_sparse_arr_seg_t {
-    int *seg[HVR_SPARSE_ARR_SEGMENT_SIZE];
-    unsigned seg_lengths[HVR_SPARSE_ARR_SEGMENT_SIZE];
-    unsigned seg_capacities[HVR_SPARSE_ARR_SEGMENT_SIZE];
-    struct _hvr_sparse_arr_seg_t *next;
+    struct node *seg[HVR_SPARSE_ARR_SEGMENT_SIZE];
+    unsigned seg_size[HVR_SPARSE_ARR_SEGMENT_SIZE];
+    struct _hvr_sparse_arr_seg_t *next; // Only used for maintaining segs_pool
 } hvr_sparse_arr_seg_t;
 
 typedef struct _hvr_sparse_arr_t {
@@ -64,8 +64,6 @@ extern void hvr_sparse_arr_remove_row(unsigned i,
 
 extern unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
         hvr_sparse_arr_t *arr);
-
-extern unsigned hvr_sparse_arr_row_length(unsigned i, hvr_sparse_arr_t *arr);
 
 extern size_t hvr_sparse_arr_used_bytes(hvr_sparse_arr_t *arr);
 

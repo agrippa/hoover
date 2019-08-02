@@ -15,7 +15,7 @@ HOOVER_OBJS=bin/hoover.o bin/hvr_vertex_iter.o \
 			bin/hvr_msg_buf_pool.o bin/hvr_irregular_matrix.o \
 			bin/hvr_buffered_msgs.o bin/dlmalloc.o \
 			bin/shmem_rw_lock.o bin/hvr_partition_list.o \
-			bin/hvr_mailbox_buffer.o bin/hvr_bloom.o
+			bin/hvr_mailbox_buffer.o bin/hvr_bloom.o bin/hvr_avl_tree.o
 HOOVER_MT_OBJS=$(patsubst bin/%.o,bin/%.mo,$(HOOVER_OBJS))
 
 all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge_set_test bin/own_edge_test bin/vertex_test bin/init_test \

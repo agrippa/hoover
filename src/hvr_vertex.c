@@ -10,6 +10,8 @@ hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
             &ctx->vec_cache, ctx->pe, ctx->iter);
     hvr_vertex_t *allocated = &reserved->vert;
 
+    hvr_vertex_cache_add_to_locals_list(reserved, &ctx->vec_cache);
+
     allocated->next_in_partition = ctx->recently_created;
     ctx->recently_created = allocated;
 
@@ -30,6 +32,9 @@ void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
 
     hvr_sparse_arr_remove_row(VERTEX_ID_OFFSET(vert->id),
             &ctx->remote_vert_subs);
+
+    hvr_vertex_cache_remove_from_locals_list((hvr_vertex_cache_node_t *)vert,
+            &ctx->vec_cache);
 
     hvr_vertex_cache_delete((hvr_vertex_cache_node_t *)vert, &ctx->vec_cache);
 }

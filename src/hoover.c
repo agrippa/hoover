@@ -313,6 +313,13 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
 
         base->n_local_neighbors += neighbor_is_local;
         neighbor->n_local_neighbors += base_is_local;
+
+        /*
+         * TODO Find if either vertex's distance-to-local is < the other's
+         * minus one. If so, update the other's distance to be the new lower
+         * value, and cascade those updates through any neighbors whose
+         * distances are == the old value + 1.
+         */
     } else if (new_edge == NO_EDGE) {
         // existing edge != NO_EDGE (deleting an existing edge)
         hvr_irr_matrix_set(base_offset, neighbor_offset, NO_EDGE, creation_type,
@@ -323,6 +330,12 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
         // Decrement if condition holds true
         base->n_local_neighbors -= neighbor_is_local;
         neighbor->n_local_neighbors -= base_is_local;
+
+        /*
+         * TODO check if either vertex's distance is equal to the other's
+         * distance + 1. If so, its shortest path may be through that neighbor.
+         * Re-compute and update its distances.
+         */
     } else {
         // Neither new or existing is NO_EDGE (updating existing edge)
         hvr_irr_matrix_set(base_offset, neighbor_offset, new_edge,
@@ -362,10 +375,10 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
     }
 
     /*
-     * Only needs updating if this is an edge inbound in a given vertex (either
-     * directed in or bidirectional). new_edge direction is expressed relative
-     * to base (i.e. DIRECTED_IN means it is an inbound edge on base, and
-     * outbound on neighbor).
+     * Vertex attributes only need updating if this is an edge inbound in a
+     * given vertex (either directed in or bidirectional). new_edge direction
+     * is expressed relative to base (i.e. DIRECTED_IN means it is an inbound
+     * edge on base, and outbound on neighbor).
      */
     if (base_is_local && new_edge != DIRECTED_OUT) {
         mark_for_processing(&base->vert, ctx);
@@ -1811,32 +1824,6 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
             q = newq;
         }
     }
-
-    // unsigned to_delete = 0;
-    // unsigned zero_dist_verts = 0;
-    // unsigned one_dist_verts = 0;
-    // for (unsigned i = 0; i < HVR_MAP_BUCKETS; i++) {
-    //     hvr_map_seg_t *seg = ctx->vec_cache.cache_map.buckets[i];
-    //     while (seg) {
-    //         for (unsigned j = 0; j < seg->nkeys; j++) {
-    //             hvr_vertex_cache_node_t *node =
-    //                 seg->data[j].inline_vals[0].cached_vert;
-    //             uint8_t dist = get_dist_from_local_vert(node, &ctx->vec_cache,
-    //                     ctx->pe);
-    //             if (dist > ctx->max_graph_traverse_depth) {
-    //                 to_delete++;
-    //             } else if (dist == 0) {
-    //                 zero_dist_verts++;
-    //             } else if (dist == 1) {
-    //                 one_dist_verts++;
-    //             }
-    //         }
-    //         seg = seg->next;
-    //     }
-    // }
-    // fprintf(stderr, "PE %d Want to delete %u / %lu : 0-dist=%u 1-dist=%u\n",
-    //         shmem_my_pe(), to_delete, ctx->vec_cache.n_cached_vertices,
-    //         zero_dist_verts, one_dist_verts);
 }
 
 int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
