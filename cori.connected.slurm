@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 2
+#SBATCH -N 8
 #SBATCH -C haswell
 #SBATCH -t 00:05:00
 #SBATCH -J hoover-connected
@@ -40,7 +40,7 @@ cd $SCRATCH
 
 export TIME_LIMIT_IN_SECONDS=30
 export NVERTICES=10000000
-export NEDGES_PER_STEP=10000
+export NEDGES_PER_STEP=40000
 
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1

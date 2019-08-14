@@ -33,6 +33,8 @@
 #define MAX_INTERACTING_PARTITIONS 4000
 #define N_SEND_ATTEMPTS 10
 #define MAX_PROFILED_ITERS 1000
+#define MS_PER_S 1000.0
+#define MAX_MSGS_PROCESSED 1000
 
 static int print_profiling = 1;
 static int trace_shmem_malloc = 0;
@@ -1767,14 +1769,13 @@ static void process_incoming_messages(hvr_internal_ctx_t *ctx) {
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
 }
 
-#define MAX_MSGS_PROCESSED 1000
 static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         process_perf_info_t *perf_info) {
     unsigned n_updates = 0;
     size_t msg_len;
 
     const unsigned long long start = hvr_current_time_us();
-    unsigned count_msgs = 0;
+    unsigned count_delete_msgs = 0;
     // Handle deletes, then updates
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
@@ -1791,15 +1792,15 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         }
         ctx->total_vertex_msgs_recvd += (msg_len / sizeof(*msgs));
 
-        count_msgs++;
-        if (count_msgs >= MAX_MSGS_PROCESSED) break;
+        count_delete_msgs++;
+        if (count_delete_msgs >= MAX_MSGS_PROCESSED) break;
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, &ctx->vertex_delete_mailbox, 0);
     }
 
     const unsigned long long midpoint = hvr_current_time_us();
-    count_msgs = 0;
+    unsigned count_update_msgs = 0;
     success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
             &msg_len, &ctx->vertex_update_mailbox, 0);
     while (success) {
@@ -1819,8 +1820,8 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         }
         ctx->total_vertex_msgs_recvd += (msg_len / sizeof(*msgs));
 
-        count_msgs++;
-        if (count_msgs >= MAX_MSGS_PROCESSED) break;
+        count_update_msgs++;
+        if (count_update_msgs >= MAX_MSGS_PROCESSED) break;
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, &ctx->vertex_update_mailbox, 0);
@@ -1900,24 +1901,9 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
             CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
             &edge_buffer, &ctx->edges);
 
-    /*
-     * Figure out how many of these neighbors have populated vertex info. A
-     * cached vertex may not be populated in the case of a vertex subscription
-     * which we haven't received data for yet.
-     */
-    unsigned n_populated_neighbors = 0;
-    for (unsigned n = 0; n < n_neighbors; n++) {
-        hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
-                EDGE_INFO_VERTEX(edge_buffer[n]), &ctx->vec_cache);
-        if (cached_neighbor->populated) {
-            n_populated_neighbors++;
-        }
-    }
-
     // Allocate buffer space to store the edges in before handing back to user
     void *tmp_buf = mspace_malloc(ctx->edge_list_allocator,
-            n_populated_neighbors * (sizeof(hvr_vertex_t *) +
-                sizeof(hvr_edge_type_t)));
+            n_neighbors * (sizeof(hvr_vertex_t *) + sizeof(hvr_edge_type_t)));
     if (!tmp_buf) {
         fprintf(stderr, "Ran out of edge pool space, consider increasing "
                 "HVR_EDGE_LIST_POOL_SIZE (%lu)\n", ctx->edge_list_pool_size);
@@ -1925,9 +1911,9 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
     }
     hvr_vertex_t **tmp_vert_ptr_buffer = (hvr_vertex_t **)tmp_buf;
     hvr_edge_type_t *tmp_dir_buffer = (hvr_edge_type_t *)(tmp_vert_ptr_buffer +
-            n_populated_neighbors);
+            n_neighbors);
 
-    n_populated_neighbors = 0;
+    unsigned n_populated_neighbors = 0;
     for (unsigned n = 0; n < n_neighbors; n++) {
         hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
                 EDGE_INFO_VERTEX(edge_buffer[n]), &ctx->vec_cache);
@@ -1946,7 +1932,6 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
 void hvr_release_neighbors(hvr_vertex_t **out_verts, hvr_edge_type_t *out_dirs,
         int n_neighbors, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    assert((hvr_vertex_t **)out_dirs == out_verts + n_neighbors);
     mspace_free(ctx->edge_list_allocator, out_verts);
 }
 
@@ -3096,45 +3081,45 @@ static void print_profiling_info(profiling_info_t *info) {
 
     fprintf(profiling_fp, "PE %d - iter %d - total %f ms\n",
             info->pe, info->iter,
-            (double)(info->end_update_coupled - info->start_iter) / 1000.0);
+            (double)(info->end_update_coupled - info->start_iter) / MS_PER_S);
     fprintf(profiling_fp, "  start time step %f\n",
-            (double)(info->end_start_time_step - info->start_iter) / 1000.0);
+            (double)(info->end_start_time_step - info->start_iter) / MS_PER_S);
     fprintf(profiling_fp, "  update vertices %f - %d updates\n",
-            (double)(info->end_update_vertices - info->end_start_time_step) / 1000.0,
+            (double)(info->end_update_vertices - info->end_start_time_step) / MS_PER_S,
             info->count_updated);
     fprintf(profiling_fp, "  update distances %f\n",
-            (double)(info->end_update_dist - info->end_update_vertices) / 1000.0);
+            (double)(info->end_update_dist - info->end_update_vertices) / MS_PER_S);
     fprintf(profiling_fp, "  update actor partitions %f\n",
-            (double)(info->end_update_partitions - info->end_update_dist) / 1000.0);
+            (double)(info->end_update_partitions - info->end_update_dist) / MS_PER_S);
     fprintf(profiling_fp, "  update partition window %f - update time = "
             "(parts=%f subscribers=%f - %f %f %f %f)\n",
-            (double)(info->end_partition_window - info->end_update_partitions) / 1000.0,
-            (double)info->time_updating_partitions / 1000.0,
-            (double)info->time_updating_subscribers / 1000.0,
-            (double)info->time_1 / 1000.0,
-            (double)info->time_2 / 1000.0,
-            (double)info->time_3_4 / 1000.0,
-            (double)info->time_5 / 1000.0);
+            (double)(info->end_partition_window - info->end_update_partitions) / MS_PER_S,
+            (double)info->time_updating_partitions / MS_PER_S,
+            (double)info->time_updating_subscribers / MS_PER_S,
+            (double)info->time_1 / MS_PER_S,
+            (double)info->time_2 / MS_PER_S,
+            (double)info->time_3_4 / MS_PER_S,
+            (double)info->time_5 / MS_PER_S);
     fprintf(profiling_fp, "  send updates %f - %u changes, %f ms sending\n",
-            (double)(info->end_send_updates - info->end_partition_window) / 1000.0,
-            info->n_updates_sent, (double)info->time_sending / 1000.0);
+            (double)(info->end_send_updates - info->end_partition_window) / MS_PER_S,
+            info->n_updates_sent, (double)info->time_sending / MS_PER_S);
 
     fprintf(profiling_fp, "  update neighbors %f\n",
-            (double)(info->end_neighbor_updates - info->end_send_updates) / 1000.0);
+            (double)(info->end_neighbor_updates - info->end_send_updates) / MS_PER_S);
     fprintf(profiling_fp, "  process vertex updates %f - %u received\n",
-            (double)(info->end_vertex_updates - info->end_neighbor_updates) / 1000.0,
+            (double)(info->end_vertex_updates - info->end_neighbor_updates) / MS_PER_S,
             info->perf_info.n_received_updates);
     fprintf(profiling_fp, "    %f on deletes\n",
-            (double)info->perf_info.time_handling_deletes / 1000.0);
+            (double)info->perf_info.time_handling_deletes / MS_PER_S);
     fprintf(profiling_fp, "    %f on news\n",
-            (double)info->perf_info.time_handling_news / 1000.0);
+            (double)info->perf_info.time_handling_news / MS_PER_S);
     fprintf(profiling_fp, "      %f s on creating new\n",
-            (double)info->perf_info.time_creating / 1000.0);
+            (double)info->perf_info.time_creating / MS_PER_S);
     fprintf(profiling_fp, "      %f s on updates - %f updating edges, "
             "%f creating edges - %u should_have_edges\n",
-            (double)info->perf_info.time_updating / 1000.0,
-            (double)info->perf_info.time_updating_edges / 1000.0,
-            (double)info->perf_info.time_creating_edges / 1000.0,
+            (double)info->perf_info.time_updating / MS_PER_S,
+            (double)info->perf_info.time_updating_edges / MS_PER_S,
+            (double)info->perf_info.time_creating_edges / MS_PER_S,
             info->perf_info.count_new_should_have_edges);
     fprintf(profiling_fp, "  coupling %f - %f ms coupling, "
             "%f ms waiting, "
@@ -3147,19 +3132,19 @@ static void print_profiling_info(profiling_info_t *info) {
             "%f processing (%f negotiating), "
             "%f sharing, "
             "%f waiting\n",
-            (double)(info->end_update_coupled - info->end_vertex_updates) / 1000.0,
-            (double)info->coupling_coupling / 1000.0,
-            (double)info->coupling_waiting / 1000.0,
-            (double)info->coupling_after / 1000.0,
-            (double)info->coupling_should_terminate / 1000.0,
+            (double)(info->end_update_coupled - info->end_vertex_updates) / MS_PER_S,
+            (double)info->coupling_coupling / MS_PER_S,
+            (double)info->coupling_waiting / MS_PER_S,
+            (double)info->coupling_after / MS_PER_S,
+            (double)info->coupling_should_terminate / MS_PER_S,
             info->coupling_naborts,
             info->n_coupled_pes,
             info->coupled_pes_root,
-            (double)info->coupling_waiting_for_prev / 1000.0,
-            (double)info->coupling_processing_new_requests / 1000.0,
-            (double)info->coupling_negotiating /1000.0,
-            (double)info->coupling_sharing_info / 1000.0,
-            (double)info->coupling_waiting_for_info / 1000.0);
+            (double)info->coupling_waiting_for_prev / MS_PER_S,
+            (double)info->coupling_processing_new_requests / MS_PER_S,
+            (double)info->coupling_negotiating / MS_PER_S,
+            (double)info->coupling_sharing_info / MS_PER_S,
+            (double)info->coupling_waiting_for_info / MS_PER_S);
     fprintf(profiling_fp, "  %d / %d producer partitions and %d / %d "
             "subscriber partitions for %lu local vertices, %llu mirrored "
             "vertices\n",

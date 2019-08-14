@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
-#SBATCH -p debug
-#SBATCH -N 3
+#SBATCH -p regular
+#SBATCH -N 65
 #SBATCH -C haswell
 #SBATCH -t 00:20:00
 #SBATCH -J flink
@@ -23,7 +23,7 @@ export GELLY_STREAMING_HOME=$HOME/hoover/bench/flink-gelly/gelly-streaming
 
 # module load spark/2.3.0
 # module load scala/2.11.8
-module load java/jdk1.8.0_51
+module load jdk/1.8.0_202
 
 echo
 echo
@@ -38,6 +38,7 @@ if [[ $NHOSTS -lt 2 ]]; then
     echo Require at least 2 hosts
     exit 1
 fi
+NWORKERS=$(($NHOSTS - 1))
 
 MASTER_NODE=$(scontrol show hostname | head -n 1)
 
@@ -51,18 +52,18 @@ export CUSTOM_CLASSPATH=$CUSTOM_CLASSPATH:$FLINK_HOME/lib/flink-gelly_2.11-1.8.1
 export CUSTOM_CLASSPATH=$CUSTOM_CLASSPATH:$FLINK_HOME/lib/flink-gelly-scala_2.11-1.8.1.jar
 export CUSTOM_CLASSPATH=$CUSTOM_CLASSPATH:${GELLY_STREAMING_HOME}/target/flink-gelly-streaming-0.1.0.jar
 
-rm -f *.class
-javac -Xlint:deprecation -cp $CUSTOM_CLASSPATH CommunityDetection.java
-jar cvfm CommunityDetection.jar Manifest.txt *.class
+# rm -f *.class
+# javac -Xlint:deprecation -cp $CUSTOM_CLASSPATH CommunityDetection.java
+# jar cvfm CommunityDetection.jar Manifest.txt *.class
 
 rm -f *.class
 javac -Xlint:deprecation -cp $CUSTOM_CLASSPATH MyConnectedComponentsExample.java
 jar cvfm MyConnectedComponentsExample.jar CCManifest.txt *.class
 
-rm -f *.class
-javac -Xlint:deprecation -cp $CUSTOM_CLASSPATH WindowTriangles.java
-jar cvfm WindowTriangles.jar WTManifest.txt *.class
-
+# rm -f *.class
+# javac -Xlint:deprecation -cp $CUSTOM_CLASSPATH WindowTriangles.java
+# jar cvfm WindowTriangles.jar WTManifest.txt *.class
+ 
 FLINK_CONF=$FLINK_HOME/conf/flink-conf.yaml
 
 cat $FLINK_CONF | grep -v "^jobmanager.rpc.address" > ${FLINK_CONF}.tmp
@@ -83,6 +84,14 @@ cat $FLINK_CONF | grep -v "^taskmanager.debug.memory.log-interval:" > ${FLINK_CO
 mv ${FLINK_CONF}.tmp $FLINK_CONF
 cat $FLINK_CONF | grep -v "^resourcemanager.taskmanager-timeout:" > ${FLINK_CONF}.tmp
 mv ${FLINK_CONF}.tmp $FLINK_CONF
+cat $FLINK_CONF | grep -v "^taskmanager.network.memory.max:" > ${FLINK_CONF}.tmp
+mv ${FLINK_CONF}.tmp $FLINK_CONF
+cat $FLINK_CONF | grep -v "^taskmanager.network.memory.min:" > ${FLINK_CONF}.tmp
+mv ${FLINK_CONF}.tmp $FLINK_CONF
+cat $FLINK_CONF | grep -v "^taskmanager.network.memory.fraction:" > ${FLINK_CONF}.tmp
+mv ${FLINK_CONF}.tmp $FLINK_CONF
+cat $FLINK_CONF | grep -v "^slot.request.timeout:" > ${FLINK_CONF}.tmp
+mv ${FLINK_CONF}.tmp $FLINK_CONF
 
 echo "jobmanager.rpc.address: $MASTER_NODE" >> $FLINK_CONF
 echo "jobmanager.heap.size: 4096m" >> $FLINK_CONF
@@ -93,14 +102,20 @@ echo "io.tmp.dirs: /tmp/" >> $FLINK_CONF
 echo "taskmanager.debug.memory.log: false" >> $FLINK_CONF
 echo "taskmanager.debug.memory.log-interval: 500" >> $FLINK_CONF
 echo "resourcemanager.taskmanager-timeout: 60000" >> $FLINK_CONF
+echo "taskmanager.network.memory.max: 6gb" >> $FLINK_CONF
+echo "taskmanager.network.memory.min: 6gb" >> $FLINK_CONF
+echo "taskmanager.network.memory.fraction: 0.2" >> $FLINK_CONF
+echo "slot.request.timeout: 600000" >> $FLINK_CONF
 
 scontrol show hostname | tail -n +2 > $FLINK_HOME/conf/slaves
 
 $FLINK_HOME/bin/start-cluster.sh
 
+echo "Running with parallelism $(($NWORKERS * 32))"
+
 # ./flink-1.8.1/bin/flink run ./flink-1.8.1/examples/gelly/flink-gelly-examples_*.jar --algorithm PageRank --input HypercubeGraph --dimensions 3 --output Print
 # $FLINK_HOME/bin/flink run CommunityDetection.jar 27
-$FLINK_HOME/bin/flink run --parallelism 64 \
+$FLINK_HOME/bin/flink run --parallelism $(($NWORKERS * 32)) \
     MyConnectedComponentsExample.jar 10000 2000 30000 10000000
 # $FLINK_HOME/bin/flink run WindowTriangles.jar
 

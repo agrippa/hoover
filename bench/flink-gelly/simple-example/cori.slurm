@@ -18,11 +18,13 @@ ulimit -c unlimited
 echo "Running on:"
 echo $SLURM_NODELIST
 
-export FLINK_HOME=$HOME/hoover/bench/flink-gelly/flink-1.8.1
+export FLINK_HOME=$HOME/hoover/bench/flink-gelly/flink-1.8.1-src/flink-1.8.1/flink-dist/target/flink-1.8.1-bin/flink-1.8.1/
+# export FLINK_HOME=$HOME/hoover/bench/flink-gelly/flink-1.8.1-src/flink-1.8.1/build-target
+# export FLINK_HOME=$HOME/hoover/bench/flink-gelly/flink-1.8.1
 
 # module load spark/2.3.0
 # module load scala/2.11.8
-module load java/jdk1.8.0_51
+module load jdk/1.8.0_202
 
 echo
 echo

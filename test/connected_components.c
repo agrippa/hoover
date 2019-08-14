@@ -60,8 +60,10 @@ hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
 void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
     for (int e = 0; e < n_edges_to_add; e++) {
+        // uint64_t dst_vertex_pe = fast_rand() % npes;
+        uint64_t dst_vertex_pe = ctx->pe;
+
         uint64_t src_vertex_offset = fast_rand() % nvertices_per_pe;
-        uint64_t dst_vertex_pe = fast_rand() % npes;
         uint64_t dst_vertex_offset = fast_rand() % nvertices_per_pe;
 
         hvr_vertex_id_t src_vert_id = construct_vertex_id(pe,
@@ -132,7 +134,17 @@ int main(int argc, char **argv) {
 
     pe = shmem_my_pe();
     npes = shmem_n_pes();
-    assert(nvertices >= npes && nvertices % npes == 0);
+    assert(nvertices >= npes);
+
+    if ((nvertices % npes) != 0) {
+        uint64_t new_nvertices = nvertices + (npes - (nvertices % npes));
+        if (pe == 0) {
+            fprintf(stderr, "WARNING: rounding # vertices up from %llu to %llu\n",
+                    nvertices, new_nvertices);
+        }
+        nvertices = new_nvertices;
+    }
+    assert(nvertices % npes == 0);
     nvertices_per_pe = nvertices / npes;
 
     if (pe == 0) {
