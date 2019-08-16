@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 #include "hvr_vertex_cache.h"
+#include "hvr_neighbors.h"
 #include "hvr_common.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
@@ -422,8 +423,8 @@ extern int hvr_my_pe(hvr_ctx_t ctx);
 // Simple utility for time measurement in microseconds
 extern unsigned long long hvr_current_time_us();
 
-extern int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
-        hvr_edge_type_t **out_dirs, hvr_ctx_t in_ctx);
+extern void hvr_get_neighbors(hvr_vertex_t *vert, hvr_neighbors_t *neighbors,
+        hvr_ctx_t in_ctx);
 
 extern void hvr_release_neighbors(hvr_vertex_t **out_verts,
         hvr_edge_type_t *out_dirs, int n_neighbors, hvr_ctx_t in_ctx);

@@ -83,22 +83,25 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
 void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
     // Find connected components in graph via label propagation
-    hvr_vertex_t **neighbors;
-    hvr_edge_type_t *neighbor_dirs;
-    int n_neighbors = hvr_get_neighbors(vertex, &neighbors,
-            &neighbor_dirs, ctx);
+
+    hvr_neighbors_t neighbors;
+    hvr_vertex_t *neighbor;
+    hvr_edge_type_t neighbor_dir;
+    hvr_get_neighbors(vertex, &neighbors, ctx);
 
     uint64_t min_supernode_lbl = hvr_vertex_get_uint64(0, vertex, ctx);
-    for (int i = 0; i < n_neighbors; i++) {
+    hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir);
+    while (neighbor) {
         uint64_t neighbor_lbl = hvr_vertex_get_uint64(0, neighbors[i], ctx);
         if (neighbor_lbl < min_supernode_lbl) {
             min_supernode_lbl = neighbor_lbl;
         }
+        hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir);
     }
 
     hvr_vertex_set_uint64(0, min_supernode_lbl, vertex, ctx);
 
-    hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors, ctx);
+    // hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors, ctx);
 }
 
 void might_interact(const hvr_partition_t partition,

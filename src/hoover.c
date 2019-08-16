@@ -1882,8 +1882,8 @@ static void update_distances(hvr_internal_ctx_t *ctx) {
     }
 }
 
-int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
-        hvr_edge_type_t **out_dirs, hvr_ctx_t in_ctx) {
+void hvr_get_neighbors(hvr_vertex_t *vert, hvr_neighbors_t *neighbors,
+        hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
     hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(vert->id,
             &ctx->vec_cache);
@@ -1892,7 +1892,8 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
          * Might happen due to throttling of producer checking, we may have a
          * local vertex that we don't know we are a producer for yet.
          */
-        return 0;
+        hvr_neighbors_init(NULL, 0, &ctx->vec_cache, neighbors);
+        return;
     }
 
     // Lookup edge information in ctx->edges
@@ -1900,7 +1901,9 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
     unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
             CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
             &edge_buffer, &ctx->edges);
+    hvr_neighbors_init(edge_buffer, n_neighbors, &ctx->vec_cache, neighbors);
 
+#if 0
     // Allocate buffer space to store the edges in before handing back to user
     void *tmp_buf = mspace_malloc(ctx->edge_list_allocator,
             n_neighbors * (sizeof(hvr_vertex_t *) + sizeof(hvr_edge_type_t)));
@@ -1927,6 +1930,7 @@ int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
     *out_verts = tmp_vert_ptr_buffer;
     *out_dirs = tmp_dir_buffer;
     return n_populated_neighbors;
+#endif
 }
 
 void hvr_release_neighbors(hvr_vertex_t **out_verts, hvr_edge_type_t *out_dirs,
