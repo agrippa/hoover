@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
-#SBATCH -p regular
-#SBATCH -N 65
+#SBATCH -p debug
+#SBATCH -N 64
 #SBATCH -C haswell
-#SBATCH -t 00:20:00
+#SBATCH -t 00:30:00
 #SBATCH -J flink
 #SBATCH -o flink.out
 #SBATCH -e flink.err
@@ -113,10 +113,17 @@ $FLINK_HOME/bin/start-cluster.sh
 
 echo "Running with parallelism $(($NWORKERS * 32))"
 
+export MERGE_WINDOW_TIME=1000
+export PRINT_WINDOW_TIME=2000
+# export EXECUTION_TIME=30000
+export EXECUTION_TIME=60000
+export NVERTICES=10000000
+
 # ./flink-1.8.1/bin/flink run ./flink-1.8.1/examples/gelly/flink-gelly-examples_*.jar --algorithm PageRank --input HypercubeGraph --dimensions 3 --output Print
 # $FLINK_HOME/bin/flink run CommunityDetection.jar 27
 $FLINK_HOME/bin/flink run --parallelism $(($NWORKERS * 32)) \
-    MyConnectedComponentsExample.jar 10000 2000 30000 10000000
+    MyConnectedComponentsExample.jar $MERGE_WINDOW_TIME $PRINT_WINDOW_TIME \
+    $EXECUTION_TIME $NVERTICES
 # $FLINK_HOME/bin/flink run WindowTriangles.jar
 
 $FLINK_HOME/bin/stop-cluster.sh

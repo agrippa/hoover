@@ -26,7 +26,11 @@ void hvr_vertex_cache_init(hvr_vertex_cache_t *cache) {
     hvr_vertex_cache_node_t *prealloc =
         (hvr_vertex_cache_node_t *)shmem_malloc_wrapper(
                 n_preallocs * sizeof(*prealloc));
-    assert(prealloc);
+    if (!prealloc) {
+        fprintf(stderr, "ERROR Failed allocating %llu bytes for %u cache slots."
+                "\n", n_preallocs * sizeof(*prealloc), n_preallocs);
+        abort();
+    }
     memset(prealloc, 0x00, n_preallocs * sizeof(*prealloc));
 
     prealloc[0].local_neighbors_next = prealloc + 1;

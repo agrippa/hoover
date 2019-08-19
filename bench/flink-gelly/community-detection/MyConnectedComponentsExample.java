@@ -87,11 +87,11 @@ public class MyConnectedComponentsExample implements ProgramDescription {
 
 	private static long mergeWindowTime = 1000;
 	private static long printWindowTime = 2000;
-    private static long executionTime = 30000;
-    private static long nvertices = 100;
+    private static long nedges = 100000;
+    private static long nvertices = 10000000;
 
 	private static boolean parseParameters(String[] args) {
-
+/*
 		if (args.length > 0) {
 			if (args.length != 4) {
 				System.err.println("Usage: ConnectedComponentsExample " +
@@ -104,6 +104,8 @@ public class MyConnectedComponentsExample implements ProgramDescription {
 
 			mergeWindowTime = Long.parseLong(args[0]);
 			printWindowTime = Long.parseLong(args[1]);
+            executionTime = Long.parseLong(args[2]);
+            nvertices = Long.parseLong(args[3]);
 		} else {
 			System.out.println("Executing ConnectedComponentsExample example with default parameters and built-in default data.");
 			System.out.println("  Provide parameters to read input data from files.");
@@ -111,27 +113,28 @@ public class MyConnectedComponentsExample implements ProgramDescription {
 			System.out.println("  Usage: ConnectedComponentsExample <input edges path> <merge window time (ms)> "
 					+ "print window time (ms)");
 		}
+        */
+
+        System.out.println("Using merge window=" + mergeWindowTime + ", print window=" + printWindowTime +
+                ", # edges=" + nedges + ", # vertices=" + nvertices);
+
 		return true;
 	}
 
     public static class RandomEdgeSource extends RichParallelSourceFunction<Edge<Long, NullValue>> {
         private volatile boolean isRunning = true;
-        private long startTime = System.currentTimeMillis();
-        AtomicLong count = new AtomicLong(0);
+        private long privateCount = 0;
 
         @Override
         public void run(SourceContext<Edge<Long, NullValue>> ctx) {
-            isRunning = true;
-            long privateCount = 0;
-            while (isRunning && System.currentTimeMillis() - startTime < executionTime) {
+            while (isRunning && privateCount < nedges) {
                 ctx.collect(new Edge<>(Math.abs(ThreadLocalRandom.current().nextLong()) % nvertices,
                             Math.abs(ThreadLocalRandom.current().nextLong()) % nvertices,
                             NullValue.getInstance()));
                 privateCount++;
             }
-            long acc = count.addAndGet(privateCount);
             int task = ((StreamingRuntimeContext) getRuntimeContext()).getIndexOfThisSubtask();
-            System.out.println(task + "> Source count = " + acc);
+            System.out.println(task + "> Source count = " + privateCount);
         }
 
         @Override

@@ -1433,6 +1433,63 @@ static void send_all_vertices_in_partition(int pe, hvr_partition_t part,
     }
 }
 
+static void process_vertex_subscriptions(hvr_internal_ctx_t *ctx,
+        int max_iters) {
+    size_t msg_len;
+    hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
+            &ctx->msg_buf_pool);
+
+    int iter = 0;
+    int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
+            &msg_len, &ctx->vert_sub_mailbox, 0);
+    while (success && (max_iters == -1 || iter < max_iters)) {
+        assert(msg_len % sizeof(hvr_vertex_subscription_t) == 0);
+        hvr_vertex_subscription_t *changes =
+            (hvr_vertex_subscription_t *)msg_buf_node->ptr;
+        for (int i = 0; i < msg_len / sizeof(hvr_vertex_subscription_t); i++) {
+            hvr_vertex_subscription_t *change = changes + i;
+            assert(change->pe >= 0 && change->pe < ctx->npes);
+            assert(VERTEX_ID_PE(change->vert) == ctx->pe);
+            assert(change->entered == 0 || change->entered == 1);
+
+            hvr_vertex_id_t offset = VERTEX_ID_OFFSET(change->vert);
+            hvr_vertex_cache_node_t *local = ctx->vec_cache.pool_mem + offset;
+
+            if (change->entered) {
+                if (!hvr_sparse_arr_contains(offset, change->pe,
+                            &ctx->remote_vert_subs)) {
+                    /*
+                     * Send current state of vertex
+                     * TODO there is a problem here if a vertex subscription is sent
+                     * and not processed until after the vertex is deleted and its
+                     * cache slot re-used for something else.
+                     */
+
+                    hvr_vertex_update_t msg;
+                    hvr_vertex_update_init(&msg, &local->vert, 0);
+                    hvr_mailbox_buffer_send(&msg, sizeof(msg), change->pe, -1,
+                            &ctx->vertex_update_mailbox_buffer, 0);
+
+                    hvr_sparse_arr_insert(offset, change->pe,
+                            &ctx->remote_vert_subs);
+                }
+            } else { // change->entered == 0
+                if (hvr_sparse_arr_contains(offset, change->pe,
+                            &ctx->remote_vert_subs)) {
+                    hvr_sparse_arr_remove(offset, change->pe,
+                            &ctx->remote_vert_subs);
+                }
+            }
+        }
+
+        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
+                &msg_len, &ctx->vert_sub_mailbox, 0);
+        iter++;
+    }
+
+    hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
+}
+
 static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
         process_perf_info_t *perf_info) {
     size_t msg_len;
@@ -1491,52 +1548,8 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
                 &msg_len, &ctx->forward_mailbox, 0);
     }
 
-    // Poll for subscriptions to individual vertices
-    success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->vert_sub_mailbox, 0);
-    while (success) {
-        assert(msg_len % sizeof(hvr_vertex_subscription_t) == 0);
-        hvr_vertex_subscription_t *changes =
-            (hvr_vertex_subscription_t *)msg_buf_node->ptr;
-        for (int i = 0; i < msg_len / sizeof(hvr_vertex_subscription_t); i++) {
-            hvr_vertex_subscription_t *change = changes + i;
-            assert(change->pe >= 0 && change->pe < ctx->npes);
-            assert(VERTEX_ID_PE(change->vert) == ctx->pe);
-            assert(change->entered == 0 || change->entered == 1);
-
-            hvr_vertex_id_t offset = VERTEX_ID_OFFSET(change->vert);
-            hvr_vertex_cache_node_t *local = ctx->vec_cache.pool_mem + offset;
-
-            if (change->entered) {
-                if (!hvr_sparse_arr_contains(offset, change->pe,
-                            &ctx->remote_vert_subs)) {
-                    /*
-                     * Send current state of vertex
-                     * TODO there is a problem here if a vertex subscription is sent
-                     * and not processed until after the vertex is deleted and its
-                     * cache slot re-used for something else.
-                     */
-
-                    hvr_vertex_update_t msg;
-                    hvr_vertex_update_init(&msg, &local->vert, 0);
-                    hvr_mailbox_buffer_send(&msg, sizeof(msg), change->pe, -1,
-                            &ctx->vertex_update_mailbox_buffer, 0);
-
-                    hvr_sparse_arr_insert(offset, change->pe,
-                            &ctx->remote_vert_subs);
-                }
-            } else { // change->entered == 0
-                if (hvr_sparse_arr_contains(offset, change->pe,
-                            &ctx->remote_vert_subs)) {
-                    hvr_sparse_arr_remove(offset, change->pe,
-                            &ctx->remote_vert_subs);
-                }
-            }
-        }
-
-        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->vert_sub_mailbox, 0);
-    }
+    // Poll for new remote vertex subscriptions
+    process_vertex_subscriptions(ctx, -1);
 
     // Poll for remote edge creations
     success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
@@ -1979,8 +1992,15 @@ static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t vid,
             msg.pe = ctx->pe;
             msg.vert = vid;
             msg.entered = 1;
-            hvr_mailbox_buffer_send(&msg, sizeof(msg), owning_pe, -1,
-                    &ctx->vert_sub_mailbox_buffer, 0);
+
+            int success;
+            do {
+                success = hvr_mailbox_buffer_send(&msg, sizeof(msg), owning_pe,
+                        100, &ctx->vert_sub_mailbox_buffer, 0);
+                if (!success) {
+                    process_vertex_subscriptions(ctx, 100);
+                }
+            } while (!success);
         }
     }
 
@@ -3242,15 +3262,16 @@ static void save_local_state_to_dump_file(hvr_internal_ctx_t *ctx) {
             curr = hvr_vertex_iter_next(&iter)) {
         write_vertex_to_file(ctx->dump_file, curr, ctx);
 
-        hvr_vertex_t **vertices;
-        hvr_edge_type_t *edges;
-        int n_neighbors = hvr_get_neighbors(curr, &vertices, &edges, ctx);
+        hvr_neighbors_t neighbors;
+        hvr_get_neighbors(curr, &neighbors, ctx);
 
-        fprintf(ctx->edges_dump_file, "%u,%d,%lu,%d", ctx->iter,
-                ctx->pe, curr->id, n_neighbors);
-        for (int n = 0; n < n_neighbors; n++) {
-            hvr_vertex_t *vert = vertices[n];
-            hvr_edge_type_t edge = edges[n];
+        fprintf(ctx->edges_dump_file, "%u,%d,%lu", ctx->iter,
+                ctx->pe, curr->id);
+
+        hvr_vertex_t *vert;
+        hvr_edge_type_t edge;
+        hvr_neighbors_next(&neighbors, &vert, &edge);
+        while (vert) {
             switch (edge) {
                 case DIRECTED_IN:
                     fprintf(ctx->edges_dump_file, ",IN");
@@ -3266,6 +3287,7 @@ static void save_local_state_to_dump_file(hvr_internal_ctx_t *ctx) {
             }
             fprintf(ctx->edges_dump_file, ":%lu:%lu", VERTEX_ID_PE(vert->id),
                     VERTEX_ID_OFFSET(vert->id));
+            hvr_neighbors_next(&neighbors, &vert, &edge);
         }
         fprintf(ctx->edges_dump_file, "\n");
     }

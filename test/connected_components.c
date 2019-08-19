@@ -60,8 +60,8 @@ hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
 void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
     for (int e = 0; e < n_edges_to_add; e++) {
-        // uint64_t dst_vertex_pe = fast_rand() % npes;
-        uint64_t dst_vertex_pe = ctx->pe;
+        uint64_t dst_vertex_pe = fast_rand() % npes;
+        // uint64_t dst_vertex_pe = ctx->pe;
 
         uint64_t src_vertex_offset = fast_rand() % nvertices_per_pe;
         uint64_t dst_vertex_offset = fast_rand() % nvertices_per_pe;
@@ -85,14 +85,15 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     // Find connected components in graph via label propagation
 
     hvr_neighbors_t neighbors;
-    hvr_vertex_t *neighbor;
-    hvr_edge_type_t neighbor_dir;
     hvr_get_neighbors(vertex, &neighbors, ctx);
 
-    uint64_t min_supernode_lbl = hvr_vertex_get_uint64(0, vertex, ctx);
+    hvr_vertex_t *neighbor;
+    hvr_edge_type_t neighbor_dir;
     hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir);
+
+    uint64_t min_supernode_lbl = hvr_vertex_get_uint64(0, vertex, ctx);
     while (neighbor) {
-        uint64_t neighbor_lbl = hvr_vertex_get_uint64(0, neighbors[i], ctx);
+        uint64_t neighbor_lbl = hvr_vertex_get_uint64(0, neighbor, ctx);
         if (neighbor_lbl < min_supernode_lbl) {
             min_supernode_lbl = neighbor_lbl;
         }

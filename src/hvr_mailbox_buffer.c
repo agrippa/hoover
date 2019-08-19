@@ -18,11 +18,12 @@ void hvr_mailbox_buffer_init(hvr_mailbox_buffer_t *buf, hvr_mailbox_t *mbox,
     assert(buf->buffers);
 }
 
-void hvr_mailbox_buffer_send(const void *msg, size_t msg_len, int target_pe,
+int hvr_mailbox_buffer_send(const void *msg, size_t msg_len, int target_pe,
         int max_tries, hvr_mailbox_buffer_t *buf, int multithreaded) {
     assert(msg_len == buf->msg_size);
 
-    char *pe_buf = buf->buffers + (target_pe * buf->buffer_size_per_pe * buf->msg_size);
+    char *pe_buf = buf->buffers +
+        (target_pe * buf->buffer_size_per_pe * buf->msg_size);
     const unsigned nbuffered = buf->nbuffered_per_pe[target_pe];
     char *dst = pe_buf + (nbuffered * buf->msg_size);
     memcpy(dst, msg, msg_len);
@@ -32,11 +33,15 @@ void hvr_mailbox_buffer_send(const void *msg, size_t msg_len, int target_pe,
         int success = hvr_mailbox_send(pe_buf,
                 buf->buffer_size_per_pe * buf->msg_size,
                 target_pe, max_tries, buf->mbox, multithreaded);
-        assert(success);
-
-        buf->nbuffered_per_pe[target_pe] = 0;
+        if (success) {
+            buf->nbuffered_per_pe[target_pe] = 0;
+            return 1;
+        } else {
+            return 0;
+        }
     } else {
         buf->nbuffered_per_pe[target_pe] = nbuffered + 1;
+        return 1;
     }
 }
 
