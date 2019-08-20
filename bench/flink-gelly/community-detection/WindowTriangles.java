@@ -40,6 +40,14 @@ import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.types.NullValue;
 import org.apache.flink.util.Collector;
+import org.apache.flink.graph.streaming.GraphStream;
+import org.apache.flink.streaming.api.functions.sink.SinkFunction;
+import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
+import org.apache.flink.streaming.api.functions.source.RichSourceFunction;
+import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
+import java.util.concurrent.ThreadLocalRandom;
+
 
 /**
  * Counts exact number of triangles in a graph slice.
@@ -50,11 +58,8 @@ public class WindowTriangles implements ProgramDescription {
 
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-		if (!parseParameters(args, env)) {
-			return;
-		}
-
         SimpleEdgeStream<Long, NullValue> edges = getGraphStream(env);
+		// GraphStream<Long, NullValue, NullValue> edges = getGraphStream(env);
 
         DataStream<Tuple2<Integer, Long>> triangleCount = 
         	edges.slice(windowTime, EdgeDirection.ALL)
@@ -63,12 +68,8 @@ public class WindowTriangles implements ProgramDescription {
 			.apply(new CountTriangles())
 			.timeWindowAll(windowTime).sum(0);
 
-        if (fileOutput) {
-        	triangleCount.writeAsText(outputPath);
-        }
-        else {
-        	triangleCount.print();
-        }
+        triangleCount.print();
+
         env.execute("Naive window triangle count");
     }
 
@@ -137,68 +138,38 @@ public class WindowTriangles implements ProgramDescription {
 		}
 	}
 
-	private static boolean fileOutput = false;
-	private static String edgeInputPath = null;
-	private static String outputPath = null;
 	private static Time windowTime = Time.of(300, TimeUnit.MILLISECONDS);
+    private static long nedges = 200000;
+    private static long nvertices = 10000000;
 
-	private static boolean parseParameters(String[] args, StreamExecutionEnvironment env) {
+    public static class RandomEdgeSource extends RichParallelSourceFunction<Edge<Long, NullValue>> {
+        private volatile boolean isRunning = true;
+        private long privateCount = 0;
 
-		if(args.length > 0) {
-			if(args.length < 3) {
-				System.err.println("Usage: WindowTriangles <input edges path> <output path>"
-						+ " <window time (ms)> <parallelism (optional)>");
-				return false;
-			}
+        @Override
+        public void run(SourceContext<Edge<Long, NullValue>> ctx) {
+            while (isRunning && privateCount < nedges) {
+                ctx.collect(new Edge<>(Math.abs(ThreadLocalRandom.current().nextLong()) % nvertices,
+                            Math.abs(ThreadLocalRandom.current().nextLong()) % nvertices,
+                            NullValue.getInstance()));
+                privateCount++;
+            }
+            int task = ((StreamingRuntimeContext) getRuntimeContext()).getIndexOfThisSubtask();
+            System.out.println(task + "> Source count = " + privateCount);
+        }
 
-			fileOutput = true;
-			edgeInputPath = args[0];
-			outputPath = args[1];
-			windowTime = Time.of(Long.parseLong(args[2]), TimeUnit.MILLISECONDS);
-			if (args.length > 3) {
-				env.setParallelism(Integer.parseInt(args[3]));
-			}
-
-		} else {
-			System.out.println("Executing WindowTriangles example with default parameters and built-in default data.");
-			System.out.println("  Provide parameters to read input data from files.");
-			System.out.println("  See the documentation for the correct format of input files.");
-			System.out.println("  Usage: WindowTriangles <input edges path> <output path>"
-					+ " <window time (ms)> <parallelism (optional)>");
-		}
-		return true;
-	}
+        @Override
+        public void cancel() {
+            isRunning = false;
+        }
+    }
 
 
     @SuppressWarnings("serial")
 	private static SimpleEdgeStream<Long, NullValue> getGraphStream(StreamExecutionEnvironment env) {
-
-    	if (fileOutput) {
-			return new SimpleEdgeStream<>(env.readTextFile(edgeInputPath)
-				.map(new MapFunction<String, Edge<Long, Long>>() {
-					@Override
-					public Edge<Long, Long> map(String s) {
-						String[] fields = s.split("\\s");
-						long src = Long.parseLong(fields[0]);
-						long trg = Long.parseLong(fields[1]);
-						long timestamp = Long.parseLong(fields[2]);
-						return new Edge<>(src, trg, timestamp);
-					}
-				}), new EdgeValueTimestampExtractor(), env).mapEdges(new RemoveEdgeValue());
-		}
-
-    	return new SimpleEdgeStream<>(env.generateSequence(1, 10).flatMap(
-                new FlatMapFunction<Long, Edge<Long, Long>>() {
-                    @Override
-                    public void flatMap(Long key, Collector<Edge<Long, Long>> out) throws Exception {
-                    	for (int i = 1; i < 3; i++) {
-							long target = key + i;
-							out.collect(new Edge<>(key, target, key*100 + (i-1)*50));
-						}
-                    }
-                }), new EdgeValueTimestampExtractor(), env).mapEdges(new RemoveEdgeValue()); 
-    }
-
+        DataStream<Edge<Long, NullValue>> src = env.addSource(new RandomEdgeSource());
+        return new SimpleEdgeStream<Long, NullValue>(src, env);
+	}
 
     @SuppressWarnings("serial")
 	public static final class EdgeValueTimestampExtractor extends AscendingTimestampExtractor<Edge<Long, Long>> {

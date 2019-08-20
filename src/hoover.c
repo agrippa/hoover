@@ -1459,7 +1459,7 @@ static void process_vertex_subscriptions(hvr_internal_ctx_t *ctx,
                 if (!hvr_sparse_arr_contains(offset, change->pe,
                             &ctx->remote_vert_subs)) {
                     /*
-                     * Send current state of vertex
+                     * Send current state of vertex and its edges.
                      * TODO there is a problem here if a vertex subscription is sent
                      * and not processed until after the vertex is deleted and its
                      * cache slot re-used for something else.
@@ -1487,6 +1487,38 @@ static void process_vertex_subscriptions(hvr_internal_ctx_t *ctx,
         iter++;
     }
 
+    hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
+}
+
+static void process_edge_creations(hvr_internal_ctx_t *ctx) {
+    size_t msg_len;
+    hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
+            &ctx->msg_buf_pool);
+
+    int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
+            &msg_len, &ctx->edge_create_mailbox, 0);
+    while (success) {
+        assert(msg_len % sizeof(hvr_edge_create_msg_t) == 0);
+        hvr_edge_create_msg_t *msgs = (hvr_edge_create_msg_t *)msg_buf_node->ptr;
+        for (int i = 0; i < msg_len / sizeof(*msgs); i++) {
+            hvr_edge_create_msg_t *msg = msgs + i;
+            assert(VERTEX_ID_PE(msg->target) == ctx->pe &&
+                    VERTEX_ID_PE(msg->src.id) != ctx->pe);
+
+            // Insert the remote source into our cache
+            hvr_vertex_cache_node_t *cached = set_up_vertex_subscription(
+                    msg->src.id, &msg->src, ctx);
+
+            // Insert the explcitly created edge in our local edge info
+            update_edge_info(msg->target, msg->src.id,
+                    cached,
+                    ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(msg->target),
+                    msg->edge, NULL, EXPLICIT_EDGE, ctx);
+        }
+
+        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
+                &msg_len, &ctx->edge_create_mailbox, 0);
+    }
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
 }
 
@@ -1547,37 +1579,13 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
                 &msg_len, &ctx->forward_mailbox, 0);
     }
+    hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
 
     // Poll for new remote vertex subscriptions
     process_vertex_subscriptions(ctx, -1);
 
     // Poll for remote edge creations
-    success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->edge_create_mailbox, 0);
-    while (success) {
-        assert(msg_len % sizeof(hvr_edge_create_msg_t) == 0);
-        hvr_edge_create_msg_t *msgs = (hvr_edge_create_msg_t *)msg_buf_node->ptr;
-        for (int i = 0; i < msg_len / sizeof(*msgs); i++) {
-            hvr_edge_create_msg_t *msg = msgs + i;
-            assert(VERTEX_ID_PE(msg->target) == ctx->pe &&
-                    VERTEX_ID_PE(msg->src.id) != ctx->pe);
-
-            // Insert the remote source into our cache
-            hvr_vertex_cache_node_t *cached = set_up_vertex_subscription(
-                    msg->src.id, &msg->src, ctx);
-
-            // Insert the explcitly created edge in our local edge info
-            update_edge_info(msg->target, msg->src.id,
-                    cached,
-                    ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(msg->target),
-                    msg->edge, NULL, EXPLICIT_EDGE, ctx);
-        }
-
-        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->edge_create_mailbox, 0);
-    }
-
-    hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
+    process_edge_creations(ctx);
 }
 
 
@@ -1915,41 +1923,6 @@ void hvr_get_neighbors(hvr_vertex_t *vert, hvr_neighbors_t *neighbors,
             CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
             &edge_buffer, &ctx->edges);
     hvr_neighbors_init(edge_buffer, n_neighbors, &ctx->vec_cache, neighbors);
-
-#if 0
-    // Allocate buffer space to store the edges in before handing back to user
-    void *tmp_buf = mspace_malloc(ctx->edge_list_allocator,
-            n_neighbors * (sizeof(hvr_vertex_t *) + sizeof(hvr_edge_type_t)));
-    if (!tmp_buf) {
-        fprintf(stderr, "Ran out of edge pool space, consider increasing "
-                "HVR_EDGE_LIST_POOL_SIZE (%lu)\n", ctx->edge_list_pool_size);
-        exit(1);
-    }
-    hvr_vertex_t **tmp_vert_ptr_buffer = (hvr_vertex_t **)tmp_buf;
-    hvr_edge_type_t *tmp_dir_buffer = (hvr_edge_type_t *)(tmp_vert_ptr_buffer +
-            n_neighbors);
-
-    unsigned n_populated_neighbors = 0;
-    for (unsigned n = 0; n < n_neighbors; n++) {
-        hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
-                EDGE_INFO_VERTEX(edge_buffer[n]), &ctx->vec_cache);
-        if (cached_neighbor->populated) {
-            tmp_vert_ptr_buffer[n_populated_neighbors] = &cached_neighbor->vert;
-            tmp_dir_buffer[n_populated_neighbors++] =
-                EDGE_INFO_EDGE(edge_buffer[n]);
-        }
-    }
-        
-    *out_verts = tmp_vert_ptr_buffer;
-    *out_dirs = tmp_dir_buffer;
-    return n_populated_neighbors;
-#endif
-}
-
-void hvr_release_neighbors(hvr_vertex_t **out_verts, hvr_edge_type_t *out_dirs,
-        int n_neighbors, hvr_ctx_t in_ctx) {
-    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
-    mspace_free(ctx->edge_list_allocator, out_verts);
 }
 
 static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t vid,

@@ -426,9 +426,6 @@ extern unsigned long long hvr_current_time_us();
 extern void hvr_get_neighbors(hvr_vertex_t *vert, hvr_neighbors_t *neighbors,
         hvr_ctx_t in_ctx);
 
-extern void hvr_release_neighbors(hvr_vertex_t **out_verts,
-        hvr_edge_type_t *out_dirs, int n_neighbors, hvr_ctx_t in_ctx);
-
 extern void hvr_create_edge_with_vertex_id(hvr_vertex_t *base,
         hvr_vertex_id_t neighbor, hvr_edge_type_t edge, hvr_ctx_t in_ctx);
 
