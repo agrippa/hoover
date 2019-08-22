@@ -118,6 +118,20 @@ static void inline hvr_vertex_update_init(hvr_vertex_update_t *msg,
     msg->is_invalidation = is_invalidation;
 }
 
+typedef struct _hvr_edge_create_msg_t {
+    hvr_vertex_t src;
+    hvr_vertex_id_t target;
+    hvr_edge_type_t edge;
+} hvr_edge_create_msg_t;
+
+typedef struct _hvr_update_msg_t {
+    union {
+        hvr_vertex_update_t vert_update;
+        hvr_edge_create_msg_t edge_update;
+    } payload;
+    uint8_t is_vert_update;
+} hvr_update_msg_t;
+
 typedef struct _hvr_partition_member_change_t {
     int pe;
     hvr_partition_t partition;
@@ -129,12 +143,6 @@ typedef struct _hvr_vertex_subscription_t {
     hvr_vertex_id_t vert;
     int entered;
 } hvr_vertex_subscription_t;
-
-typedef struct _hvr_edge_create_msg_t {
-    hvr_vertex_t src;
-    hvr_vertex_id_t target;
-    hvr_edge_type_t edge;
-} hvr_edge_create_msg_t;
 
 typedef struct _hvr_dead_pe_msg_t {
     int pe;
@@ -304,12 +312,10 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t root_info_mailbox;
 
     hvr_mailbox_t vert_sub_mailbox;
-    hvr_mailbox_t edge_create_mailbox;
 
     hvr_mailbox_buffer_t vertex_update_mailbox_buffer;
     hvr_mailbox_buffer_t vertex_delete_mailbox_buffer;
     hvr_mailbox_buffer_t vert_sub_mailbox_buffer;
-    hvr_mailbox_buffer_t edge_create_mailbox_buffer;
 
     hvr_map_t producer_info;
     hvr_map_t dead_info;

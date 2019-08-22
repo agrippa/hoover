@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 64
+#SBATCH -N 2
 #SBATCH -C haswell
 #SBATCH -t 00:05:00
 #SBATCH -J hoover-connected
@@ -61,6 +61,6 @@ cd job.$SLURM_JOB_ID
 
 export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1"
 srun $SLURM_ARGS \
-    $HOME/hoover/connected_components+pat \
+    $HOME/hoover/bin/connected_components \
     $TIME_LIMIT_IN_SECONDS $NVERTICES $NEDGES_PER_STEP
 

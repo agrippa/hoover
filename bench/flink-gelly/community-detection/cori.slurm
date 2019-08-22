@@ -107,7 +107,7 @@ echo "resourcemanager.taskmanager-timeout: 60000" >> $FLINK_CONF
 echo "taskmanager.network.memory.max: 8gb" >> $FLINK_CONF
 echo "taskmanager.network.memory.min: 8gb" >> $FLINK_CONF
 echo "taskmanager.network.memory.fraction: 0.3" >> $FLINK_CONF
-echo "slot.request.timeout: 600000" >> $FLINK_CONF
+echo "slot.request.timeout: 1200000" >> $FLINK_CONF
 echo "heartbeat.timeout: 100000" >> $FLINK_CONF
 
 scontrol show hostname | tail -n +2 > $FLINK_HOME/conf/slaves

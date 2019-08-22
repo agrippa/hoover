@@ -1228,7 +1228,6 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_mailbox_init(&new_ctx->vertex_delete_mailbox,        128 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->forward_mailbox,               32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vert_sub_mailbox,              32 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->edge_create_mailbox,           32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_msg_mailbox,            32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->coupling_mailbox,              8 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->coupling_ack_and_dead_mailbox, 8 * 1024 * 1024);
@@ -1240,12 +1239,9 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_mailbox_buffer_init(&new_ctx->vert_sub_mailbox_buffer,
             &new_ctx->vert_sub_mailbox, new_ctx->npes,
             sizeof(hvr_vertex_subscription_t), n_to_buffer);
-    hvr_mailbox_buffer_init(&new_ctx->edge_create_mailbox_buffer,
-            &new_ctx->edge_create_mailbox, new_ctx->npes,
-            sizeof(hvr_edge_create_msg_t), n_to_buffer);
     hvr_mailbox_buffer_init(&new_ctx->vertex_update_mailbox_buffer,
             &new_ctx->vertex_update_mailbox, new_ctx->npes,
-            sizeof(hvr_vertex_update_t), n_to_buffer);
+            sizeof(hvr_update_msg_t), n_to_buffer);
     hvr_mailbox_buffer_init(&new_ctx->vertex_delete_mailbox_buffer,
             &new_ctx->vertex_delete_mailbox, new_ctx->npes,
             sizeof(hvr_vertex_update_t), n_to_buffer);
@@ -1303,16 +1299,14 @@ void hvr_init(const hvr_partition_t n_partitions,
     max_msg_len = MAX_MACRO(sizeof(new_coupling_msg_t), max_msg_len);
     max_msg_len = MAX_MACRO(sizeof(new_coupling_msg_ack_t), max_msg_len);
     max_msg_len = MAX_MACRO(sizeof(inter_vert_msg_t), max_msg_len);
+    max_msg_len = MAX_MACRO(sizeof(hvr_update_msg_t), max_msg_len);
     max_msg_len = MAX_MACRO(new_ctx->coupled_pes_msg.msg_buf_len, max_msg_len);
     max_msg_len = MAX_MACRO(
             new_ctx->vert_sub_mailbox_buffer.buffer_size_per_pe *
             sizeof(hvr_vertex_subscription_t), max_msg_len);
     max_msg_len = MAX_MACRO(
-            new_ctx->edge_create_mailbox_buffer.buffer_size_per_pe *
-            sizeof(hvr_edge_create_msg_t), max_msg_len);
-    max_msg_len = MAX_MACRO(
             new_ctx->vertex_update_mailbox_buffer.buffer_size_per_pe *
-            sizeof(hvr_vertex_update_t), max_msg_len);
+            sizeof(hvr_update_msg_t), max_msg_len);
     max_msg_len = MAX_MACRO(
             new_ctx->vertex_delete_mailbox_buffer.buffer_size_per_pe *
             sizeof(hvr_vertex_update_t), max_msg_len);
@@ -1425,8 +1419,9 @@ static void send_all_vertices_in_partition(int pe, hvr_partition_t part,
     hvr_vertex_t *iter = hvr_partition_list_head(part,
             &ctx->local_partition_lists);
     while (iter) {
-        hvr_vertex_update_t msg;
-        hvr_vertex_update_init(&msg, iter, 0);
+        hvr_update_msg_t msg;
+        msg.is_vert_update = 1;
+        hvr_vertex_update_init(&msg.payload.vert_update, iter, 0);
         hvr_mailbox_buffer_send(&msg, sizeof(msg), pe, -1,
                 &ctx->vertex_update_mailbox_buffer, 0);
         iter = iter->next_in_partition;
@@ -1460,13 +1455,15 @@ static void process_vertex_subscriptions(hvr_internal_ctx_t *ctx,
                             &ctx->remote_vert_subs)) {
                     /*
                      * Send current state of vertex and its edges.
-                     * TODO there is a problem here if a vertex subscription is sent
-                     * and not processed until after the vertex is deleted and its
-                     * cache slot re-used for something else.
+                     * TODO there is a problem here if a vertex subscription is
+                     * sent and not processed until after the vertex is deleted
+                     * and its cache slot re-used for something else.
                      */
 
-                    hvr_vertex_update_t msg;
-                    hvr_vertex_update_init(&msg, &local->vert, 0);
+                    hvr_update_msg_t msg;
+                    msg.is_vert_update = 1;
+                    hvr_vertex_update_init(&msg.payload.vert_update,
+                            &local->vert, 0);
                     hvr_mailbox_buffer_send(&msg, sizeof(msg), change->pe, -1,
                             &ctx->vertex_update_mailbox_buffer, 0);
 
@@ -1490,40 +1487,7 @@ static void process_vertex_subscriptions(hvr_internal_ctx_t *ctx,
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
 }
 
-static void process_edge_creations(hvr_internal_ctx_t *ctx) {
-    size_t msg_len;
-    hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
-            &ctx->msg_buf_pool);
-
-    int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->edge_create_mailbox, 0);
-    while (success) {
-        assert(msg_len % sizeof(hvr_edge_create_msg_t) == 0);
-        hvr_edge_create_msg_t *msgs = (hvr_edge_create_msg_t *)msg_buf_node->ptr;
-        for (int i = 0; i < msg_len / sizeof(*msgs); i++) {
-            hvr_edge_create_msg_t *msg = msgs + i;
-            assert(VERTEX_ID_PE(msg->target) == ctx->pe &&
-                    VERTEX_ID_PE(msg->src.id) != ctx->pe);
-
-            // Insert the remote source into our cache
-            hvr_vertex_cache_node_t *cached = set_up_vertex_subscription(
-                    msg->src.id, &msg->src, ctx);
-
-            // Insert the explcitly created edge in our local edge info
-            update_edge_info(msg->target, msg->src.id,
-                    cached,
-                    ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(msg->target),
-                    msg->edge, NULL, EXPLICIT_EDGE, ctx);
-        }
-
-        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->edge_create_mailbox, 0);
-    }
-    hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
-}
-
-static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
-        process_perf_info_t *perf_info) {
+static void process_partition_subscriptions(hvr_internal_ctx_t *ctx) {
     size_t msg_len;
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
@@ -1581,13 +1545,15 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
     }
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
 
-    // Poll for new remote vertex subscriptions
-    process_vertex_subscriptions(ctx, -1);
-
-    // Poll for remote edge creations
-    process_edge_creations(ctx);
 }
 
+static void process_neighbor_updates(hvr_internal_ctx_t *ctx) {
+    // Poll for new partition subscriptions/unsubscriptions
+    process_partition_subscriptions(ctx);
+
+    // Poll for new remote vertex subscriptions
+    process_vertex_subscriptions(ctx, -1);
+}
 
 /*
  * When a vertex is deleted, we simply need to remove all of its
@@ -1825,19 +1791,38 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
     success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
             &msg_len, &ctx->vertex_update_mailbox, 0);
     while (success) {
-        assert(msg_len % sizeof(hvr_vertex_update_t) == 0);
-        hvr_vertex_update_t *msgs = (hvr_vertex_update_t *)msg_buf_node->ptr;
+        assert(msg_len % sizeof(hvr_update_msg_t) == 0);
+        hvr_update_msg_t *msgs = (hvr_update_msg_t *)msg_buf_node->ptr;
 
         for (unsigned i = 0; i < msg_len / sizeof(*msgs); i++) {
-            hvr_vertex_update_t *msg = msgs + i;
-            assert(VERTEX_ID_PE(msg->vert.id) != ctx->pe);
+            hvr_update_msg_t *wrapper_msg = msgs + i;
+            if (wrapper_msg->is_vert_update) {
+                hvr_vertex_update_t *msg = &wrapper_msg->payload.vert_update;
+                assert(VERTEX_ID_PE(msg->vert.id) != ctx->pe);
 
-            if (msg->is_invalidation) {
-                handle_deleted_vertex(&(msg->vert), 0, ctx);
+                if (msg->is_invalidation) {
+                    handle_deleted_vertex(&(msg->vert), 0, ctx);
+                } else {
+                    handle_new_vertex(&(msg->vert), perf_info, ctx);
+                }
+                n_updates++;
             } else {
-                handle_new_vertex(&(msg->vert), perf_info, ctx);
+                hvr_edge_create_msg_t *msg = &wrapper_msg->payload.edge_update;
+
+                assert(VERTEX_ID_PE(msg->target) == ctx->pe &&
+                        VERTEX_ID_PE(msg->src.id) != ctx->pe);
+
+                // Insert the remote source into our cache
+                hvr_vertex_cache_node_t *cached = set_up_vertex_subscription(
+                        msg->src.id, &msg->src, ctx);
+
+                // Insert the explcitly created edge in our local edge info
+                update_edge_info(msg->target, msg->src.id,
+                        cached,
+                        ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(msg->target),
+                        msg->edge, NULL, EXPLICIT_EDGE, ctx);
             }
-            n_updates++;
+
         }
         ctx->total_vertex_msgs_recvd += (msg_len / sizeof(*msgs));
 
@@ -1987,13 +1972,14 @@ static void signal_edge_creation(hvr_vertex_id_t remote, hvr_vertex_t *base,
         hvr_edge_type_t edge, hvr_internal_ctx_t *ctx) {
     assert(VERTEX_ID_PE(remote) != ctx->pe);
 
-    hvr_edge_create_msg_t msg;
-    memcpy(&msg.src, base, sizeof(*base));
-    msg.target = remote;
-    msg.edge = edge;
+    hvr_update_msg_t msg;
+    msg.is_vert_update = 0;
+    memcpy(&msg.payload.edge_update.src, base, sizeof(*base));
+    msg.payload.edge_update.target = remote;
+    msg.payload.edge_update.edge = edge;
 
     hvr_mailbox_buffer_send(&msg, sizeof(msg), VERTEX_ID_PE(remote), -1,
-            &ctx->edge_create_mailbox_buffer, 0);
+            &ctx->vertex_update_mailbox_buffer, 0);
 }
 
 /*
@@ -2122,8 +2108,9 @@ static void send_updates_to_all_subscribed_pes_helper(hvr_vertex_t *vert,
             continue;
         }
 
-        hvr_vertex_update_t msg;
-        hvr_vertex_update_init(&msg, vert, is_invalidation);
+        hvr_update_msg_t msg;
+        msg.is_vert_update = 1;
+        hvr_vertex_update_init(&msg.payload.vert_update, vert, is_invalidation);
 
         hvr_mailbox_buffer_send(&msg, sizeof(msg), sub_pe, -1,
                 mbox_buffer, 0);
@@ -3040,7 +3027,6 @@ static void save_profiling_info(
         hvr_mailbox_mem_used(&ctx->vertex_delete_mailbox) +
         hvr_mailbox_mem_used(&ctx->forward_mailbox) +
         hvr_mailbox_mem_used(&ctx->vert_sub_mailbox) +
-        hvr_mailbox_mem_used(&ctx->edge_create_mailbox) +
         hvr_mailbox_mem_used(&ctx->vertex_msg_mailbox) +
         hvr_mailbox_mem_used(&ctx->coupling_mailbox) +
         hvr_mailbox_mem_used(&ctx->coupling_ack_and_dead_mailbox) +
@@ -3346,7 +3332,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      * partition to the PEs that are subscribed to updates in that partition
      * inside of ctx->remote_partition_subs.
      */
-    process_neighbor_updates(ctx, &perf_info);
+    process_neighbor_updates(ctx);
     const unsigned long long end_neighbor_updates = hvr_current_time_us();
 
 
@@ -3453,10 +3439,9 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long end_send_updates = hvr_current_time_us();
 
-        process_neighbor_updates(ctx, &perf_info);
+        process_neighbor_updates(ctx);
 
         hvr_mailbox_buffer_flush(&ctx->vert_sub_mailbox_buffer);
-        hvr_mailbox_buffer_flush(&ctx->edge_create_mailbox_buffer);
 
         const unsigned long long end_neighbor_updates = hvr_current_time_us();
 
@@ -3626,7 +3611,6 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     hvr_mailbox_destroy(&ctx->vertex_delete_mailbox);
     hvr_mailbox_destroy(&ctx->forward_mailbox);
     hvr_mailbox_destroy(&ctx->vert_sub_mailbox);
-    hvr_mailbox_destroy(&ctx->edge_create_mailbox);
     hvr_mailbox_destroy(&ctx->coupling_mailbox);
     hvr_mailbox_destroy(&ctx->coupling_ack_and_dead_mailbox);
     hvr_mailbox_destroy(&ctx->coupling_val_mailbox);
