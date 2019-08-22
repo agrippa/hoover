@@ -83,21 +83,18 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
 void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
     // Find connected components in graph via label propagation
+    uint64_t min_supernode_lbl = hvr_vertex_get_uint64(0, vertex, ctx);
 
     hvr_neighbors_t neighbors;
     hvr_get_neighbors(vertex, &neighbors, ctx);
 
     hvr_vertex_t *neighbor;
     hvr_edge_type_t neighbor_dir;
-    hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir);
-
-    uint64_t min_supernode_lbl = hvr_vertex_get_uint64(0, vertex, ctx);
-    while (neighbor) {
+    while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
         uint64_t neighbor_lbl = hvr_vertex_get_uint64(0, neighbor, ctx);
         if (neighbor_lbl < min_supernode_lbl) {
             min_supernode_lbl = neighbor_lbl;
         }
-        hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir);
     }
 
     hvr_vertex_set_uint64(0, min_supernode_lbl, vertex, ctx);

@@ -350,6 +350,30 @@ static void update_distance_after_edge_update(hvr_vertex_cache_node_t *node,
     }
 }
 
+static void send_edge_updates_to_subscribers(hvr_vertex_cache_node_t *node,
+        hvr_vertex_cache_node_t *base, hvr_vertex_cache_node_t *neighbor,
+        hvr_edge_type_t new_edge, hvr_internal_ctx_t *ctx) {
+    int *subscribers = NULL;
+    unsigned n_subscribers = hvr_sparse_arr_linearize_row(
+            VERTEX_ID_OFFSET(node->vert.id),
+            &subscribers, &ctx->remote_vert_subs);
+
+    /*
+     * If the local vertex has any remote subscribers, send them this
+     * new edge.
+     */
+    hvr_update_msg_t msg;
+    msg.is_vert_update = 0;
+    memcpy(&msg.payload.edge_update.src, &base->vert, sizeof(base->vert));
+    msg.payload.edge_update.target = neighbor->vert.id;
+    msg.payload.edge_update.edge = new_edge;
+    for (unsigned s = 0; s < n_subscribers; s++) {
+        int sub_pe = subscribers[s];
+        hvr_mailbox_buffer_send(&msg, sizeof(msg), sub_pe, -1,
+                &ctx->vertex_update_mailbox_buffer, 0);
+    }
+}
+
 // The only place where edges between vertices are created/deleted
 static inline void update_edge_info(hvr_vertex_id_t base_id,
         hvr_vertex_id_t neighbor_id,
@@ -441,6 +465,15 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
     if (creation_type == EXPLICIT_EDGE) {
         base->n_explicit_edges++;
         neighbor->n_explicit_edges++;
+
+        if (base_is_local) {
+            send_edge_updates_to_subscribers(base, base, neighbor, new_edge,
+                    ctx);
+        }
+        if (neighbor_is_local) {
+            send_edge_updates_to_subscribers(neighbor, base, neighbor, new_edge,
+                    ctx);
+        }
     }
 
     /*
@@ -452,6 +485,7 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
             (base_is_local || neighbor_is_local)) {
         hvr_vertex_cache_node_t *remote_node = (base_is_local ? neighbor :
                 base);
+        hvr_vertex_cache_node_t *local_node = (base_is_local ? base : neighbor);
 
         if (local_neighbor_list_contains(remote_node, &ctx->vec_cache)) {
             if (remote_node->n_local_neighbors == 0) {

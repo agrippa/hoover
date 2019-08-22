@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:20:00
+#SBATCH -t 00:03:00
 #SBATCH -J hoover
 #SBATCH --exclusive
 ####SBATCH --contiguous
@@ -73,13 +73,13 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
 
 ##### Functional tests #####
 srun -n 2 $HOME/hoover/bin/explicit_edge_test
-echo
-srun $SLURM_ARGS $HOME/hoover/bin/init_test 100
-echo
-srun -n 2 $HOME/hoover/bin/complex_interact
-echo
-srun -n 2 $HOME/hoover/bin/complex_interact2
-echo
-srun -n 2 $HOME/hoover/bin/stale_state
-echo
-srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
+# echo
+# srun $SLURM_ARGS $HOME/hoover/bin/init_test 100
+# echo
+# srun -n 2 $HOME/hoover/bin/complex_interact
+# echo
+# srun -n 2 $HOME/hoover/bin/complex_interact2
+# echo
+# srun -n 2 $HOME/hoover/bin/stale_state
+# echo
+# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240

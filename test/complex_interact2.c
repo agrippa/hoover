@@ -48,9 +48,15 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     hvr_partition_t actor = (hvr_partition_t)hvr_vertex_get(ACTOR_ID, vertex,
             ctx);
 
-    hvr_vertex_t **verts;
-    hvr_edge_type_t *dirs;
-    int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
+    hvr_neighbors_t neighbors;
+    hvr_get_neighbors(vertex, &neighbors, ctx);
+
+    hvr_vertex_t *neighbor;
+    hvr_edge_type_t neighbor_dir;
+    unsigned n_neighbors = 0;
+    while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
+        n_neighbors++;
+    }
     assert(n_neighbors == 0 || n_neighbors == 1);
 
     unsigned curr_pos = (unsigned)hvr_vertex_get(POS, vertex, ctx);
