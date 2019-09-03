@@ -70,6 +70,7 @@ static void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
 
             hvr_vertex_set_uint64(SENT_MSG, 1, vertex, ctx);
         }
+        hvr_release_neighbors(verts, dirs, n_neighbors, ctx);
     } else {
         assert(hvr_vertex_get_uint64(VERTEX_TYPE, vertex, ctx) ==
                 LAYERED_GRAPH);

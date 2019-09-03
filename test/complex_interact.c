@@ -71,6 +71,8 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
             hvr_vertex_set_uint64(ACTOR, actor + 2, next, ctx);
             hvr_vertex_set_uint64(CREATED_NEXT, 0, next, ctx);
         }
+
+        hvr_release_neighbors(verts, dirs, n_neighbors, ctx);
     }
 }
 

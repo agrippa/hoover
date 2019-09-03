@@ -90,6 +90,7 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
                 break;
             }
         }
+        hvr_release_neighbors(verts, dirs, n_neighbors, ctx);
     }
 }
 
