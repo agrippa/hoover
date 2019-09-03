@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 #include "hvr_vertex_cache.h"
+#include "hvr_neighbors.h"
 #include "hvr_common.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
@@ -117,6 +118,20 @@ static void inline hvr_vertex_update_init(hvr_vertex_update_t *msg,
     msg->is_invalidation = is_invalidation;
 }
 
+typedef struct _hvr_edge_create_msg_t {
+    hvr_vertex_t src;
+    hvr_vertex_id_t target;
+    hvr_edge_type_t edge;
+} hvr_edge_create_msg_t;
+
+typedef struct _hvr_update_msg_t {
+    union {
+        hvr_vertex_update_t vert_update;
+        hvr_edge_create_msg_t edge_update;
+    } payload;
+    uint8_t is_vert_update;
+} hvr_update_msg_t;
+
 typedef struct _hvr_partition_member_change_t {
     int pe;
     hvr_partition_t partition;
@@ -128,12 +143,6 @@ typedef struct _hvr_vertex_subscription_t {
     hvr_vertex_id_t vert;
     int entered;
 } hvr_vertex_subscription_t;
-
-typedef struct _hvr_edge_create_msg_t {
-    hvr_vertex_t src;
-    hvr_vertex_id_t target;
-    hvr_edge_type_t edge;
-} hvr_edge_create_msg_t;
 
 typedef struct _hvr_dead_pe_msg_t {
     int pe;
@@ -303,12 +312,10 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t root_info_mailbox;
 
     hvr_mailbox_t vert_sub_mailbox;
-    hvr_mailbox_t edge_create_mailbox;
 
     hvr_mailbox_buffer_t vertex_update_mailbox_buffer;
     hvr_mailbox_buffer_t vertex_delete_mailbox_buffer;
     hvr_mailbox_buffer_t vert_sub_mailbox_buffer;
-    hvr_mailbox_buffer_t edge_create_mailbox_buffer;
 
     hvr_map_t producer_info;
     hvr_map_t dead_info;
@@ -422,11 +429,8 @@ extern int hvr_my_pe(hvr_ctx_t ctx);
 // Simple utility for time measurement in microseconds
 extern unsigned long long hvr_current_time_us();
 
-extern int hvr_get_neighbors(hvr_vertex_t *vert, hvr_vertex_t ***out_verts,
-        hvr_edge_type_t **out_dirs, hvr_ctx_t in_ctx);
-
-extern void hvr_release_neighbors(hvr_vertex_t **out_verts,
-        hvr_edge_type_t *out_dirs, int n_neighbors, hvr_ctx_t in_ctx);
+extern void hvr_get_neighbors(hvr_vertex_t *vert, hvr_neighbors_t *neighbors,
+        hvr_ctx_t in_ctx);
 
 extern void hvr_create_edge_with_vertex_id(hvr_vertex_t *base,
         hvr_vertex_id_t neighbor, hvr_edge_type_t edge, hvr_ctx_t in_ctx);

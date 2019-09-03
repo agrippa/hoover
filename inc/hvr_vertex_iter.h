@@ -10,11 +10,7 @@ typedef struct _hvr_vertex_iter_t {
     hvr_internal_ctx_t *ctx;
     hvr_map_t *cache_map;
 
-    unsigned current_bucket;
-    hvr_map_seg_t *current_seg;
-    unsigned current_seg_index;
-
-
+    hvr_vertex_cache_node_t *curr;
 } hvr_vertex_iter_t;
 
 void hvr_vertex_iter_init(hvr_vertex_iter_t *iter,

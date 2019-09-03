@@ -7,7 +7,11 @@
 #include <assert.h>
 
 static inline void hvr_sparse_arr_seg_init(hvr_sparse_arr_seg_t *seg) {
-    memset(seg, 0x00, sizeof(*seg));
+    for (int i = 0; i < HVR_SPARSE_ARR_SEGMENT_SIZE; i++) {
+        seg->seg[i] = nnil;
+        seg->seg_size[i] = 0;
+    }
+    seg->next = NULL;
 }
 
 void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity) {
@@ -69,33 +73,11 @@ void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
 
     hvr_sparse_arr_seg_t *segment = arr->segs[seg];
 
-    // Check if this value is already stored
-    int *stored_values = segment->seg[seg_index];
-    const unsigned seg_len = segment->seg_lengths[seg_index];
-    for (unsigned index = 0; index < seg_len; index++) {
-        if (stored_values[index] == j) {
-            return;
-        }
+    struct node *exists = hvr_avl_find(segment->seg[seg_index], j);
+    if (exists == nnil) {
+        hvr_avl_insert(&(segment->seg[seg_index]), j, arr->tracker);
+        segment->seg_size[seg_index] += 1;
     }
-
-    if (seg_len == 0) {
-        // First initialization
-        const unsigned initial_capacity = 16;
-        segment->seg_capacities[seg_index] = initial_capacity;
-        segment->seg[seg_index] = (int *)mspace_malloc(arr->tracker,
-                initial_capacity * sizeof(int));
-        assert(segment->seg[seg_index]);
-    } else if (seg_len == (segment->seg_capacities)[seg_index]) {
-        // No more space left
-        segment->seg_capacities[seg_index] *= 2;
-        segment->seg[seg_index] = (int *)mspace_realloc(arr->tracker,
-                segment->seg[seg_index],
-                (segment->seg_capacities)[seg_index] * sizeof(int));
-        assert(segment->seg[seg_index]);
-    }
-
-    (segment->seg[seg_index])[seg_len] = j;
-    (segment->seg_lengths)[seg_index] = seg_len + 1;
 }
 
 int hvr_sparse_arr_contains(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
@@ -109,16 +91,8 @@ int hvr_sparse_arr_contains(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
         return 0;
     }
 
-    const int *stored_values = segment->seg[seg_index];
-    const int n_stored_values = segment->seg_lengths[seg_index];
-
-    for (int index = 0; index < n_stored_values; index++) {
-        if (stored_values[index] == j) {
-            return 1;
-        }
-    }
-
-    return 0;
+    struct node *exists = hvr_avl_find(segment->seg[seg_index], j);
+    return (exists != nnil);
 }
 
 void hvr_sparse_arr_remove(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
@@ -132,15 +106,9 @@ void hvr_sparse_arr_remove(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
         return;
     }
 
-    int *stored_values = segment->seg[seg_index];
-    int n_stored_values = segment->seg_lengths[seg_index];
-
-    for (int index = 0; index < n_stored_values; index++) {
-        if (stored_values[index] == j) {
-            stored_values[index] = stored_values[n_stored_values - 1];
-            segment->seg_lengths[seg_index] -= 1;
-            return;
-        }
+    int success = hvr_avl_delete(&(segment->seg[seg_index]), j, arr->tracker);
+    if (success) {
+        segment->seg_size[seg_index] -= 1;
     }
 }
 
@@ -153,31 +121,18 @@ void hvr_sparse_arr_remove_row(unsigned i, hvr_sparse_arr_t *arr) {
         return;
     }
 
-    int *stored_values = segment->seg[seg_index];
-    if (stored_values) {
-        mspace_free(arr->tracker, stored_values);
-        segment->seg[seg_index] = NULL;
-        segment->seg_lengths[seg_index] = 0;
-    }
-}
-
-unsigned hvr_sparse_arr_row_length(unsigned i, hvr_sparse_arr_t *arr) {
-    assert(i < arr->capacity);
-
-    const unsigned seg = i / HVR_SPARSE_ARR_SEGMENT_SIZE;
-    const unsigned seg_index = i % HVR_SPARSE_ARR_SEGMENT_SIZE;
-
-    hvr_sparse_arr_seg_t *segment = arr->segs[seg];
-    if (segment == NULL) {
-        return 0;
-    }
-    return segment->seg_lengths[seg_index];
+    hvr_avl_delete_all(segment->seg[seg_index], arr->tracker);
+    segment->seg[seg_index] = NULL;
+    segment->seg_size[seg_index] = 0;
 }
 
 unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
         hvr_sparse_arr_t *arr) {
     assert(i < arr->capacity);
 
+    static int *cache = NULL;
+    static int cache_size = 0;
+
     const unsigned seg = i / HVR_SPARSE_ARR_SEGMENT_SIZE;
     const unsigned seg_index = i % HVR_SPARSE_ARR_SEGMENT_SIZE;
 
@@ -186,10 +141,18 @@ unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
         return 0;
     }
 
-    int *stored_values = segment->seg[seg_index];
-    int n_stored_values = segment->seg_lengths[seg_index];
+    int n_stored_values = segment->seg_size[seg_index];
+    if (cache_size < n_stored_values) {
+        cache = (int *)mspace_realloc(arr->tracker,
+                cache,
+                n_stored_values * sizeof(*cache));
+        assert(cache);
+        cache_size = n_stored_values;
+    }
 
-    *out_arr = stored_values;
+    hvr_avl_serialize(segment->seg[seg_index], cache, cache_size);
+
+    *out_arr = cache;
     return n_stored_values;
 }
 
@@ -199,7 +162,7 @@ size_t hvr_sparse_arr_used_bytes(hvr_sparse_arr_t *arr) {
         hvr_sparse_arr_seg_t *seg = arr->segs[s];
         if (seg) {
             for (unsigned i = 0; i < HVR_SPARSE_ARR_SEGMENT_SIZE; i++) {
-                nbytes += seg->seg_capacities[i] * sizeof(seg->seg[0][0]);
+                nbytes += seg->seg_size[i] * sizeof(seg->seg[0][0]);
             }
         }
     }
