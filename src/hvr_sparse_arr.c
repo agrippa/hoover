@@ -122,16 +122,13 @@ void hvr_sparse_arr_remove_row(unsigned i, hvr_sparse_arr_t *arr) {
     }
 
     hvr_avl_delete_all(segment->seg[seg_index], arr->tracker);
-    segment->seg[seg_index] = NULL;
+    segment->seg[seg_index] = nnil;
     segment->seg_size[seg_index] = 0;
 }
 
 unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
         hvr_sparse_arr_t *arr) {
     assert(i < arr->capacity);
-
-    static int *cache = NULL;
-    static int cache_size = 0;
 
     const unsigned seg = i / HVR_SPARSE_ARR_SEGMENT_SIZE;
     const unsigned seg_index = i % HVR_SPARSE_ARR_SEGMENT_SIZE;
@@ -140,6 +137,9 @@ unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
     if (segment == NULL) {
         return 0;
     }
+
+    static int *cache = NULL;
+    static int cache_size = 0;
 
     int n_stored_values = segment->seg_size[seg_index];
     if (cache_size < n_stored_values) {

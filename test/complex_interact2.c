@@ -106,6 +106,11 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
+    int max_elapsed_seconds = 120;
+    if (argc == 2) {
+        max_elapsed_seconds = atoi(argv[1]);
+    }
+
     shmem_init();
     hvr_ctx_create(&hvr_ctx);
 
@@ -126,7 +131,7 @@ int main(int argc, char **argv) {
             NULL, // start_time_step
             should_have_edge,
             should_terminate,
-            60, // max_elapsed_seconds
+            max_elapsed_seconds, // max_elapsed_seconds
             1, // max_graph_traverse_depth
             hvr_ctx);
 

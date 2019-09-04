@@ -119,7 +119,7 @@ void hvr_avl_serialize(struct node *root, int *arr, int arr_capacity) {
 
 struct node *hvr_avl_find(struct node *root, int target) {
     if (root == nnil) {
-        return NULL;
+        return nnil;
     } else if (root->payload == target) {
         return root;
     } else {

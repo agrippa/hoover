@@ -78,7 +78,7 @@ srun $SLURM_ARGS $HOME/hoover/bin/init_test 100
 echo
 srun -n 2 $HOME/hoover/bin/complex_interact
 echo
-srun -n 2 $HOME/hoover/bin/complex_interact2
+srun -n 2 $HOME/hoover/bin/complex_interact2 240
 echo
 srun -n 2 $HOME/hoover/bin/stale_state
 echo
