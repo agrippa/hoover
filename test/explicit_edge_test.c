@@ -43,17 +43,12 @@ static void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         unsigned n_neighbors = 0;
         unsigned n_neighbors_with_layered = 0;
         while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
-            n_neighbors++;
-
             if (hvr_vertex_get_uint64(CREATED_LAYERED, neighbor, ctx)) {
                 n_neighbors_with_layered++;
             }
             n_neighbors++;
         }
         assert(n_neighbors <= max_neighbors);
-
-        fprintf(stderr, "PE %d base, n_neighbors %d n_neighbors_with_layered "
-                "%d\n", shmem_my_pe(), n_neighbors, n_neighbors_with_layered);
 
         if (n_neighbors == max_neighbors &&
                 n_neighbors_with_layered == n_neighbors &&
@@ -199,8 +194,6 @@ int main(int argc, char **argv) {
         if (hvr_vertex_get_uint64(VERTEX_TYPE, vert, ctx) == BASE_GRAPH) {
             unsigned n_neighbors = 0;
             while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
-                n_neighbors++;
-
                 assert(hvr_vertex_get_uint64(VERTEX_TYPE, neighbor, ctx) ==
                         BASE_GRAPH);
                 assert(abs(hvr_vertex_get_uint64(VERTEX_ID, neighbor, ctx) -
@@ -214,8 +207,6 @@ int main(int argc, char **argv) {
                 LAYERED_GRAPH) {
             unsigned n_neighbors = 0;
             while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
-                n_neighbors++;
-
                 assert(hvr_vertex_get_uint64(VERTEX_TYPE, neighbor, ctx) ==
                         LAYERED_GRAPH);
                 assert(abs(hvr_vertex_get_uint64(VERTEX_ID, neighbor, ctx) -
@@ -228,7 +219,6 @@ int main(int argc, char **argv) {
         } else {
             abort();
         }
-        assert(n_neighbors == max_neighbors);
     }
     assert(count == 2);
     assert(count_base == 1);
