@@ -49,18 +49,16 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     uint64_t created_next = hvr_vertex_get_uint64(CREATED_NEXT, vertex, ctx);
 
     if (actor < N - 2 && !created_next) {
+        hvr_vertex_t *neighbor;
+        hvr_edge_type_t dir;
         hvr_neighbors_t neighbors;
         hvr_get_neighbors(vertex, &neighbors, ctx);
 
         // If we have a +1 neighbor, then create a +2 neighbor
         int found_plus_one = 0;
-        unsigned n_neighbors = 0;
-
-        hvr_vertex_t *neighbor;
-        hvr_edge_type_t neighbor_dir;
-        while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
-            uint64_t actor_neighbor = hvr_vertex_get_uint64(ACTOR, neighbor,
-                    ctx);
+        int n_neighbors = 0;
+        while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
+            uint64_t actor_neighbor = hvr_vertex_get_uint64(ACTOR, neighbor, ctx);
             if (actor_neighbor == actor + 1) {
                 assert(found_plus_one == 0);
                 found_plus_one = 1;
@@ -68,6 +66,8 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
             n_neighbors++;
         }
         assert(n_neighbors <= 2);
+
+        assert(n_neighbors >= 0 && n_neighbors <= 2);
 
         if (found_plus_one) {
             hvr_vertex_set(CREATED_NEXT, 1, vertex, ctx);

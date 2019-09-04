@@ -39,10 +39,12 @@ static void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_get_neighbors(vertex, &neighbors, ctx);
 
         hvr_vertex_t *neighbor;
-        hvr_edge_type_t neighbor_dir;
+        hvr_edge_type_t dir;
         unsigned n_neighbors = 0;
         unsigned n_neighbors_with_layered = 0;
-        while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
+        while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
+            n_neighbors++;
+
             if (hvr_vertex_get_uint64(CREATED_LAYERED, neighbor, ctx)) {
                 n_neighbors_with_layered++;
             }
@@ -59,15 +61,15 @@ static void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
             hvr_vertex_t msg;
             hvr_vertex_init(&msg, HVR_INVALID_VERTEX_ID, ctx->iter);
 
-            hvr_vertex_set_uint64(0, n_neighbors, &msg, ctx);
-
-            unsigned neighbor_index = 0;
             hvr_get_neighbors(vertex, &neighbors, ctx);
-            while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
-                hvr_vertex_set_uint64(1 + neighbor_index,
+
+            hvr_vertex_set_uint64(0, n_neighbors, &msg, ctx);
+            unsigned i = 0;
+            while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
+                hvr_vertex_set_uint64(1 + i,
                         hvr_vertex_get_uint64(LAYERED_VERTEX, neighbor, ctx),
                         &msg, ctx);
-                neighbor_index++;
+                i++;
             }
 
             // fprintf(stderr, "PE %d sending message to layered vertex %llu "
@@ -185,35 +187,42 @@ int main(int argc, char **argv) {
     int count_layered = 0;
     for (hvr_vertex_t *vert = hvr_vertex_iter_next(&iter); vert;
             vert = hvr_vertex_iter_next(&iter)) {
+        hvr_vertex_t *neighbor;
+        hvr_edge_type_t dir;
         hvr_neighbors_t neighbors;
         hvr_get_neighbors(vert, &neighbors, ctx);
-
-        hvr_vertex_t *neighbor;
-        hvr_edge_type_t neighbor_dir;
 
         unsigned n_neighbors = 0;
         const int max_neighbors = (pe == 0 || pe == npes - 1) ? 1 : 2;
 
         count++;
         if (hvr_vertex_get_uint64(VERTEX_TYPE, vert, ctx) == BASE_GRAPH) {
-            while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
+            unsigned n_neighbors = 0;
+            while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
+                n_neighbors++;
+
                 assert(hvr_vertex_get_uint64(VERTEX_TYPE, neighbor, ctx) ==
                         BASE_GRAPH);
                 assert(abs(hvr_vertex_get_uint64(VERTEX_ID, neighbor, ctx) -
                             hvr_vertex_get_uint64(VERTEX_ID, vert, ctx)) == 1);
                 n_neighbors++;
             }
+            assert(n_neighbors == max_neighbors);
 
             count_base++;
         } else if (hvr_vertex_get_uint64(VERTEX_TYPE, vert, ctx) ==
                 LAYERED_GRAPH) {
-            while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
+            unsigned n_neighbors = 0;
+            while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
+                n_neighbors++;
+
                 assert(hvr_vertex_get_uint64(VERTEX_TYPE, neighbor, ctx) ==
                         LAYERED_GRAPH);
                 assert(abs(hvr_vertex_get_uint64(VERTEX_ID, neighbor, ctx) -
                             hvr_vertex_get_uint64(VERTEX_ID, vert, ctx)) == 1);
                 n_neighbors++;
             }
+            assert(n_neighbors == max_neighbors);
 
             count_layered++;
         } else {

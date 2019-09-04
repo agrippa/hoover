@@ -20,7 +20,12 @@ hvr_partition_t actor_to_partition(const hvr_vertex_t *vertex, hvr_ctx_t ctx) {
 
 hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
         hvr_ctx_t ctx) {
-    if (hvr_vertex_get_owning_pe(a) != hvr_vertex_get_owning_pe(b)) {
+    unsigned a_pos = (unsigned)hvr_vertex_get(POS, a, ctx);
+    unsigned b_pos = (unsigned)hvr_vertex_get(POS, b, ctx);
+    unsigned delta_pos = abs((int)a_pos - (int)b_pos);
+
+    if (hvr_vertex_get_owning_pe(a) != hvr_vertex_get_owning_pe(b) &&
+            delta_pos <= 2) {
         return BIDIRECTIONAL;
     } else {
         return NO_EDGE;
@@ -37,8 +42,16 @@ void might_interact(const hvr_partition_t partition,
         interacting_partitions[*n_interacting_partitions] = partition - 1;
         *n_interacting_partitions += 1;
     }
+    if (partition > 1) {
+        interacting_partitions[*n_interacting_partitions] = partition - 2;
+        *n_interacting_partitions += 1;
+    }
     if (partition < N - 1) {
         interacting_partitions[*n_interacting_partitions] = partition + 1;
+        *n_interacting_partitions += 1;
+    }
+    if (partition < N - 2) {
+        interacting_partitions[*n_interacting_partitions] = partition + 2;
         *n_interacting_partitions += 1;
     }
 }
@@ -48,30 +61,30 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     hvr_partition_t actor = (hvr_partition_t)hvr_vertex_get(ACTOR_ID, vertex,
             ctx);
 
+    hvr_vertex_t *neighbor = NULL;
+    hvr_edge_type_t dir;
     hvr_neighbors_t neighbors;
     hvr_get_neighbors(vertex, &neighbors, ctx);
 
-    hvr_vertex_t *neighbor;
-    hvr_edge_type_t neighbor_dir;
-    unsigned n_neighbors = 0;
-    while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
-        n_neighbors++;
-    }
-    assert(n_neighbors == 0 || n_neighbors == 1);
+    hvr_neighbors_next(&neighbors, &neighbor, &dir);
 
-    unsigned curr_pos = (unsigned)hvr_vertex_get(POS, vertex, ctx);
-    if (actor == 0) {
-        // shift +1 when we have zero neighbors, chasing actor 1
-        if (n_neighbors == 0) {
-            hvr_vertex_set(POS, curr_pos + 1, vertex, ctx);
+    if (neighbor) {
+        unsigned curr_pos = (unsigned)hvr_vertex_get(POS, vertex, ctx);
+        unsigned neighbor_pos = (unsigned)hvr_vertex_get(POS, neighbor, ctx);
+        unsigned delta_pos = abs((int)curr_pos - (int)neighbor_pos);
+        if (actor == 0) {
+            // Chase actor 1. Shift +1 when it is +2 ahead of us.
+            if (delta_pos > 1) {
+                hvr_vertex_set(POS, curr_pos + 1, vertex, ctx);
+            }
+        } else if (actor == 1) {
+            // Run from actor 0. Shift +1 when it is -1 behind us.
+            if (delta_pos == 1 && curr_pos < N - 1) {
+                hvr_vertex_set(POS, curr_pos + 1, vertex, ctx);
+            }
+        } else {
+            abort();
         }
-    } else if (actor == 1) {
-        // shift +1 when we have one neighbor, running from actor 0
-        if (n_neighbors == 1 && curr_pos < N - 1) {
-            hvr_vertex_set(POS, curr_pos + 1, vertex, ctx);
-        }
-    } else {
-        abort();
     }
 }
 
@@ -93,6 +106,11 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
 
+    int max_elapsed_seconds = 120;
+    if (argc == 2) {
+        max_elapsed_seconds = atoi(argv[1]);
+    }
+
     shmem_init();
     hvr_ctx_create(&hvr_ctx);
 
@@ -113,7 +131,7 @@ int main(int argc, char **argv) {
             NULL, // start_time_step
             should_have_edge,
             should_terminate,
-            60, // max_elapsed_seconds
+            max_elapsed_seconds, // max_elapsed_seconds
             1, // max_graph_traverse_depth
             hvr_ctx);
 
@@ -127,9 +145,17 @@ int main(int argc, char **argv) {
             hvr_ctx->iter);
     assert((unsigned)hvr_vertex_get(ACTOR_ID, vertices, hvr_ctx) == pe);
     if (pe == 0) {
-        assert((unsigned)hvr_vertex_get(POS, vertices, hvr_ctx) == N - 2);
+        if ((unsigned)hvr_vertex_get(POS, vertices, hvr_ctx) != N - 2) {
+            fprintf(stderr, "ERROR expected POS (%u) == N - 2 (%u)\n",
+                    (unsigned)hvr_vertex_get(POS, vertices, hvr_ctx), N - 2);
+            abort();
+        }
     } else {
-        assert((unsigned)hvr_vertex_get(POS, vertices, hvr_ctx) == N - 1);
+        if ((unsigned)hvr_vertex_get(POS, vertices, hvr_ctx) != N - 1) {
+            fprintf(stderr, "ERROR expected POS (%u) == N - 1 (%u)\n",
+                    (unsigned)hvr_vertex_get(POS, vertices, hvr_ctx), N - 1);
+            abort();
+        }
     }
     printf("PE %d SUCCESS\n", pe);
 

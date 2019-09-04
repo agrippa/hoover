@@ -101,13 +101,16 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     if (pe == 0) {
+        hvr_vertex_t **verts;
+        hvr_edge_type_t *edges;
+
+        hvr_vertex_t *neighbor;
+        hvr_edge_type_t dir;
         hvr_neighbors_t neighbors;
         hvr_get_neighbors(&vertices[0], &neighbors, hvr_ctx);
 
         unsigned n_neighbors = 0;
-        hvr_vertex_t *neighbor;
-        hvr_edge_type_t neighbor_dir;
-        while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
+        while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
             n_neighbors++;
         }
 

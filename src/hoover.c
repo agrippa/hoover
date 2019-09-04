@@ -1258,7 +1258,7 @@ void hvr_init(const hvr_partition_t n_partitions,
             new_ctx->n_partitions);
     assert(new_ctx->partition_min_dist_from_local_vert);
 
-    hvr_mailbox_init(&new_ctx->vertex_update_mailbox,        128 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->vertex_update_mailbox,        192 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_delete_mailbox,        128 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->forward_mailbox,               32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vert_sub_mailbox,              32 * 1024 * 1024);
@@ -2131,9 +2131,7 @@ static int update_vertices(hvr_set_t *to_couple_with,
 static void send_updates_to_all_subscribed_pes_helper(hvr_vertex_t *vert,
         int *subscribers, unsigned n_subscribers, int is_delete,
         int is_invalidation, hvr_mailbox_buffer_t *mbox_buffer,
-        hvr_internal_ctx_t *ctx,
-        process_perf_info_t *perf_info, unsigned long long *start,
-        unsigned long long *time_sending) {
+        hvr_internal_ctx_t *ctx) {
 
     for (unsigned s = 0; s < n_subscribers; s++) {
         int sub_pe = subscribers[s];
@@ -2162,7 +2160,9 @@ void send_updates_to_all_subscribed_pes(
     assert(part != HVR_INVALID_PARTITION);
     assert(vert->curr_part != HVR_INVALID_PARTITION);
     assert(VERTEX_ID_PE(vert->id) == ctx->pe);
+
     unsigned long long start = hvr_current_time_us();
+
     hvr_mailbox_buffer_t *mbox = (is_delete ?
             &ctx->vertex_delete_mailbox_buffer :
             &ctx->vertex_update_mailbox_buffer);
@@ -2172,15 +2172,13 @@ void send_updates_to_all_subscribed_pes(
     unsigned n_subscribers = hvr_sparse_arr_linearize_row(part,
             &subscribers, &ctx->remote_partition_subs);
     send_updates_to_all_subscribed_pes_helper(vert, subscribers, n_subscribers,
-            is_delete, is_invalidation, mbox, ctx, perf_info, &start,
-            time_sending);
+            is_delete, is_invalidation, mbox, ctx);
 
     // Find subscribers to this particular vertex and send update to them
     n_subscribers = hvr_sparse_arr_linearize_row(VERTEX_ID_OFFSET(vert->id),
             &subscribers, &ctx->remote_vert_subs);
     send_updates_to_all_subscribed_pes_helper(vert, subscribers, n_subscribers,
-            is_delete, is_invalidation, mbox, ctx, perf_info, &start,
-            time_sending);
+            is_delete, is_invalidation, mbox, ctx);
 
     *time_sending += (hvr_current_time_us() - start);
 }
@@ -3368,7 +3366,6 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      */
     process_neighbor_updates(ctx);
     const unsigned long long end_neighbor_updates = hvr_current_time_us();
-
 
     perf_info.n_received_updates += process_vertex_updates(ctx, &perf_info);
     process_incoming_messages(ctx);

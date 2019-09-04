@@ -54,5 +54,6 @@ void hvr_mailbox_buffer_flush(hvr_mailbox_buffer_t *buf) {
                     p, -1, buf->mbox, 0);
             assert(success);
         }
+        buf->nbuffered_per_pe[p] = 0;
     }
 }

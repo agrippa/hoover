@@ -11,7 +11,11 @@ struct node dummy = { 0, 0, {&dummy, &dummy} }, *nnil = &dummy;
 static struct node *new_node(int value, mspace tracker)
 {
     struct node *n = (struct node *)mspace_malloc(tracker, sizeof(*n));
-    assert(n);
+    if (!n) {
+        fprintf(stderr, "ERROR Failed allocating an AVL node. Consider "
+                "increasing HVR_SPARSE_ARR_POOL.\n");
+        abort();
+    }
 	*n = (struct node) { value, 1, {nnil, nnil} };
 	return n;
 }
@@ -119,7 +123,7 @@ void hvr_avl_serialize(struct node *root, int *arr, int arr_capacity) {
 
 struct node *hvr_avl_find(struct node *root, int target) {
     if (root == nnil) {
-        return NULL;
+        return nnil;
     } else if (root->payload == target) {
         return root;
     } else {

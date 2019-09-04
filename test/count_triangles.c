@@ -205,6 +205,7 @@ int main(int argc, char **argv) {
             npes, p_wrk, p_sync);
     shmem_barrier_all();
 
+#if 0
     if (pe == 0) {
         printf("%d PEs, total CPU time = %f ms, max elapsed = %f ms, "
                 "%d iterations completed on PE 0\n", npes,
@@ -224,7 +225,6 @@ int main(int argc, char **argv) {
             }
         }
 
-#if 0
         hvr_vertex_iter_t iter;
         hvr_vertex_iter_init(&iter, hvr_ctx);
         for (hvr_vertex_t *vert = hvr_vertex_iter_next(&iter); vert;

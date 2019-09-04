@@ -38,7 +38,7 @@ export CORES_PER_SOCKET=16
 export SOCKETS_PER_NODE=2
 export CORES_PER_TASK=$(( $CORES_PER_SOCKET / $TASKS_PER_SOCKET ))
 
-export SHMEM_SYMMETRIC_SIZE=$((1024 * 1024 * 1024))
+export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 export HVR_VERT_CACHE_PREALLOCS=3000000
 export HVR_VERT_CACHE_SEGS=40000
 export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
@@ -73,13 +73,13 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
 
 ##### Functional tests #####
 srun -n 2 $HOME/hoover/bin/explicit_edge_test
-# echo
-# srun $SLURM_ARGS $HOME/hoover/bin/init_test 100
-# echo
-# srun -n 2 $HOME/hoover/bin/complex_interact
-# echo
-# srun -n 2 $HOME/hoover/bin/complex_interact2
-# echo
-# srun -n 2 $HOME/hoover/bin/stale_state
-# echo
-# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
+echo
+srun $SLURM_ARGS $HOME/hoover/bin/init_test 100
+echo
+srun -n 2 $HOME/hoover/bin/complex_interact
+echo
+srun -n 2 $HOME/hoover/bin/complex_interact2 240
+echo
+srun -n 2 $HOME/hoover/bin/stale_state
+echo
+srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
