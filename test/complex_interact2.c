@@ -61,14 +61,16 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     hvr_partition_t actor = (hvr_partition_t)hvr_vertex_get(ACTOR_ID, vertex,
             ctx);
 
-    hvr_vertex_t **verts;
-    hvr_edge_type_t *dirs;
-    int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
-    assert(n_neighbors == 0 || n_neighbors == 1);
+    hvr_vertex_t *neighbor = NULL;
+    hvr_edge_type_t dir;
+    hvr_neighbors_t neighbors;
+    hvr_get_neighbors(vertex, &neighbors, ctx);
 
-    if (n_neighbors == 1) {
+    hvr_neighbors_next(&neighbors, &neighbor, &dir);
+
+    if (neighbor) {
         unsigned curr_pos = (unsigned)hvr_vertex_get(POS, vertex, ctx);
-        unsigned neighbor_pos = (unsigned)hvr_vertex_get(POS, verts[0], ctx);
+        unsigned neighbor_pos = (unsigned)hvr_vertex_get(POS, neighbor, ctx);
         unsigned delta_pos = abs((int)curr_pos - (int)neighbor_pos);
         if (actor == 0) {
             // Chase actor 1. Shift +1 when it is +2 ahead of us.
@@ -84,8 +86,6 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
             abort();
         }
     }
-
-    hvr_release_neighbors(verts, dirs, n_neighbors, ctx);
 }
 
 void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,

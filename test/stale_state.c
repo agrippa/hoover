@@ -104,8 +104,15 @@ int main(int argc, char **argv) {
         hvr_vertex_t **verts;
         hvr_edge_type_t *edges;
 
-        int n_neighbors = hvr_get_neighbors(&vertices[0], &verts, &edges,
-                hvr_ctx);
+        hvr_vertex_t *neighbor;
+        hvr_edge_type_t dir;
+        hvr_neighbors_t neighbors;
+        hvr_get_neighbors(&vertices[0], &neighbors, hvr_ctx);
+
+        unsigned n_neighbors = 0;
+        while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
+            n_neighbors++;
+        }
 
         assert(n_neighbors == 0);
         printf("SUCCESS\n");
