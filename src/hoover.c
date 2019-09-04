@@ -1224,7 +1224,7 @@ void hvr_init(const hvr_partition_t n_partitions,
             new_ctx->n_partitions);
     assert(new_ctx->partition_min_dist_from_local_vert);
 
-    hvr_mailbox_init(&new_ctx->vertex_update_mailbox,        128 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->vertex_update_mailbox,        192 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_delete_mailbox,        128 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->forward_mailbox,               32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vert_sub_mailbox,              32 * 1024 * 1024);

@@ -60,8 +60,8 @@ hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
 void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
     for (int e = 0; e < n_edges_to_add; e++) {
-        uint64_t dst_vertex_pe = fast_rand() % npes;
-        // uint64_t dst_vertex_pe = ctx->pe;
+        // uint64_t dst_vertex_pe = fast_rand() % npes;
+        uint64_t dst_vertex_pe = ctx->pe;
 
         uint64_t src_vertex_offset = fast_rand() % nvertices_per_pe;
         uint64_t dst_vertex_offset = fast_rand() % nvertices_per_pe;
@@ -207,6 +207,7 @@ int main(int argc, char **argv) {
                 info.executed_iters);
         printf("%lld edges inserted across all PEs\n", total_n_edges_added);
 
+#if 0
         for (size_t i = 0; i < hvr_ctx->my_vert_subs.nsegs; i++) {
             hvr_sparse_arr_seg_t *seg = (hvr_ctx->my_vert_subs.segs)[i];
             if (seg) {
@@ -219,7 +220,6 @@ int main(int argc, char **argv) {
             }
         }
 
-#if 0
         hvr_vertex_iter_t iter;
         hvr_vertex_iter_init(&iter, hvr_ctx);
         for (hvr_vertex_t *vert = hvr_vertex_iter_next(&iter); vert;

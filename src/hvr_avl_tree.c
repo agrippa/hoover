@@ -11,7 +11,11 @@ struct node dummy = { 0, 0, {&dummy, &dummy} }, *nnil = &dummy;
 static struct node *new_node(int value, mspace tracker)
 {
     struct node *n = (struct node *)mspace_malloc(tracker, sizeof(*n));
-    assert(n);
+    if (!n) {
+        fprintf(stderr, "ERROR Failed allocating an AVL node. Consider "
+                "increasing HVR_SPARSE_ARR_POOL.\n");
+        abort();
+    }
 	*n = (struct node) { value, 1, {nnil, nnil} };
 	return n;
 }
