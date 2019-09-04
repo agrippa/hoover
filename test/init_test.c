@@ -76,12 +76,12 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
      * neighbors are.
      */
     if (hvr_vertex_get(2, vertex, ctx) == 0.0) {
-        hvr_vertex_t **verts;
-        hvr_edge_type_t *dirs;
-        int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
+        hvr_vertex_t *neighbor;
+        hvr_edge_type_t dir;
+        hvr_neighbors_t neighbors;
+        hvr_get_neighbors(vertex, &neighbors, ctx);
 
-        for (int i = 0; i < n_neighbors; i++) {
-            hvr_vertex_t *neighbor = verts[i];
+        while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
             if (hvr_vertex_get(2, neighbor, ctx)) {
                 const int infected_by = hvr_vertex_get_owning_pe(neighbor);
                 hvr_set_insert(infected_by, couple_with);
@@ -90,7 +90,6 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
                 break;
             }
         }
-        hvr_release_neighbors(verts, dirs, n_neighbors, ctx);
     }
 }
 
