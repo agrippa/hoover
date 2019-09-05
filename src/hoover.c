@@ -248,6 +248,10 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
 
     hvr_vertex_cache_init(&new_ctx->vec_cache);
 
+    if (getenv("HVR_DISABLE_DEAD_PE_PROCESSING")) {
+        dead_pe_processing = 0;
+    }
+
     if (dead_pe_processing) {
         new_ctx->vertex_partitions = (hvr_partition_t *)shmem_malloc_wrapper(
                 new_ctx->vec_cache.pool_size * sizeof(hvr_partition_t));
@@ -1118,13 +1122,11 @@ void hvr_init(const hvr_partition_t n_partitions,
     }
 #endif
 
-    new_ctx->p_wrk = (long long *)shmem_malloc_wrapper(
-            SHMEM_REDUCE_MIN_WRKDATA_SIZE * sizeof(long long));
     new_ctx->p_wrk_int = (int *)shmem_malloc_wrapper(
             SHMEM_REDUCE_MIN_WRKDATA_SIZE * sizeof(int));
     new_ctx->p_sync = (long *)shmem_malloc_wrapper(
             SHMEM_REDUCE_SYNC_SIZE * sizeof(long));
-    assert(new_ctx->p_wrk && new_ctx->p_sync && new_ctx->p_wrk_int);
+    assert(new_ctx->p_sync && new_ctx->p_wrk_int);
 
     for (int i = 0; i < SHMEM_REDUCE_SYNC_SIZE; i++) {
         (new_ctx->p_sync)[i] = SHMEM_SYNC_VALUE;
@@ -1203,10 +1205,6 @@ void hvr_init(const hvr_partition_t n_partitions,
                     "data structures\n",
                     MAX_PROFILED_ITERS * sizeof(profiling_info_t));
         }
-    }
-
-    if (getenv("HVR_DISABLE_DEAD_PE_PROCESSING")) {
-        dead_pe_processing = 0;
     }
 
     // Set up our initial coupled cluster
@@ -3572,16 +3570,18 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      * For each local vertex, persist its partition so that other PEs can come
      * look it up after I have terminated.
      */
-    for (unsigned i = 0; i < ctx->vec_cache.pool_size; i++) {
-        (ctx->vertex_partitions)[i] = HVR_INVALID_PARTITION;
-    }
-    hvr_vertex_iter_t iter;
-    hvr_vertex_iter_all_init(&iter, ctx);
-    for (hvr_vertex_t *curr = hvr_vertex_iter_next(&iter); curr;
-            curr = hvr_vertex_iter_next(&iter)) {
-        hvr_vertex_cache_node_t *curr_node = (hvr_vertex_cache_node_t *)curr;
-        size_t offset = curr_node - ctx->vec_cache.pool_mem;
-        (ctx->vertex_partitions)[offset] = curr_node->vert.curr_part;
+    if (dead_pe_processing) {
+        for (unsigned i = 0; i < ctx->vec_cache.pool_size; i++) {
+            (ctx->vertex_partitions)[i] = HVR_INVALID_PARTITION;
+        }
+        hvr_vertex_iter_t iter;
+        hvr_vertex_iter_all_init(&iter, ctx);
+        for (hvr_vertex_t *curr = hvr_vertex_iter_next(&iter); curr;
+                curr = hvr_vertex_iter_next(&iter)) {
+            hvr_vertex_cache_node_t *curr_node = (hvr_vertex_cache_node_t *)curr;
+            size_t offset = curr_node - ctx->vec_cache.pool_mem;
+            (ctx->vertex_partitions)[offset] = curr_node->vert.curr_part;
+        }
     }
 
     /*

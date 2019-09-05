@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 64
+#SBATCH -N 2
 #SBATCH -C haswell
 #SBATCH -t 00:05:00
 #SBATCH -J hoover-connected
@@ -44,6 +44,7 @@ export NEDGES_PER_STEP=20000
 
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
+# export HVR_TRACE_SHMALLOC=1
 
 export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
 export HVR_VERT_CACHE_PREALLOCS=$((6 * 1024 * 1024))

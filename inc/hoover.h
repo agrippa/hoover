@@ -228,7 +228,6 @@ typedef struct _hvr_internal_ctx_t {
     // List of asynchronously fetching vertices
     hvr_vertex_cache_node_t **neighbor_buffer;
 
-    long long *p_wrk;
     int *p_wrk_int;
     long *p_sync;
 
