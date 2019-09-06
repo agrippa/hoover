@@ -23,6 +23,7 @@ extern "C" {
 #include "hvr_msg_buf_pool.h"
 #include "hvr_irregular_matrix.h"
 #include "hvr_buffered_msgs.h"
+#include "hvr_buffered_changes.h"
 
 /*
  * High-level workflow of the HOOVER runtime:
@@ -195,6 +196,8 @@ typedef struct _hvr_internal_ctx_t {
 
     // Is the current OpenSHMEM runtime configured thread-safe?
     int thread_safe;
+
+    int user_mutation_allowed;
 
     hvr_partition_t *vertex_partitions; // only set while exiting
 
@@ -382,6 +385,8 @@ typedef struct _hvr_internal_ctx_t {
     mspace edge_list_allocator;
     void *edge_list_pool;
     size_t edge_list_pool_size;
+
+    hvr_buffered_changes_t buffered_changes;
 } hvr_internal_ctx_t;
 
 /*

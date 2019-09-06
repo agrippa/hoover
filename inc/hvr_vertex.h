@@ -9,8 +9,8 @@
 extern "C" {
 #endif
 
-#define HVR_MAX_VECTOR_SIZE 12
-// #define HVR_MAX_VECTOR_SIZE 1
+// #define HVR_MAX_VECTOR_SIZE 12
+#define HVR_MAX_VECTOR_SIZE 1
 
 typedef struct _hvr_vertex_t {
     hvr_vertex_id_t id;
@@ -32,12 +32,12 @@ typedef struct _hvr_vertex_t {
  * Create nvecs new, empty vectors.
  */
 extern hvr_vertex_t *hvr_vertex_create(hvr_ctx_t ctx);
-extern hvr_vertex_t *hvr_vertex_create_n(size_t n, hvr_ctx_t ctx);
 
 /*
  * Remove these vertices from the graph.
  */
 extern void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t ctx);
+extern void hvr_vertex_delete_impl(hvr_vertex_t *vert, hvr_ctx_t ctx);
 
 /*
  * Initialize an empty sparse vector.

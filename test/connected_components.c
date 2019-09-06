@@ -202,7 +202,8 @@ int main(int argc, char **argv) {
                 "%d iterations completed on PE 0\n", npes,
                 (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
                 info.executed_iters);
-        printf("%lld edges inserted across all PEs\n", total_n_edges_added);
+        printf("%lld edges inserted across all PEs, %u edges added per "
+                "iteration\n", total_n_edges_added, n_edges_to_add);
 
 #if 0
         for (size_t i = 0; i < hvr_ctx->my_vert_subs.nsegs; i++) {

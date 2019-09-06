@@ -233,6 +233,8 @@ void hvr_ctx_create(hvr_ctx_t *out_ctx) {
 
     new_ctx->pe = shmem_my_pe();
     new_ctx->npes = shmem_n_pes();
+    new_ctx->user_mutation_allowed = 1;
+
     /*
      * Reserve the top two bits of hvr_vertex_id/hvr_edge_info to store
      * information on which edge type is being stored.
@@ -1401,6 +1403,13 @@ void hvr_init(const hvr_partition_t n_partitions,
             new_ctx->edge_list_pool, new_ctx->edge_list_pool_size, 0);
     assert(new_ctx->edge_list_allocator);
 
+    size_t n_allocated_changes = 1024;
+    if (getenv("HVR_BUFFERED_CHANGES_ALLOCATED")) {
+        n_allocated_changes = atoi(getenv("HVR_BUFFERED_CHANGES_ALLOCATED"));
+    }
+
+    hvr_buffered_changes_init(n_allocated_changes, &new_ctx->buffered_changes);
+
     // Print the number of bytes allocated
 #ifdef DETAILED_PRINTS
     shmem_malloc_wrapper(0);
@@ -1953,9 +1962,6 @@ static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t vid,
      */
     int owning_pe = VERTEX_ID_PE(vid);
 
-    // fprintf(stderr, "PE %d subscribing to vertex %llu on PE %d\n", ctx->pe,
-    //         vid, VERTEX_ID_PE(vid));
-
     hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(vid,
             &ctx->vec_cache);
     if (!cached) {
@@ -1974,7 +1980,8 @@ static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t vid,
         cached->populated = 1;
     }
 
-    if (owning_pe != ctx->pe) {
+    if (owning_pe != ctx->pe && !hvr_sparse_arr_contains(owning_pe,
+                VERTEX_ID_OFFSET(vid), &ctx->my_vert_subs)) {
         if (hvr_set_contains(owning_pe, ctx->all_terminated_pes)) {
             // Already terminated, just pull this vertex's latest value.
             shmem_getmem(&cached->vert,
@@ -2029,6 +2036,7 @@ static void hvr_create_edge_helper(hvr_vertex_t *local,
         hvr_vertex_id_t neighbor, hvr_vertex_t *optional_neighbor_body,
         hvr_edge_type_t edge, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+
     hvr_vertex_id_t local_id = local->id;
 
     // Assert that at least one of these vertices is locally owned
@@ -2057,12 +2065,18 @@ static void hvr_create_edge_helper(hvr_vertex_t *local,
 
 void hvr_create_edge_with_vertex_id(hvr_vertex_t *local,
         hvr_vertex_id_t neighbor, hvr_edge_type_t edge, hvr_ctx_t in_ctx) {
-    hvr_create_edge_helper(local, neighbor, NULL, edge, in_ctx);
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    assert(ctx->user_mutation_allowed);
+    hvr_buffered_changes_edge_create(local->id, neighbor, edge,
+            &ctx->buffered_changes);
 }
 
 void hvr_create_edge_with_vertex(hvr_vertex_t *local,
         hvr_vertex_t *neighbor, hvr_edge_type_t edge, hvr_ctx_t in_ctx) {
-    hvr_create_edge_helper(local, neighbor->id, neighbor, edge, in_ctx);
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    assert(ctx->user_mutation_allowed);
+    hvr_buffered_changes_edge_create(local->id, neighbor->id, edge,
+            &ctx->buffered_changes);
 }
 
 hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t id, hvr_ctx_t in_ctx) {
@@ -2076,6 +2090,32 @@ hvr_vertex_t *hvr_get_vertex(hvr_vertex_id_t id, hvr_ctx_t in_ctx) {
     }
 }
 
+static void process_buffered_changes(hvr_internal_ctx_t *ctx) {
+    hvr_buffered_change_t chng;
+    hvr_buffered_changes_t *changes = &ctx->buffered_changes;
+    while (hvr_buffered_changes_poll(changes, &chng)) {
+        if (chng.is_edge_create) {
+            // Edge create
+            hvr_vertex_cache_node_t *cached_base = hvr_vertex_cache_lookup(
+                    chng.change.edge.base_id, &ctx->vec_cache);
+            assert(cached_base);
+
+            hvr_vertex_cache_node_t *cached_neighbor = hvr_vertex_cache_lookup(
+                    chng.change.edge.neighbor_id, &ctx->vec_cache);
+
+            hvr_create_edge_helper(&cached_base->vert,
+                    chng.change.edge.neighbor_id,
+                    cached_neighbor ? &cached_neighbor->vert : NULL,
+                    chng.change.edge.edge, ctx);
+        } else {
+            // Vertex delete
+            hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(
+                    chng.change.del.to_delete, &ctx->vec_cache);
+            hvr_vertex_delete_impl(&cached->vert, ctx);
+        }
+    }
+}
+
 static int update_vertices(hvr_set_t *to_couple_with,
         hvr_internal_ctx_t *ctx) {
     if (ctx->update_metadata == NULL || !ctx->any_needs_processing) {
@@ -2083,6 +2123,7 @@ static int update_vertices(hvr_set_t *to_couple_with,
     }
 
     ctx->any_needs_processing = 0;
+    ctx->user_mutation_allowed = 1;
 
     int count = 0;
     hvr_vertex_iter_t iter;
@@ -2095,6 +2136,8 @@ static int update_vertices(hvr_set_t *to_couple_with,
             const hvr_partition_t old_part = ctx->actor_to_partition(curr, ctx);
 
             ctx->update_metadata(curr, to_couple_with, ctx);
+
+            process_buffered_changes(ctx);
 
             hvr_partition_t new_partition = ctx->actor_to_partition(curr, ctx);
             curr->curr_part = new_partition;
@@ -2127,14 +2170,14 @@ static int update_vertices(hvr_set_t *to_couple_with,
             count++;
         }
     }
+    ctx->user_mutation_allowed = 0;
 
     return count;
 }
 
 static void send_updates_to_all_subscribed_pes_helper(hvr_vertex_t *vert,
         int *subscribers, unsigned n_subscribers, int is_invalidation,
-        hvr_mailbox_buffer_t *mbox_buffer, hvr_internal_ctx_t *ctx) {
-
+        hvr_internal_ctx_t *ctx) {
     for (unsigned s = 0; s < n_subscribers; s++) {
         int sub_pe = subscribers[s];
         assert(sub_pe < ctx->npes);
@@ -2146,7 +2189,8 @@ static void send_updates_to_all_subscribed_pes_helper(hvr_vertex_t *vert,
         msg.is_vert_update = 1;
         hvr_vertex_update_init(&msg.payload.vert_update, vert, is_invalidation);
 
-        hvr_mailbox_buffer_send(&msg, sizeof(msg), sub_pe, -1, mbox_buffer, 0);
+        hvr_mailbox_buffer_send(&msg, sizeof(msg), sub_pe, -1,
+                &ctx->vertex_update_mailbox_buffer, 0);
     }
 }
 
@@ -2164,20 +2208,18 @@ void send_updates_to_all_subscribed_pes(
 
     unsigned long long start = hvr_current_time_us();
 
-    hvr_mailbox_buffer_t *mbox = &ctx->vertex_update_mailbox_buffer;
-
     // Find subscribers to part and send message to them
     int *subscribers = NULL;
     unsigned n_subscribers = hvr_sparse_arr_linearize_row(part,
             &subscribers, &ctx->remote_partition_subs);
     send_updates_to_all_subscribed_pes_helper(vert, subscribers, n_subscribers,
-            is_delete || is_invalidation, mbox, ctx);
+            is_delete || is_invalidation, ctx);
 
     // Find subscribers to this particular vertex and send update to them
     n_subscribers = hvr_sparse_arr_linearize_row(VERTEX_ID_OFFSET(vert->id),
             &subscribers, &ctx->remote_vert_subs);
     send_updates_to_all_subscribed_pes_helper(vert, subscribers, n_subscribers,
-            is_delete || is_invalidation, mbox, ctx);
+            is_delete || is_invalidation, ctx);
 
     *time_sending += (hvr_current_time_us() - start);
 }
@@ -3310,6 +3352,8 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
     shmem_barrier_all();
 
+    ctx->user_mutation_allowed = 0;
+
     const unsigned long long start_body = hvr_current_time_us();
 
     /*
@@ -3435,7 +3479,12 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         if (ctx->start_time_step) {
             hvr_vertex_iter_t iter;
             hvr_vertex_iter_init(&iter, ctx);
+
+            ctx->user_mutation_allowed = 1;
             ctx->start_time_step(&iter, to_couple_with, ctx);
+            ctx->user_mutation_allowed = 0;
+
+            process_buffered_changes(ctx);
         }
 
         const unsigned long long end_start_time_step = hvr_current_time_us();

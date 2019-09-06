@@ -6,6 +6,8 @@
 
 hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    assert(ctx->user_mutation_allowed);
+
     hvr_vertex_cache_node_t *reserved = hvr_vertex_cache_reserve(
             &ctx->vec_cache, ctx->pe, ctx->iter);
     hvr_vertex_t *allocated = &reserved->vert;
@@ -21,6 +23,12 @@ hvr_vertex_t *hvr_vertex_create(hvr_ctx_t in_ctx) {
 }
 
 void hvr_vertex_delete(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
+    hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
+    assert(ctx->user_mutation_allowed);
+    hvr_buffered_changes_delete_vertex(vert->id, &ctx->buffered_changes);
+}
+
+void hvr_vertex_delete_impl(hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
     hvr_internal_ctx_t *ctx = (hvr_internal_ctx_t *)in_ctx;
 
     // Notify others of the deletion
