@@ -1253,8 +1253,7 @@ void hvr_init(const hvr_partition_t n_partitions,
             new_ctx->n_partitions);
     assert(new_ctx->partition_min_dist_from_local_vert);
 
-    hvr_mailbox_init(&new_ctx->vertex_update_mailbox,        192 * 1024 * 1024);
-    hvr_mailbox_init(&new_ctx->vertex_delete_mailbox,        128 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->vertex_update_mailbox,        256 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->forward_mailbox,               32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vert_sub_mailbox,              32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_msg_mailbox,            32 * 1024 * 1024);
@@ -1271,9 +1270,6 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_mailbox_buffer_init(&new_ctx->vertex_update_mailbox_buffer,
             &new_ctx->vertex_update_mailbox, new_ctx->npes,
             sizeof(hvr_update_msg_t), n_to_buffer);
-    hvr_mailbox_buffer_init(&new_ctx->vertex_delete_mailbox_buffer,
-            &new_ctx->vertex_delete_mailbox, new_ctx->npes,
-            sizeof(hvr_vertex_update_t), n_to_buffer);
 
     hvr_dist_bitvec_init(new_ctx->n_partitions, new_ctx->npes,
             &new_ctx->partition_producers);
@@ -1336,9 +1332,6 @@ void hvr_init(const hvr_partition_t n_partitions,
     max_msg_len = MAX_MACRO(
             new_ctx->vertex_update_mailbox_buffer.buffer_size_per_pe *
             sizeof(hvr_update_msg_t), max_msg_len);
-    max_msg_len = MAX_MACRO(
-            new_ctx->vertex_delete_mailbox_buffer.buffer_size_per_pe *
-            sizeof(hvr_vertex_update_t), max_msg_len);
 
     unsigned max_buffered_msgs = 1000;
     if (getenv("HVR_MAX_BUFFERED_MSGS")) {
@@ -1795,29 +1788,10 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
     // Handle deletes, then updates
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
-    int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->vertex_delete_mailbox, 0);
-    while (success) {
-        assert(msg_len % sizeof(hvr_vertex_update_t) == 0);
-        hvr_vertex_update_t *msgs = (hvr_vertex_update_t *)msg_buf_node->ptr;
-
-        for (unsigned i = 0; i < msg_len / sizeof(*msgs); i++) {
-            hvr_vertex_update_t *msg = msgs + i;
-            handle_deleted_vertex(&(msg->vert), 0, ctx);
-            n_updates++;
-        }
-        ctx->total_vertex_msgs_recvd += (msg_len / sizeof(*msgs));
-
-        count_delete_msgs++;
-        if (count_delete_msgs >= MAX_MSGS_PROCESSED) break;
-
-        success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->vertex_delete_mailbox, 0);
-    }
 
     const unsigned long long midpoint = hvr_current_time_us();
     unsigned count_update_msgs = 0;
-    success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
+    int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
             &msg_len, &ctx->vertex_update_mailbox, 0);
     while (success) {
         assert(msg_len % sizeof(hvr_update_msg_t) == 0);
@@ -2158,9 +2132,8 @@ static int update_vertices(hvr_set_t *to_couple_with,
 }
 
 static void send_updates_to_all_subscribed_pes_helper(hvr_vertex_t *vert,
-        int *subscribers, unsigned n_subscribers, int is_delete,
-        int is_invalidation, hvr_mailbox_buffer_t *mbox_buffer,
-        hvr_internal_ctx_t *ctx) {
+        int *subscribers, unsigned n_subscribers, int is_invalidation,
+        hvr_mailbox_buffer_t *mbox_buffer, hvr_internal_ctx_t *ctx) {
 
     for (unsigned s = 0; s < n_subscribers; s++) {
         int sub_pe = subscribers[s];
@@ -2173,8 +2146,7 @@ static void send_updates_to_all_subscribed_pes_helper(hvr_vertex_t *vert,
         msg.is_vert_update = 1;
         hvr_vertex_update_init(&msg.payload.vert_update, vert, is_invalidation);
 
-        hvr_mailbox_buffer_send(&msg, sizeof(msg), sub_pe, -1,
-                mbox_buffer, 0);
+        hvr_mailbox_buffer_send(&msg, sizeof(msg), sub_pe, -1, mbox_buffer, 0);
     }
 }
 
@@ -2192,22 +2164,20 @@ void send_updates_to_all_subscribed_pes(
 
     unsigned long long start = hvr_current_time_us();
 
-    hvr_mailbox_buffer_t *mbox = (is_delete ?
-            &ctx->vertex_delete_mailbox_buffer :
-            &ctx->vertex_update_mailbox_buffer);
+    hvr_mailbox_buffer_t *mbox = &ctx->vertex_update_mailbox_buffer;
 
     // Find subscribers to part and send message to them
     int *subscribers = NULL;
     unsigned n_subscribers = hvr_sparse_arr_linearize_row(part,
             &subscribers, &ctx->remote_partition_subs);
     send_updates_to_all_subscribed_pes_helper(vert, subscribers, n_subscribers,
-            is_delete, is_invalidation, mbox, ctx);
+            is_delete || is_invalidation, mbox, ctx);
 
     // Find subscribers to this particular vertex and send update to them
     n_subscribers = hvr_sparse_arr_linearize_row(VERTEX_ID_OFFSET(vert->id),
             &subscribers, &ctx->remote_vert_subs);
     send_updates_to_all_subscribed_pes_helper(vert, subscribers, n_subscribers,
-            is_delete, is_invalidation, mbox, ctx);
+            is_delete || is_invalidation, mbox, ctx);
 
     *time_sending += (hvr_current_time_us() - start);
 }
@@ -2248,7 +2218,6 @@ static unsigned send_vertex_updates(hvr_internal_ctx_t *ctx,
     }
 
     hvr_mailbox_buffer_flush(&ctx->vertex_update_mailbox_buffer);
-    hvr_mailbox_buffer_flush(&ctx->vertex_delete_mailbox_buffer);
 
     return n_updates_sent;
 }
@@ -3085,7 +3054,6 @@ static void save_profiling_info(
     // Mailboxes
     saved_profiling_info[n_profiled_iters].mailbox_bytes_used = 
         hvr_mailbox_mem_used(&ctx->vertex_update_mailbox) +
-        hvr_mailbox_mem_used(&ctx->vertex_delete_mailbox) +
         hvr_mailbox_mem_used(&ctx->forward_mailbox) +
         hvr_mailbox_mem_used(&ctx->vert_sub_mailbox) +
         hvr_mailbox_mem_used(&ctx->vertex_msg_mailbox) +
@@ -3670,7 +3638,6 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     hvr_vertex_cache_destroy(&ctx->vec_cache);
 
     hvr_mailbox_destroy(&ctx->vertex_update_mailbox);
-    hvr_mailbox_destroy(&ctx->vertex_delete_mailbox);
     hvr_mailbox_destroy(&ctx->forward_mailbox);
     hvr_mailbox_destroy(&ctx->vert_sub_mailbox);
     hvr_mailbox_destroy(&ctx->coupling_mailbox);

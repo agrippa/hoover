@@ -300,7 +300,6 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_local_subcopy_t local_terminated_pes;
 
     hvr_mailbox_t vertex_update_mailbox;
-    hvr_mailbox_t vertex_delete_mailbox;
     hvr_mailbox_t forward_mailbox;
     hvr_mailbox_t vertex_msg_mailbox;
 
@@ -313,7 +312,6 @@ typedef struct _hvr_internal_ctx_t {
     hvr_mailbox_t vert_sub_mailbox;
 
     hvr_mailbox_buffer_t vertex_update_mailbox_buffer;
-    hvr_mailbox_buffer_t vertex_delete_mailbox_buffer;
     hvr_mailbox_buffer_t vert_sub_mailbox_buffer;
 
     hvr_map_t producer_info;

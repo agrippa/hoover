@@ -71,6 +71,8 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
 # export MAX_SECONDS=120
 # srun $SLURM_ARGS $HOME/hoover/bin/simple_nbody_test $SIMULATION_TIMESTEPS $MAX_SECONDS
 
+make make bin/explicit_edge_test bin/init_test bin/complex_interact bin/complex_interact2 bin/stale_state bin/coupled_test bin/connected_components
+
 ##### Functional tests #####
 srun -n 2 $HOME/hoover/bin/explicit_edge_test
 echo
@@ -83,3 +85,5 @@ echo
 srun -n 2 $HOME/hoover/bin/stale_state
 echo
 srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
+echo
+srun $SLURM_ARGS $HOME/hoover/bin/connected_components 10 10000 100
