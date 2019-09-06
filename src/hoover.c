@@ -178,9 +178,6 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
         int expect_no_edges,
         hvr_internal_ctx_t *ctx);
 
-static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
-        process_perf_info_t *perf_info);
-
 static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t v,
         hvr_vertex_t *optional_body,
         hvr_internal_ctx_t *ctx);
@@ -357,15 +354,14 @@ static void update_distance_after_edge_update(hvr_vertex_cache_node_t *node,
 static void send_edge_updates_to_subscribers(hvr_vertex_cache_node_t *node,
         hvr_vertex_cache_node_t *base, hvr_vertex_cache_node_t *neighbor,
         hvr_edge_type_t new_edge, hvr_internal_ctx_t *ctx) {
+    assert(VERTEX_ID_PE(node->vert.id) == ctx->pe);
+
     int *subscribers = NULL;
     unsigned n_subscribers = hvr_sparse_arr_linearize_row(
             VERTEX_ID_OFFSET(node->vert.id),
             &subscribers, &ctx->remote_vert_subs);
 
-    /*
-     * If the local vertex has any remote subscribers, send them this
-     * new edge.
-     */
+    // If the local vertex has any remote subscribers, send them this new edge.
     hvr_update_msg_t msg;
     msg.is_vert_update = 0;
     memcpy(&msg.payload.edge_update.src, &base->vert, sizeof(base->vert));
@@ -379,15 +375,15 @@ static void send_edge_updates_to_subscribers(hvr_vertex_cache_node_t *node,
 }
 
 // The only place where edges between vertices are created/deleted
-static inline void update_edge_info(hvr_vertex_id_t base_id,
-        hvr_vertex_id_t neighbor_id,
-        hvr_vertex_cache_node_t *base,
+static inline void update_edge_info(hvr_vertex_cache_node_t *base,
         hvr_vertex_cache_node_t *neighbor,
         hvr_edge_type_t new_edge,
         const hvr_edge_type_t *known_existing_edge,
         const hvr_edge_create_type_t creation_type,
         hvr_internal_ctx_t *ctx) {
     assert(base && neighbor);
+    const hvr_vertex_id_t base_id = base->vert.id;
+    const hvr_vertex_id_t neighbor_id = neighbor->vert.id;
 
     const int base_is_local = (VERTEX_ID_PE(base_id) == ctx->pe);
     const int neighbor_is_local = (VERTEX_ID_PE(neighbor_id) == ctx->pe);
@@ -470,13 +466,14 @@ static inline void update_edge_info(hvr_vertex_id_t base_id,
         base->n_explicit_edges++;
         neighbor->n_explicit_edges++;
 
-        if (base_is_local) {
-            send_edge_updates_to_subscribers(base, base, neighbor, new_edge,
-                    ctx);
-        }
-        if (neighbor_is_local) {
-            send_edge_updates_to_subscribers(neighbor, base, neighbor, new_edge,
-                    ctx);
+        if (base_is_local != neighbor_is_local) {
+            if (base_is_local) {
+                send_edge_updates_to_subscribers(base, base, neighbor, new_edge,
+                        ctx);
+            } else {
+                send_edge_updates_to_subscribers(neighbor, base, neighbor,
+                        new_edge, ctx);
+            }
         }
     }
 
@@ -569,8 +566,8 @@ static unsigned create_new_edges(hvr_vertex_cache_node_t *updated,
             if (!cache_node->flag) {
                 hvr_edge_type_t edge = ctx->should_have_edge(cache_iter,
                         &updated->vert, ctx);
-                update_edge_info(cache_iter->id, updated->vert.id, cache_node,
-                        updated, edge, &no_edge, IMPLICIT_EDGE, ctx);
+                update_edge_info(cache_node, updated, edge, &no_edge,
+                        IMPLICIT_EDGE, ctx);
                 local_count_new_should_have_edges++;
             }
 
@@ -604,8 +601,8 @@ static unsigned update_existing_edges(hvr_vertex_cache_node_t *updated,
         // Check this edge should still exist
         hvr_edge_type_t new_edge = ctx->should_have_edge(
                 &updated->vert, &(cached_neighbor->vert), ctx);
-        update_edge_info(updated->vert.id, cached_neighbor->vert.id,
-                updated, cached_neighbor, new_edge, &edge, IMPLICIT_EDGE, ctx);
+        update_edge_info(updated, cached_neighbor, new_edge, &edge,
+                IMPLICIT_EDGE, ctx);
 
         // Mark that we've already handled it
         cached_neighbor->flag = 1;
@@ -1616,8 +1613,8 @@ static void handle_deleted_vertex(hvr_vertex_t *dead_vert,
             hvr_vertex_cache_node_t *cached_neighbor = CACHE_NODE_BY_OFFSET(
                     EDGE_INFO_VERTEX(ctx->edge_buffer[n]), &ctx->vec_cache);
             hvr_edge_type_t edge = EDGE_INFO_EDGE(ctx->edge_buffer[n]);
-            update_edge_info(dead_vert->id, cached_neighbor->vert.id, cached,
-                    cached_neighbor, NO_EDGE, &edge, IMPLICIT_EDGE, ctx);
+            update_edge_info(cached, cached_neighbor, NO_EDGE, &edge,
+                    IMPLICIT_EDGE, ctx);
         }
 
         hvr_vertex_t *cached_vert = &cached->vert;
@@ -1841,20 +1838,51 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
             } else {
                 hvr_edge_create_msg_t *msg = &wrapper_msg->payload.edge_update;
 
-                assert(VERTEX_ID_PE(msg->target) == ctx->pe &&
-                        VERTEX_ID_PE(msg->src.id) != ctx->pe);
+                /*
+                 * There are two ways in which an edge create notification is
+                 * sent to a PE:
+                 *   1. Another PE has explicitly created an edge with a
+                 *      locally-owned vertex, in which case target is the ID of
+                 *      the locally-owned vertex and src is the content of the
+                 *      remote vertex that just created an edge with us.
+                 *   2. This PE is subscribed to a remote vertex (because an
+                 *      edge was created with it) and a new explicit edge is
+                 *      created on that vertex. This new explicit edge may be
+                 *      between the subscribed-to vertex and any other vertex
+                 *      in the simulation. There are no rules on which of these
+                 *      is src/target, and both may be remote (though at least
+                 *      one must be cached locally as we are subscribed to it).
+                 *
+                 * In each of these cases at least one of the vertices is
+                 * guaranteed to be stored in the local vertex pool (in one
+                 * case because it is locally-owned, in the other case because
+                 * it is locally subscribed). In both cases, there are no
+                 * guarantees that the other vertex is locally known or not. It
+                 * may even be locally-owned.
+                 */
+                hvr_vertex_cache_node_t *cached_target =
+                    hvr_vertex_cache_lookup(msg->target, &ctx->vec_cache);
+                hvr_vertex_cache_node_t *cached_src = hvr_vertex_cache_lookup(
+                        msg->src.id, &ctx->vec_cache);
+                assert(cached_target || cached_src);
 
-                // Insert the remote source into our cache
-                hvr_vertex_cache_node_t *cached = set_up_vertex_subscription(
-                        msg->src.id, &msg->src, ctx);
+                if (VERTEX_ID_PE(msg->target) != ctx->pe) {
+                    hvr_vertex_t *body =
+                        (cached_target && cached_target->populated) ?
+                        &cached_target->vert : NULL;
+                    cached_target = set_up_vertex_subscription(msg->target,
+                            body, ctx);
+                }
+
+                if (VERTEX_ID_PE(msg->src.id) != ctx->pe) {
+                    cached_src = set_up_vertex_subscription(msg->src.id,
+                            &msg->src, ctx);
+                }
 
                 // Insert the explcitly created edge in our local edge info
-                update_edge_info(msg->target, msg->src.id,
-                        cached,
-                        ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(msg->target),
-                        msg->edge, NULL, EXPLICIT_EDGE, ctx);
+                update_edge_info(cached_src, cached_target, msg->edge, NULL,
+                        EXPLICIT_EDGE, ctx);
             }
-
         }
         ctx->total_vertex_msgs_recvd += (msg_len / sizeof(*msgs));
 
@@ -1951,6 +1979,9 @@ static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t vid,
      */
     int owning_pe = VERTEX_ID_PE(vid);
 
+    // fprintf(stderr, "PE %d subscribing to vertex %llu on PE %d\n", ctx->pe,
+    //         vid, VERTEX_ID_PE(vid));
+
     hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(vid,
             &ctx->vec_cache);
     if (!cached) {
@@ -2042,8 +2073,8 @@ static void hvr_create_edge_helper(hvr_vertex_t *local,
     assert(cached_local && cached_neighbor);
 
     // Create explicit edge
-    update_edge_info(local_id, neighbor, cached_local, cached_neighbor, edge,
-            NULL, EXPLICIT_EDGE, ctx);
+    update_edge_info(cached_local, cached_neighbor, edge, NULL, EXPLICIT_EDGE,
+            ctx);
 
     if (VERTEX_ID_PE(neighbor) != ctx->pe) {
         signal_edge_creation(neighbor, local, flip_edge_direction(edge), ctx);
