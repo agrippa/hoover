@@ -363,13 +363,13 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
          * structure (addition of a vertex and/or edge). If it does, make that
          * change and explore further.
          */
-        hvr_vertex_t **verts;
-        hvr_edge_type_t *dirs;
-        int n_neighbors = hvr_get_neighbors(last_added, &verts, &dirs, ctx);
+        hvr_neighbors_t neighbors;
+        hvr_get_neighbors(last_added, &neighbors, ctx);
 
-        for (unsigned j = 0; j < n_neighbors; j++) {
-            hvr_vertex_t *neighbor = verts[j];
+        hvr_vertex_t *neighbor;
+        hvr_edge_type_t neighbor_dir;
 
+        while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
             if (already_in_subgraph(neighbor->id, curr_state)) {
                 /*
                  * 'neighbor' is already in the subgraph (as is
@@ -404,6 +404,7 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
                 subgraph_remove_vertex(neighbor->id, curr_state);
             }
         }
+        hvr_release_neighbors(&neighbors, ctx);
     }
     return count_explores;
 }
@@ -510,8 +511,9 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
      * features which are designed to be most likely to just interact with
      * vertices on this node (but possibly with vertices on other nodes).
      */
-    const unsigned n_vertices_to_add = min_n_vertices_to_add +
-        (fast_rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
+    const unsigned n_vertices_to_add = 300;
+    // const unsigned n_vertices_to_add = min_n_vertices_to_add +
+    //     (fast_rand() % (max_n_vertices_to_add - min_n_vertices_to_add));
 
     n_local_vertices += n_vertices_to_add;
 
@@ -690,11 +692,25 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix));
 #else
         double search_ms = (double)(end_search - start_search) / 1000.0;
+        // printf("PE %d found %u patterns on iter %d using %d "
+        //         "visits for %u local verts, %f ms to search (%f visits/ms).\n",
+        //         pe, n_known_local_patterns, ctx->iter,
+        //         n_explores, n_local_vertices,
+        //         search_ms, (double)n_explores / search_ms);
         printf("PE %d found %u patterns on iter %d using %d "
-                "visits for %u local verts, %f ms to search (%f visits/ms).\n",
+                "visits. %f ms inserting new vertices, %f ms to search (%f "
+                "counting patterns), %f ms to compute top scores. %u local "
+                "vertices in total. Best score = %u, edge "
+                "count = %u.\n",
                 pe, n_known_local_patterns, ctx->iter,
-                n_explores, n_local_vertices,
-                search_ms, (double)n_explores / search_ms);
+                n_explores,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                n_local_vertices,
+                0,
+                0);
 #endif
     }
 }

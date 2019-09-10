@@ -69,6 +69,8 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
 
         assert(n_neighbors >= 0 && n_neighbors <= 2);
 
+        hvr_release_neighbors(&neighbors, ctx);
+
         if (found_plus_one) {
             hvr_vertex_set(CREATED_NEXT, 1, vertex, ctx);
             hvr_vertex_t *next = hvr_vertex_create(ctx);

@@ -27,6 +27,8 @@ long p_sync[SHMEM_REDUCE_SYNC_SIZE];
 static unsigned n_edges_to_add = 100;
 static long long n_edges_added = 0;
 static long long total_n_edges_added = 0;
+static long long n_triangles = 0;
+static long long total_n_triangles = 0;
 static unsigned int g_seed;
 static uint64_t nvertices = 0;
 static uint64_t nvertices_per_pe = 0;
@@ -82,32 +84,47 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
 
 void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
+    static hvr_vertex_id_t neighbor_ids[1024];
     /*
      * Count triangles in graph for which this vertex is the minimum vertex ID
      * in the triangle.
      */
+    unsigned count = 0;
 
     hvr_neighbors_t neighbors;
     hvr_get_neighbors(vertex, &neighbors, ctx);
 
+    unsigned index = 0;
     hvr_vertex_t *neighbor;
     hvr_edge_type_t neighbor_dir;
-    hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir);
-/*
- *
-    unsigned count = 0;
-    while (neighbor) {
-        uint64_t neighbor_lbl = hvr_vertex_get_uint64(0, neighbor, ctx);
-        if (neighbor_lbl < min_supernode_lbl) {
-            min_supernode_lbl = neighbor_lbl;
-        }
-        hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir);
+    while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
+        assert(index < 1024);
+        neighbor_ids[index++] = neighbor->id;
     }
 
-    hvr_vertex_set_uint64(0, min_supernode_lbl, vertex, ctx);
-    */
+    hvr_reset_neighbors(&neighbors, ctx);
+    while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
+        hvr_vertex_t *neighbor_neighbor;
+        hvr_edge_type_t neighbor_neighbor_dir;
 
-    // hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors, ctx);
+        hvr_neighbors_t neighbor_neighbors;
+        hvr_get_neighbors(neighbor, &neighbor_neighbors, ctx);
+        while (hvr_neighbors_next(&neighbor_neighbors, &neighbor_neighbor,
+                    &neighbor_neighbor_dir)) {
+            for (unsigned i = 0; i < index; i++) {
+                if (neighbor_ids[i] == neighbor_neighbor->id &&
+                        vertex->id < neighbor->id &&
+                        vertex->id < neighbor_neighbor->id) {
+                    count++;
+                }
+            }
+        }
+        hvr_release_neighbors(&neighbor_neighbors, ctx);
+    }
+
+    hvr_vertex_set_uint64(0, count, vertex, ctx);
+
+    hvr_release_neighbors(&neighbors, ctx);
 }
 
 void might_interact(const hvr_partition_t partition,
@@ -205,14 +222,28 @@ int main(int argc, char **argv) {
             npes, p_wrk, p_sync);
     shmem_barrier_all();
 
-#if 0
+    n_triangles = 0;
+    hvr_vertex_iter_t iter;
+    hvr_vertex_iter_init(&iter, hvr_ctx);
+    for (hvr_vertex_t *vert = hvr_vertex_iter_next(&iter); vert;
+            vert = hvr_vertex_iter_next(&iter)) {
+        n_triangles += hvr_vertex_get_uint64(0, vert, hvr_ctx);
+    }
+
+    shmem_longlong_sum_to_all(&total_n_triangles, &n_triangles, 1, 0, 0,
+            npes, p_wrk, p_sync);
+    shmem_barrier_all();
+
     if (pe == 0) {
         printf("%d PEs, total CPU time = %f ms, max elapsed = %f ms, "
                 "%d iterations completed on PE 0\n", npes,
                 (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
                 info.executed_iters);
-        printf("%lld edges inserted across all PEs\n", total_n_edges_added);
+        printf("%lld triangles found across all PEs\n", total_n_triangles);
+        printf("%lld edges inserted across all PEs, %u edges added per "
+                "iteration\n", total_n_edges_added, n_edges_to_add);
 
+#if 0
         for (size_t i = 0; i < hvr_ctx->my_vert_subs.nsegs; i++) {
             hvr_sparse_arr_seg_t *seg = (hvr_ctx->my_vert_subs.segs)[i];
             if (seg) {

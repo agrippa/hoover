@@ -1,6 +1,7 @@
 /* For license: see LICENSE.txt file at top-level */
 
 #include <string.h>
+#include <stdio.h>
 
 #include "hvr_buffered_changes.h"
 
@@ -23,7 +24,12 @@ void hvr_buffered_changes_edge_create(hvr_vertex_id_t base_id,
         hvr_vertex_id_t neighbor_id, hvr_edge_type_t edge,
         hvr_buffered_changes_t *changes) {
     hvr_buffered_change_t *change = changes->pool;
-    assert(change);
+    if (!change) {
+        fprintf(stderr, "ERROR Failed allocating a change object, increase "
+                "HVR_BUFFERED_CHANGES_ALLOCATED (currently %lu)\n",
+                changes->nallocated);
+        abort();
+    }
     changes->pool = change->next;
     
     change->next = changes->head;
@@ -38,7 +44,12 @@ void hvr_buffered_changes_edge_create(hvr_vertex_id_t base_id,
 void hvr_buffered_changes_delete_vertex(hvr_vertex_id_t to_delete,
         hvr_buffered_changes_t *changes) {
     hvr_buffered_change_t *change = changes->pool;
-    assert(change);
+    if (!change) {
+        fprintf(stderr, "ERROR Failed allocating a change object, increase "
+                "HVR_BUFFERED_CHANGES_ALLOCATED (currently %lu)\n",
+                changes->nallocated);
+        abort();
+    }
     changes->pool = change->next;
     
     change->next = changes->head;

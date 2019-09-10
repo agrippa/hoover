@@ -123,6 +123,7 @@ typedef struct _hvr_edge_create_msg_t {
     hvr_vertex_t src;
     hvr_vertex_id_t target;
     hvr_edge_type_t edge;
+    int is_forward;
 } hvr_edge_create_msg_t;
 
 typedef struct _hvr_update_msg_t {
@@ -387,6 +388,10 @@ typedef struct _hvr_internal_ctx_t {
     size_t edge_list_pool_size;
 
     hvr_buffered_changes_t buffered_changes;
+
+    void *neighbors_list_pool;
+    size_t neighbors_list_pool_size;
+    mspace neighbors_list_tracker;
 } hvr_internal_ctx_t;
 
 /*
@@ -433,6 +438,10 @@ extern unsigned long long hvr_current_time_us();
 
 extern void hvr_get_neighbors(hvr_vertex_t *vert, hvr_neighbors_t *neighbors,
         hvr_ctx_t in_ctx);
+
+extern void hvr_release_neighbors(hvr_neighbors_t *n, hvr_ctx_t in_ctx);
+
+extern void hvr_reset_neighbors(hvr_neighbors_t *n, hvr_ctx_t in_ctx);
 
 extern void hvr_create_edge_with_vertex_id(hvr_vertex_t *base,
         hvr_vertex_id_t neighbor, hvr_edge_type_t edge, hvr_ctx_t in_ctx);

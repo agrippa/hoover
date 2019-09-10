@@ -2,6 +2,7 @@
 #define _HVR_NEIGHBORS_H
 
 #include <assert.h>
+#include "dlmalloc.h"
 #include "hvr_vertex_cache.h"
 
 typedef struct _hvr_neighbors_t {
@@ -23,12 +24,30 @@ static inline void hvr_neighbors_seek_to_valid(hvr_neighbors_t *n) {
 }
 
 static inline void hvr_neighbors_init(hvr_edge_info_t *l, unsigned l_len,
-        hvr_vertex_cache_t *cache, hvr_neighbors_t *n) {
-    n->l = l;
+        hvr_vertex_cache_t *cache, mspace tracker, size_t pools_size,
+        hvr_neighbors_t *n) {
+    n->l = (hvr_edge_info_t *)mspace_malloc(tracker, l_len * sizeof(n->l[0]));
+    if (n->l == NULL) {
+        fprintf(stderr, "ERROR failed allocating neighbor list of %lu bytes, "
+                "increase HVR_NEIGHBORS_LIST_POOL_SIZE (currently %lu)\n",
+                l_len * sizeof(n->l[0]), pools_size);
+        abort();
+    }
+    memcpy(n->l, l, l_len * sizeof(n->l[0]));
+
     n->l_len = l_len;
     n->iter = 0;
     n->cache = cache;
     hvr_neighbors_seek_to_valid(n);
+}
+
+static inline void hvr_neighbors_reset(hvr_neighbors_t *n) {
+    n->iter = 0;
+    hvr_neighbors_seek_to_valid(n);
+}
+
+static inline void hvr_neighbors_destroy(hvr_neighbors_t *n, mspace tracker) {
+    mspace_free(tracker, n->l);
 }
 
 static inline int hvr_neighbors_next(hvr_neighbors_t *n,

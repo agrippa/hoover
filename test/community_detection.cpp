@@ -91,8 +91,8 @@ static unsigned partitions_size[3] = {0, 0, 0}; // Size of partition in each dim
 static unsigned min_point[3] = {0, 0, 0};
 static unsigned max_point[3] = {0, 0, 0};
 
-static unsigned min_n_vertices_to_add = 100;
-static unsigned max_n_vertices_to_add = 500;
+static unsigned min_n_vertices_to_add = 300;
+static unsigned max_n_vertices_to_add = 300;
 
 static unsigned n_local_vertices = 0;
 
@@ -281,23 +281,27 @@ static void find_cliques(clique_t *clique, unsigned n_inserted,
             hvr_vertex_id_t id = candidates[i]->id;
             if (clique_contains(id, clique, n_inserted)) continue;
 
-            hvr_vertex_t **neighbors;
-            hvr_edge_type_t *neighbor_dirs;
-            int n_neighbors = hvr_get_neighbors(candidates[i], &neighbors,
-                    &neighbor_dirs, ctx);
+            hvr_neighbors_t neighbors;
+            hvr_get_neighbors(candidates[i], &neighbors, ctx);
 
             int edges_with_all = 1;
-            for (unsigned j = 0; j < n_inserted; j++) {
-                hvr_vertex_id_t to_find = clique->vertices[j];
-                int has_edge_with = neighbors_contains(to_find, neighbors,
-                        n_neighbors);
-                if (!has_edge_with) {
+            hvr_vertex_t *neighbor;
+            hvr_edge_type_t neighbor_dir;
+            while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
+                int found = 0;
+                for (unsigned j = 0; j < n_inserted && !found; j++) {
+                    hvr_vertex_id_t to_find = clique->vertices[j];
+                    if (neighbor->id == to_find) {
+                        found = 1;
+                    }
+                }
+                if (!found) {
                     edges_with_all = 0;
                     break;
                 }
             }
 
-            hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors, ctx);
+            hvr_release_neighbors(&neighbors, ctx);
 
             if (edges_with_all) {
                 clique->vertices[n_inserted] = id;
@@ -363,21 +367,34 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
     unsigned max_supernode_edges = 0;
     for (hvr_vertex_t *vertex = hvr_vertex_iter_next(iter); vertex;
             vertex = hvr_vertex_iter_next(iter)) {
-        hvr_vertex_t **verts;
-        hvr_edge_type_t *dirs;
-        int n_neighbors = hvr_get_neighbors(vertex, &verts, &dirs, ctx);
+        hvr_vertex_t *neighbor;
+        hvr_edge_type_t neighbor_dir;
+        hvr_neighbors_t neighbors;
+        hvr_get_neighbors(vertex, &neighbors, ctx);
 
         if (hvr_vertex_get_uint64(TYPE, vertex, ctx) == NODE_TYPE) {
             clique_t clique;
             clique.vertices[0] = vertex->id;
             unsigned n_inserted = 1;
 
+            static hvr_vertex_t *packed_neighbors[1024];
+            unsigned n_neighbors = 0;
+            while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
+                assert(n_neighbors < 1024);
+                packed_neighbors[n_neighbors++] = neighbor;
+            }
+
             find_cliques(&clique, n_inserted, &local_cliques, &n_local_cliques,
-                    verts, n_neighbors, ctx);
+                    packed_neighbors, n_neighbors, ctx);
             n_local_nodes++;
         } else {
             assert(hvr_vertex_get_uint64(TYPE, vertex, ctx) == SUPERNODE_TYPE);
             n_local_supernodes++;
+
+            unsigned n_neighbors = 0;
+            while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
+                n_neighbors++;
+            }
 
             if (n_neighbors < min_supernode_edges) {
                 min_supernode_edges = n_neighbors;
@@ -386,7 +403,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 max_supernode_edges = n_neighbors;
             }
         }
-        hvr_release_neighbors(verts, dirs, n_neighbors, ctx);
+        hvr_release_neighbors(&neighbors, ctx);
     }
     assert(n_local_supernodes == previous_n_cliques);
 
@@ -474,16 +491,16 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         }
 
         // Find connected components in supernode graph via label propagation
-        hvr_vertex_t **neighbors;
-        hvr_edge_type_t *neighbor_dirs;
-        int n_neighbors = hvr_get_neighbors(vertex, &neighbors,
-                &neighbor_dirs, ctx);
+        hvr_neighbors_t neighbors;
+        hvr_get_neighbors(vertex, &neighbors, ctx);
 
         uint64_t min_supernode_lbl = hvr_vertex_get_uint64(SUPERNODE_LBL, vertex,
                 ctx);
-        for (int i = 0; i < n_neighbors; i++) {
+        hvr_vertex_t *neighbor;
+        hvr_edge_type_t neighbor_dir;
+        while (hvr_neighbors_next(&neighbors, &neighbor, &neighbor_dir)) {
             uint64_t neighbor_lbl = hvr_vertex_get_uint64(SUPERNODE_LBL,
-                    neighbors[i], ctx);
+                    neighbor, ctx);
             if (neighbor_lbl < min_supernode_lbl) {
                 min_supernode_lbl = neighbor_lbl;
             }
@@ -492,8 +509,7 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_vertex_set_uint64(SUPERNODE_LBL, min_supernode_lbl, vertex,
                 ctx);
 
-        hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors,
-                ctx);
+        hvr_release_neighbors(&neighbors, ctx);
     }
 }
 
@@ -762,18 +778,23 @@ int main(int argc, char **argv) {
     unsigned max_supernode_edges = 0;
     for (int p = 0; p < npes; p++) {
         if (p == pe) {
+#if 0
             FILE *dump_file = (pe == 0 ? fopen("supernodes.txt", "w") :
                     fopen("supernodes.txt", "a"));
             assert(dump_file);
+#endif
 
             for (hvr_vertex_t *vertex = hvr_vertex_iter_next(&iter); vertex;
                     vertex = hvr_vertex_iter_next(&iter)) {
+#if 0
                 hvr_vertex_t **neighbors;
                 hvr_edge_type_t *neighbor_dirs;
                 int n_neighbors = hvr_get_neighbors(vertex, &neighbors,
                         &neighbor_dirs, hvr_ctx);
+#endif
 
                 if (hvr_vertex_get_uint64(TYPE, vertex, hvr_ctx) == NODE_TYPE) {
+#if 0
                     min_node_edges = (n_neighbors < min_node_edges ?
                             n_neighbors : min_node_edges);
                     max_node_edges = (n_neighbors > max_node_edges ?
@@ -787,8 +808,10 @@ int main(int argc, char **argv) {
                         }
                         printf("\n");
                     }
+#endif
                     n_local_nodes++;
                 } else {
+#if 0
                     min_supernode_edges = (n_neighbors < min_supernode_edges ?
                             n_neighbors : min_supernode_edges);
                     max_supernode_edges = (n_neighbors > max_supernode_edges ?
@@ -812,17 +835,24 @@ int main(int argc, char **argv) {
                                     vertex, hvr_ctx));
                     }
                     fprintf(dump_file, "\n");
+#endif
 
                     n_local_supernodes++;
                 }
 
+#if 0
                 hvr_release_neighbors(neighbors, neighbor_dirs, n_neighbors,
                         hvr_ctx);
+#endif
             }
+#if 0
             fclose(dump_file);
+#endif
         }
 
+#if 0
         fflush(stdout);
+#endif
         shmem_barrier_all();
     }
 

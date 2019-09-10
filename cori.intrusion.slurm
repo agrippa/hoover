@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 4
+#SBATCH -N 32
 #SBATCH -C haswell
 #SBATCH -t 00:05:00
 #SBATCH -J hoover-intrusion
@@ -120,13 +120,14 @@ export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
 export HVR_EDGES_POOL_SIZE=$((512 * 1024 * 1024))
 export HVR_PRODUCER_INFO_SEGS=10240
 export HVR_PARTITION_LIST_SEGS=8192
+export HVR_NEIGHBORS_LIST_POOL_SIZE=4096
 
 cd $SCRATCH
 mkdir -p job.$SLURM_JOB_ID
 cd job.$SLURM_JOB_ID
 
 srun $SLURM_ARGS \
-    $HOME/hoover/bin/$EXE \
+    $HOME/hoover/bin/intrusion_detection \
     $TIME_LIMIT_IN_SECONDS \
     $EDGE_DISTANCE \
     $DOMAIN_SIZE \

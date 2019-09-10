@@ -4,7 +4,7 @@
 #SBATCH -N 64
 #SBATCH -C haswell
 #SBATCH -t 00:05:00
-#SBATCH -J hoover-connected
+#SBATCH -J hoover-count-triangles
 #SBATCH --exclusive
 ###SBATCH --contiguous
 #SBATCH --mail-type=ALL
@@ -40,7 +40,7 @@ cd $SCRATCH
 
 export TIME_LIMIT_IN_SECONDS=30
 export NVERTICES=10000000
-export NEDGES_PER_STEP=10000
+export NEDGES_PER_STEP=1000
 
 # export HVR_DISABLE_PROFILING_PRINTS=1
 export HVR_DISABLE_DEAD_PE_PROCESSING=1
@@ -56,7 +56,7 @@ export HVR_EDGES_POOL_SIZE=$((256 * 1024 * 1024))
 export HVR_PRODUCER_INFO_SEGS=10240
 export HVR_PARTITION_LIST_SEGS=10240
 export HVR_BUFFERED_CHANGES_ALLOCATED=20000
-export HVR_NEIGHBORS_LIST_POOL_SIZE=32768
+export HVR_NEIGHBORS_LIST_POOL_SIZE=131072
 
 cd $SCRATCH
 mkdir -p job.$SLURM_JOB_ID
@@ -64,6 +64,6 @@ cd job.$SLURM_JOB_ID
 
 export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1"
 srun $SLURM_ARGS \
-    $HOME/hoover/bin/connected_components \
+    $HOME/hoover/bin/count_triangles \
     $TIME_LIMIT_IN_SECONDS $NVERTICES $NEDGES_PER_STEP
 

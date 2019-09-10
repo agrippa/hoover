@@ -86,6 +86,8 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
             abort();
         }
     }
+
+    hvr_release_neighbors(&neighbors, ctx);
 }
 
 void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,

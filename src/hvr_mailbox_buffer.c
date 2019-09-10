@@ -45,14 +45,22 @@ int hvr_mailbox_buffer_send(const void *msg, size_t msg_len, int target_pe,
     }
 }
 
-void hvr_mailbox_buffer_flush(hvr_mailbox_buffer_t *buf) {
+void hvr_mailbox_buffer_flush(hvr_mailbox_buffer_t *buf, void (*cb)(void *),
+        void *user_data) {
     for (int p = 0; p < buf->npes; p++) {
         const unsigned nbuffered = buf->nbuffered_per_pe[p];
-        char *pe_buf = buf->buffers + (p * buf->buffer_size_per_pe * buf->msg_size);
+        char *pe_buf = buf->buffers + (p * buf->buffer_size_per_pe *
+                buf->msg_size);
         if (nbuffered > 0) {
             int success = hvr_mailbox_send(pe_buf, nbuffered * buf->msg_size,
-                    p, -1, buf->mbox, 0);
-            assert(success);
+                    p, 100, buf->mbox, 0);
+            while (!success) {
+                if (cb) {
+                    cb(user_data);
+                }
+                success = hvr_mailbox_send(pe_buf, nbuffered * buf->msg_size,
+                        p, 100, buf->mbox, 0);
+            }
         }
         buf->nbuffered_per_pe[p] = 0;
     }

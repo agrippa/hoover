@@ -115,6 +115,7 @@ int main(int argc, char **argv) {
         }
 
         assert(n_neighbors == 0);
+        hvr_release_neighbors(&neighbors, hvr_ctx);
         printf("SUCCESS\n");
     }
 

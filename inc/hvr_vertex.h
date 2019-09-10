@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 // #define HVR_MAX_VECTOR_SIZE 12
-#define HVR_MAX_VECTOR_SIZE 1
+#define HVR_MAX_VECTOR_SIZE 7
 
 typedef struct _hvr_vertex_t {
     hvr_vertex_id_t id;

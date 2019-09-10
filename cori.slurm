@@ -45,8 +45,9 @@ export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=4096
 export HVR_SPARSE_ARR_POOL=$((64 * 1024 * 1024));
 export HVR_EDGES_POOL_SIZE=$((512 * 1024 * 1024))
-export HVR_PRODUCER_INFO_SEGS=10240
-export HVR_PARTITION_LIST_SEGS=8192
+export HVR_PRODUCER_INFO_SEGS=20480
+export HVR_PARTITION_LIST_SEGS=16384
+export HVR_NEIGHBORS_LIST_POOL_SIZE=8192
 
 # export HVR_TRACE_DUMP=1
 # export HVR_TRACE_DUMP_ONLY_LAST=1
@@ -71,19 +72,26 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
 # export MAX_SECONDS=120
 # srun $SLURM_ARGS $HOME/hoover/bin/simple_nbody_test $SIMULATION_TIMESTEPS $MAX_SECONDS
 
-make make bin/explicit_edge_test bin/init_test bin/complex_interact bin/complex_interact2 bin/stale_state bin/coupled_test bin/connected_components
+# make bin/explicit_edge_test bin/init_test bin/complex_interact bin/complex_interact2 bin/stale_state bin/coupled_test bin/connected_components
 
 ##### Functional tests #####
+echo 'explicit_edge_test'
 srun -n 2 $HOME/hoover/bin/explicit_edge_test
 echo
+echo 'init_test'
 srun $SLURM_ARGS $HOME/hoover/bin/init_test 100
 echo
+echo 'complex_interact'
 srun -n 2 $HOME/hoover/bin/complex_interact
 echo
-srun -n 2 $HOME/hoover/bin/complex_interact2 240
+echo 'complex_interact2'
+srun -n 2 $HOME/hoover/bin/complex_interact2 300
 echo
+echo 'stale_state'
 srun -n 2 $HOME/hoover/bin/stale_state
 echo
+echo 'coupled_test'
 srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
 echo
-srun $SLURM_ARGS $HOME/hoover/bin/connected_components 10 10000 100
+echo 'connected_components'
+srun $SLURM_ARGS $HOME/hoover/bin/connected_components 10 100000 100
