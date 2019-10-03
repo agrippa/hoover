@@ -1,11 +1,7 @@
 #include <shmem.h>
 #include <stdio.h>
 #include <hoover.h>
-#include <boost/shared_ptr.hpp>
-#include <boost/tuple/tuple.hpp>
-#include "webgraph/webgraph.hpp"
-
-using namespace webgraph::bv_graph;
+#include "mmio.h"
 
 static int pe, npes;
 
@@ -77,34 +73,42 @@ int main(int argc, char **argv) {
     npes = shmem_n_pes();
 
     const char *mat_filename = argv[1];
-    typedef boost::shared_ptr<graph> graph_ptr;
-    graph_ptr gp = graph::load(std::string(mat_filename));
+    FILE *fp = fopen(mat_filename, "r");
+    assert(fp);
 
-    graph::node_iterator n, n_end;
-    boost::tie(n, n_end) = gp->get_node_iterator( 0 );
+    MM_typecode matcode;
+    if (mm_read_banner(f, &matcode) != 0) {
+        printf("Could not process Matrix Market banner.\n");
+        exit(1);
+    }
+
+    int M, N, nz;
+    if ((ret_code = mm_read_mtx_crd_size(f, &M, &N, &nz)) !=0) {
+        abort();
+    }
+
     if (pe == 0) {
-        printf("num vertices: %ld\n", gp->get_num_nodes());
+        printf("Matrix %s is %d x %d with %d non-zeroes\n", mat_filename, M, N,
+                nz);
     }
 
-    while (n != n_end) {
-        webgraph::bv_graph::graph::successor_iterator succ, succ_end;
+    int *I = (int *)malloc(nz * sizeof(*I));
+    assert(I);
+    int *J = (int *)malloc(nz * sizeof(*J));
+    assert(J);
+    double *val = (double *)malloc(nz * sizeof(*val));
+    assert(val);
 
-        boost::tie( succ, succ_end ) = successors( n );
-
-        while( succ != succ_end ) {
-            if (pe == 0) {
-                std::cout << *succ << std::endl;
-            }
-            ++succ;
-        }
-
-        std::cout << std::endl;
-
-        ++n;  
+    for (int i=0; i<nz; i++) {
+        fscanf(fp, "%d %d %lg\n", &I[i], &J[i], &val[i]);
+        I[i]--;  /* adjust from 1-based to 0-based */
+        J[i]--;
     }
+    fclose(fp);
 
     // TODO read graph into my_edges
 
+#if 0
     hvr_ctx_t ctx;
     hvr_ctx_create(&ctx);
 
@@ -131,6 +135,7 @@ int main(int argc, char **argv) {
             (double)n_my_edges / ((double)elapsed_time / 1000.0));
 
     hvr_finalize(ctx);
+#endif
 
     shmem_finalize();
     
