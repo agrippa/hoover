@@ -59,6 +59,10 @@ bin/connected_components: test/connected_components.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/connected_components.c -o bin/connected_components.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/connected_components.o -o $@ -lhoover -lm -lpthread
 
+bin/update_rates: test/update_rates.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/update_rates.c -o bin/update_rates.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/update_rates.o -o $@ -lhoover -lm -lpthread
+
 bin/count_triangles: test/count_triangles.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/count_triangles.c -o bin/count_triangles.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/count_triangles.o -o $@ -lhoover -lm -lpthread
