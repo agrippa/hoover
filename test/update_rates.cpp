@@ -9,7 +9,7 @@ using namespace webgraph::bv_graph;
 
 static int pe, npes;
 
-static hvr_vertex_t *my_edges;
+static hvr_vertex_id_t *my_edges;
 static uint64_t n_my_edges;
 static uint64_t edges_so_far = 0;
 static uint64_t batch_size = 16;
@@ -25,7 +25,7 @@ void start_time_step(hvr_vertex_iter_t *iter,
         hvr_vertex_id_t local_id = my_edges[2 * edges_so_far];
         hvr_vertex_id_t other_id = my_edges[2 * edges_so_far + 1];
 
-        hvr_vertex_t *local = hvr_get_vertex(src_vert_id, ctx);
+        hvr_vertex_t *local = hvr_get_vertex(local_id, ctx);
         assert(local);
 
         hvr_create_edge_with_vertex_id(local, other_id, BIDIRECTIONAL, ctx);
@@ -81,15 +81,15 @@ int main(int argc, char **argv) {
     graph_ptr gp = graph::load(std::string(mat_filename));
 
     graph::node_iterator n, n_end;
-    boost::tuple::tie(n, n_end) = gp->get_node_iterator( 0 );
+    boost::tie(n, n_end) = gp->get_node_iterator( 0 );
     if (pe == 0) {
-        printf("num vertices: %d\n", gp->get_num_nodes());
+        printf("num vertices: %ld\n", gp->get_num_nodes());
     }
 
     while (n != n_end) {
         webgraph::bv_graph::graph::successor_iterator succ, succ_end;
 
-        boost::tuple::tie( succ, succ_end ) = successors( n );
+        boost::tie( succ, succ_end ) = successors( n );
 
         while( succ != succ_end ) {
             if (pe == 0) {
@@ -109,11 +109,6 @@ int main(int argc, char **argv) {
     hvr_ctx_create(&ctx);
 
     hvr_vertex_t *vert = hvr_vertex_create(ctx);
-    hvr_vertex_set_uint64(VERTEX_TYPE,     BASE_GRAPH, vert, ctx);
-    hvr_vertex_set_uint64(VERTEX_ID,       pe,         vert, ctx);
-    hvr_vertex_set_uint64(CREATED_LAYERED, 0,          vert, ctx);
-    hvr_vertex_set_uint64(LAYERED_VERTEX,  HVR_INVALID_VERTEX_ID, vert, ctx);
-    hvr_vertex_set_uint64(SENT_MSG,        0,          vert, ctx);
 
     hvr_init(1, // # partitions
             NULL, // update_vertex
