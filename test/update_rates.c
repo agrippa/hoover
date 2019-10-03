@@ -63,6 +63,8 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 }
 
 int main(int argc, char **argv) {
+    int ret_code;
+
     if (argc != 2) {
         fprintf(stderr, "usage: %s <mat-file>\n", argv[0]);
         return 1;
@@ -76,16 +78,14 @@ int main(int argc, char **argv) {
     FILE *fp = fopen(mat_filename, "r");
     assert(fp);
 
-    MM_typecode matcode;
-    if (mm_read_banner(f, &matcode) != 0) {
-        printf("Could not process Matrix Market banner.\n");
-        exit(1);
-    }
-
     int M, N, nz;
-    if ((ret_code = mm_read_mtx_crd_size(f, &M, &N, &nz)) !=0) {
-        abort();
-    }
+    size_t n;
+    n = fread(&M, sizeof(M), 1, fp);
+    assert(n == 1);
+    n = fread(&N, sizeof(N), 1, fp);
+    assert(n == 1);
+    n = fread(&nz, sizeof(nz), 1, fp);
+    assert(n == 1);
 
     if (pe == 0) {
         printf("Matrix %s is %d x %d with %d non-zeroes\n", mat_filename, M, N,
@@ -99,11 +99,13 @@ int main(int argc, char **argv) {
     double *val = (double *)malloc(nz * sizeof(*val));
     assert(val);
 
-    for (int i=0; i<nz; i++) {
-        fscanf(fp, "%d %d %lg\n", &I[i], &J[i], &val[i]);
-        I[i]--;  /* adjust from 1-based to 0-based */
-        J[i]--;
-    }
+    n = fread(I, sizeof(int), nz, fp);
+    assert(n == nz);
+    n = fread(J, sizeof(int), nz, fp);
+    assert(n == nz);
+    n = fread(val, sizeof(double), nz, fp);
+    assert(n == nz);
+
     fclose(fp);
 
     // TODO read graph into my_edges

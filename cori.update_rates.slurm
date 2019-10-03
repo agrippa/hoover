@@ -3,8 +3,8 @@
 #SBATCH -p debug
 #SBATCH -N 1
 #SBATCH -C haswell
-#SBATCH -t 00:02:00
-#SBATCH -J hoover-count-triangles
+#SBATCH -t 00:10:00
+#SBATCH -J hoover-update-rates
 #SBATCH --exclusive
 ###SBATCH --contiguous
 #SBATCH --mail-type=ALL
@@ -65,5 +65,4 @@ cd job.$SLURM_JOB_ID
 
 export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) --ntasks-per-socket=$CORES_PER_SOCKET --cpus-per-task=1"
 srun $SLURM_ARGS \
-    $HOME/hoover/bin/update_rates $HOME/hoover/in-2004.graph
-
+    $HOME/hoover/bin/update_rates $HOME/hoover/in-2004.bin

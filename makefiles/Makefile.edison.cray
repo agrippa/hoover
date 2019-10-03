@@ -1,4 +1,4 @@
-FLAGS=-g -O0 -Iinc -Wall -Wextra
+FLAGS=-g -O2 -Iinc -Wall -Wextra
 CFLAGS=$(FLAGS) -std=c99
 CPPFLAGS=$(FLAGS) -std=c++11
 # SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1 -L$(OPENSHMEM_INSTALL)/lib64 -lsma
@@ -43,6 +43,8 @@ bin/libhoover.a: $(HOOVER_OBJS)
 bin/libhoover_mt.a: $(HOOVER_MT_OBJS)
 	ar rcs $@ $^
 
+bin/market_to_binary:
+	$(CC) test/market_to_binary.c test/mmio/mmio.c -Itest/mmio -o bin/market_to_binary
 
 bin/explicit_edge_test: test/explicit_edge_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/explicit_edge_test.c -o bin/explicit_edge_test.o
@@ -59,8 +61,8 @@ bin/connected_components: test/connected_components.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/connected_components.c -o bin/connected_components.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/connected_components.o -o $@ -lhoover -lm -lpthread
 
-bin/update_rates: test/update_rates.cpp bin/libhoover.a
-	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/update_rates.cpp -o bin/update_rates.o -Itest/mmio
+bin/update_rates: test/update_rates.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/update_rates.c -o bin/update_rates.o -Itest/mmio
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/mmio/mmio.c -o bin/mmio.o -Itest/mmio
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/mmio.o bin/update_rates.o -o $@ -lhoover -lm -lpthread
 
