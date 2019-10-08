@@ -377,12 +377,12 @@ static void send_edge_updates_to_subscribers(hvr_vertex_cache_node_t *node,
     for (unsigned s = 0; s < n_subscribers; s++) {
         int sub_pe = subscribers[s];
 
-        int success = hvr_mailbox_buffer_send(&msg, sizeof(msg), sub_pe, 100,
-                &ctx->vertex_update_mailbox_buffer, 0);
+        int success = hvr_mailbox_buffer_send(&msg, sizeof(msg), sub_pe,
+                100, &ctx->vertex_update_mailbox_buffer, 0);
         while (!success) {
             process_vertex_updates(ctx, NULL, MAX_MSGS_DRAINED);
-            success = hvr_mailbox_buffer_send(&msg, sizeof(msg), sub_pe, 100,
-                    &ctx->vertex_update_mailbox_buffer, 0);
+            success = hvr_mailbox_buffer_send(&msg, sizeof(msg), sub_pe,
+                    100, &ctx->vertex_update_mailbox_buffer, 0);
         }
     }
 }
@@ -1846,16 +1846,15 @@ static void process_incoming_messages(hvr_internal_ctx_t *ctx) {
 static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         process_perf_info_t *perf_info, int max_to_process) {
     unsigned n_updates = 0;
+    unsigned count_update_msgs = 0;
     size_t msg_len;
 
     const unsigned long long start = hvr_current_time_us();
-    unsigned count_delete_msgs = 0;
     // Handle deletes, then updates
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
 
     const unsigned long long midpoint = hvr_current_time_us();
-    unsigned count_update_msgs = 0;
     int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
             &msg_len, &ctx->vertex_update_mailbox, 0);
     while (success) {
@@ -1958,6 +1957,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         perf_info->time_handling_deletes += midpoint - start;
         perf_info->time_handling_news += done - midpoint;
     }
+    ctx->n_msgs_this_iter += count_update_msgs;
 
     return n_updates;
 }
@@ -2110,14 +2110,12 @@ static void signal_edge_creation(hvr_vertex_id_t remote, hvr_vertex_t *base,
     msg.payload.edge_update.edge = edge;
     msg.payload.edge_update.is_forward = 0;
 
-    int success = hvr_mailbox_buffer_send(&msg, sizeof(msg),
-            VERTEX_ID_PE(remote), 100, &ctx->vertex_update_mailbox_buffer, 0);
-    while (!success) {
-        process_vertex_updates(ctx, NULL, MAX_MSGS_DRAINED);
+    int success;
+    do {
         success = hvr_mailbox_buffer_send(&msg, sizeof(msg),
-                VERTEX_ID_PE(remote), 100, &ctx->vertex_update_mailbox_buffer,
-                0);
-    }
+                VERTEX_ID_PE(remote), 100, &ctx->vertex_update_mailbox_buffer, 0);
+        if (!success) process_vertex_updates(ctx, NULL, MAX_MSGS_DRAINED);
+    } while (!success);
 }
 
 /*
@@ -2538,6 +2536,54 @@ static int check_incoming_coupling_requests(hvr_msg_buf_node_t *msg_buf_node,
     return success;
 }
 
+static void handle_dead_msg(hvr_dead_pe_msg_t *msg, hvr_internal_ctx_t *ctx) {
+    assert(!hvr_set_contains(msg->pe, ctx->all_terminated_pes));
+    hvr_set_insert(msg->pe, ctx->all_terminated_pes);
+
+    /*
+     * Check if we were subscribed to any vertices on that PE, and
+     * if so go grab their final state.
+     */
+    int *subscriptions = NULL;
+    unsigned n_subscriptions = hvr_sparse_arr_linearize_row(msg->pe,
+            &subscriptions, &ctx->my_vert_subs);
+    for (unsigned i = 0; i < n_subscriptions; i++) {
+        hvr_vertex_t local;
+        shmem_getmem(&local,
+                ctx->vec_cache.pool_mem + subscriptions[i],
+                sizeof(local), msg->pe);
+        hvr_vertex_id_t id = construct_vertex_id(msg->pe,
+                subscriptions[i]);
+        hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(
+                id, &ctx->vec_cache);
+        assert(cached);
+        memcpy(&cached->vert, &local, sizeof(local));
+        cached->populated = 1;
+    }
+
+    /*
+     * Clear this PE from any partition or vertex subscriptions
+     * locally so that we don't flood their mailboxes with messages
+     * they'll never process.
+     */
+    for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
+        if (hvr_sparse_arr_contains(p, msg->pe,
+                    &ctx->remote_partition_subs)) {
+            hvr_sparse_arr_remove(p, msg->pe,
+                    &ctx->remote_partition_subs);
+        }
+    }
+
+    for (uint64_t v = 0; v < ctx->vec_cache.pool_size; v++) {
+        if (hvr_sparse_arr_contains(v, msg->pe,
+                    &ctx->remote_vert_subs)) {
+            hvr_sparse_arr_remove(v, msg->pe,
+                    &ctx->remote_vert_subs);
+        }
+    }
+
+}
+
 static int wait_for_coupling_ack(hvr_msg_buf_node_t *msg_buf_node,
         int pe_waiting_on, hvr_internal_ctx_t *ctx) {
     assert(sizeof(hvr_dead_pe_msg_t) != sizeof(new_coupling_msg_ack_t));
@@ -2578,29 +2624,7 @@ static int wait_for_coupling_ack(hvr_msg_buf_node_t *msg_buf_node,
             if (msg_len == sizeof(hvr_dead_pe_msg_t)) {
                 // A PE has left the simulation, update our set of terminated PEs
                 hvr_dead_pe_msg_t *msg = (hvr_dead_pe_msg_t *)msg_buf_node->ptr;
-                assert(!hvr_set_contains(msg->pe, ctx->all_terminated_pes));
-                hvr_set_insert(msg->pe, ctx->all_terminated_pes);
-
-                /*
-                 * Check if we were subscribed to any vertices on that PE, and
-                 * if so go grab their final state.
-                 */
-                int *subscriptions = NULL;
-                unsigned n_subscriptions = hvr_sparse_arr_linearize_row(msg->pe,
-                        &subscriptions, &ctx->my_vert_subs);
-                for (unsigned i = 0; i < n_subscriptions; i++) {
-                    hvr_vertex_t local;
-                    shmem_getmem(&local,
-                            ctx->vec_cache.pool_mem + subscriptions[i],
-                            sizeof(local), msg->pe);
-                    hvr_vertex_id_t id = construct_vertex_id(msg->pe,
-                            subscriptions[i]);
-                    hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(
-                            id, &ctx->vec_cache);
-                    assert(cached);
-                    memcpy(&cached->vert, &local, sizeof(local));
-                    cached->populated = 1;
-                }
+                handle_dead_msg(msg, ctx);
             } else if (msg_len == sizeof(new_coupling_msg_ack_t)) {
                 got_ack = 1;
             } else {
@@ -2985,6 +3009,20 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         }
     }
 
+    // Ensure that every PE checks for dead PE notifications on each iteration
+    size_t msg_len;
+    int success = hvr_mailbox_recv(msg_buf_node->ptr,
+            msg_buf_node->buf_size, &msg_len,
+            &ctx->coupling_ack_and_dead_mailbox, 0);
+    while (success) {
+        assert(msg_len == sizeof(hvr_dead_pe_msg_t));
+        hvr_dead_pe_msg_t *msg = (hvr_dead_pe_msg_t *)msg_buf_node->ptr;
+        handle_dead_msg(msg, ctx);
+        success = hvr_mailbox_recv(msg_buf_node->ptr,
+                msg_buf_node->buf_size, &msg_len,
+                &ctx->coupling_ack_and_dead_mailbox, 0);
+    }
+
     const unsigned long long before_should_terminate = hvr_current_time_us();
 
     int should_abort = 1;
@@ -2996,7 +3034,8 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                     ctx->coupled_pes_values, // Coupled values for each PE
                     coupled_metric, // Global coupled metric (sum reduction)
                     ctx->coupled_pes, ncoupled, ctx->updates_on_this_iter,
-                    ctx->all_terminated_cluster_pes);
+                    ctx->all_terminated_cluster_pes,
+                    ctx->n_msgs_this_iter);
         } else {
             should_abort = 0;
         }
@@ -3461,6 +3500,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     shmem_barrier_all();
 
     ctx->user_mutation_allowed = 0;
+    ctx->n_msgs_this_iter = 0;
 
     const unsigned long long start_body = hvr_current_time_us();
 
@@ -3583,6 +3623,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
 
         const unsigned long long start_iter = hvr_current_time_us();
 
+        ctx->n_msgs_this_iter = 0;
         hvr_set_wipe(to_couple_with);
 
         if (ctx->start_time_step) {

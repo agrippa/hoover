@@ -23,6 +23,11 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
+    assert(mm_is_matrix(matcode));
+    assert(mm_is_coordinate(matcode));
+    assert(mm_is_pattern(matcode));
+    assert(mm_is_general(matcode));
+
     int M, N, nz;
     if ((ret_code = mm_read_mtx_crd_size(fp, &M, &N, &nz)) !=0) {
         abort();
@@ -35,11 +40,9 @@ int main(int argc, char **argv) {
     assert(I);
     int *J = (int *)malloc(nz * sizeof(*J));
     assert(J);
-    double *val = (double *)malloc(nz * sizeof(*val));
-    assert(val);
 
     for (int i=0; i<nz; i++) {
-        fscanf(fp, "%d %d %lg\n", &I[i], &J[i], &val[i]);
+        fscanf(fp, "%d %d\n", &I[i], &J[i]);
         I[i]--;  /* adjust from 1-based to 0-based */
         J[i]--;
         if ((i+1) % print_freq == 0) {
@@ -59,8 +62,6 @@ int main(int argc, char **argv) {
     n = fwrite(I, sizeof(int), nz, fp);
     assert(n == nz);
     n = fwrite(J, sizeof(int), nz, fp);
-    assert(n == nz);
-    n = fwrite(val, sizeof(double), nz, fp);
     assert(n == nz);
     fclose(fp);
 

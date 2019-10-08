@@ -185,7 +185,8 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *global_coupled_metric,
         hvr_set_t *coupled_pes,
         int n_coupled_pes, int *updates_on_this_iter,
-        hvr_set_t *terminated_coupled_pes) {
+        hvr_set_t *terminated_coupled_pes,
+        uint64_t n_msgs_this_iter) {
     if ((int)hvr_vertex_get(0, global_coupled_metric, ctx) ==
             grid_dim * grid_dim) {
         assert(n_coupled_pes == shmem_n_pes());
