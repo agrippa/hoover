@@ -114,12 +114,6 @@ typedef struct _hvr_vertex_update_t {
     uint8_t is_invalidation;
 } hvr_vertex_update_t;
 
-static void inline hvr_vertex_update_init(hvr_vertex_update_t *msg,
-        const hvr_vertex_t *vert, uint8_t is_invalidation) {
-    memcpy(&(msg->vert), vert, sizeof(*vert));
-    msg->is_invalidation = is_invalidation;
-}
-
 typedef struct _hvr_edge_create_msg_t {
     hvr_vertex_t src;
     hvr_vertex_id_t target;
@@ -342,6 +336,7 @@ typedef struct _hvr_internal_ctx_t {
     hvr_sparse_arr_t my_vert_subs;
 
     unsigned max_graph_traverse_depth;
+    unsigned send_neighbor_updates_for_explicit_subs;
 
     hvr_msg_buf_pool_t msg_buf_pool;
 
@@ -422,6 +417,7 @@ extern void hvr_init(const hvr_partition_t n_partitions,
         hvr_should_terminate_func should_terminate,
         unsigned long long max_elapsed_seconds,
         unsigned max_graph_traverse_depth,
+        unsigned send_neighbor_updates_for_explicit_subs,
         hvr_ctx_t ctx);
 
 /*
@@ -465,7 +461,7 @@ extern int hvr_poll_msg(hvr_vertex_t *vert,
 extern void send_updates_to_all_subscribed_pes(
         hvr_vertex_t *vert,
         hvr_partition_t part,
-        int is_invalidation,
+        uint8_t is_invalidation,
         int is_delete,
         process_perf_info_t *perf_info,
         unsigned long long *time_sending,

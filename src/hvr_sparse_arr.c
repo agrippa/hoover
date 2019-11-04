@@ -138,22 +138,19 @@ unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
         return 0;
     }
 
-    static int *cache = NULL;
-    static int cache_size = 0;
-
     int n_stored_values = segment->seg_size[seg_index];
-    if (cache_size < n_stored_values) {
-        cache = (int *)mspace_realloc(arr->tracker,
-                cache,
-                n_stored_values * sizeof(*cache));
-        assert(cache);
-        cache_size = n_stored_values;
-    }
+    int *cache = (int *)mspace_malloc(arr->tracker,
+            n_stored_values * sizeof(*cache));
+    assert(cache);
 
-    hvr_avl_serialize(segment->seg[seg_index], cache, cache_size);
+    hvr_avl_serialize(segment->seg[seg_index], cache, n_stored_values);
 
     *out_arr = cache;
     return n_stored_values;
+}
+
+void hvr_sparse_arr_release_row(int *out_arr, hvr_sparse_arr_t *arr) {
+    mspace_free(arr->tracker, out_arr);
 }
 
 size_t hvr_sparse_arr_used_bytes(hvr_sparse_arr_t *arr) {

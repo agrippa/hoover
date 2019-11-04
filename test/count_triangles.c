@@ -199,7 +199,8 @@ int main(int argc, char **argv) {
             should_have_edge,
             NULL, // should_terminate
             time_limit_s,
-            1,
+            1, // max_graph_traverse_depth
+            1, // send_neighbor_updates_for_explicit_subs
             hvr_ctx);
 
     shmem_barrier_all();

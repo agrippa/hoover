@@ -2,7 +2,7 @@ FLAGS=-g -O2 -Iinc -Wall -Wextra
 CFLAGS=$(FLAGS) -std=c99
 CPPFLAGS=$(FLAGS) -std=c++11
 # SHMEM_FLAGS=-I$(OPENSHMEM_INSTALL)/include -Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1 -L$(OPENSHMEM_INSTALL)/lib64 -lsma
-SHMEM_FLAGS=-Isrc/dlmalloc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1
+SHMEM_FLAGS=-Isrc/dlmalloc -Isrc/crc -DMSPACES=1 -DONLY_MSPACES=1 -DHAVE_MORECORE=0 -DHAVE_MMAP=0 -DHAVE_MREMAP=0 -DUSE_LOCKS=0 -DFOOTERS=1
 # CC=oshcc
 # CXX=oshcc
 CC=cc
@@ -26,6 +26,9 @@ all: bin/libhoover.a bin/test_map bin/test_sparse_arr bin/interact_test bin/edge
 	bin/pas bin/coupled_test bin/dummy_shmem_test bin/complex_interact bin/stale_state
 
 bin/dlmalloc.o: src/dlmalloc/dlmalloc.c
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o $@ $^
+
+bin/crc.o: src/crc/crc.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o $@ $^
 
 bin/%.o: src/%.c
@@ -183,6 +186,11 @@ bin/own_edge_test: test/own_edge_test.c
 bin/mailbox_test: test/mailbox_test.c bin/libhoover.a
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/mailbox_test.c -o bin/mailbox_test.o
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/mailbox_test.o -o $@ -lhoover -lm -lpthread
+
+bin/hvr_mailbox_buffer_test: test/hvr_mailbox_buffer_test.c bin/libhoover.a
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c test/hvr_mailbox_buffer_test.c -o bin/hvr_mailbox_buffer_test.o
+	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -L$(HOME)/hoover/bin bin/hvr_mailbox_buffer_test.o -o $@ -lhoover -lm -lpthread
+
 
 bin/pas: test/pas.cpp bin/libhoover.a
 	$(CC) $(CPPFLAGS) $(SHMEM_FLAGS) -fPIC -c test/pas.cpp -o bin/pas.o

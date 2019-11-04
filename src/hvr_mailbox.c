@@ -8,6 +8,9 @@
 #include "hvr_mailbox.h"
 #include "hvr_common.h"
 
+#define CRC32
+#include "crc.c"
+
 const static unsigned sentinel = 0xdeed;
 const static unsigned clear_sentinel = 0x0;
 
@@ -29,6 +32,8 @@ void hvr_mailbox_init(hvr_mailbox_t *mailbox, size_t capacity_in_bytes) {
     memset(mailbox->buf, 0x00, capacity_in_bytes);
 
     mailbox->pe = shmem_my_pe();
+
+    crcInit();
 
     shmem_barrier_all();
 }
@@ -54,6 +59,17 @@ static uint32_t used_bytes(uint32_t read_index, uint32_t write_index,
         return write_index - read_index;
     } else {
         return write_index + (mailbox->capacity_in_bytes - read_index);
+    }
+}
+
+static void memset_mailbox_with_rotation(int val, size_t data_len,
+        uint64_t starting_offset, hvr_mailbox_t *mailbox) {
+    if (starting_offset + data_len <= mailbox->capacity_in_bytes) {
+        memset(mailbox->buf + starting_offset, val, data_len);
+    } else {
+        uint64_t rotate_index = mailbox->capacity_in_bytes - starting_offset;
+        memset(mailbox->buf + starting_offset, val, rotate_index);
+        memset(mailbox->buf, val, data_len - rotate_index);
     }
 }
 
@@ -89,8 +105,13 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
     // So that sentinel values are always cohesive
     assert(msg_len % sizeof(sentinel) == 0);
 
-    uint64_t full_msg_len = sizeof(sentinel) + sizeof(msg_len) + msg_len;
+    uint64_t full_msg_len = sizeof(sentinel) + sizeof(crc) +
+        sizeof(crc) + sizeof(msg_len) + msg_len;
     assert(full_msg_len < mailbox->capacity_in_bytes);
+
+    crc msg_len_crc = crcFast((const unsigned char *)&msg_len,
+            sizeof(msg_len));
+    crc msg_crc = crcFast(msg, msg_len);
 
     uint64_t indices = shmem_uint64_atomic_fetch(mailbox->indices, target_pe);
     uint32_t start_send_index = 0;
@@ -137,11 +158,19 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
      * around the circular buffer.
      */
     uint32_t start_send_offset = start_send_index;
-    uint32_t msg_len_offset = ((start_send_index + sizeof(sentinel)) %
-            mailbox->capacity_in_bytes);
+    uint32_t start_msg_len_crc_offset = ((start_send_index + sizeof(sentinel)) %
+        mailbox->capacity_in_bytes);
+    uint32_t start_msg_crc_offset = ((start_send_index + sizeof(sentinel) +
+                sizeof(crc)) % mailbox->capacity_in_bytes);
+    uint32_t msg_len_offset = ((start_send_index + sizeof(sentinel) +
+                2*sizeof(crc)) % mailbox->capacity_in_bytes);
     uint32_t msg_offset = ((start_send_index + sizeof(sentinel) +
-                sizeof(msg_len)) % mailbox->capacity_in_bytes);
+                2*sizeof(crc) + sizeof(msg_len)) % mailbox->capacity_in_bytes);
 
+    put_in_mailbox_with_rotation(&msg_len_crc, sizeof(msg_len_crc),
+            start_msg_len_crc_offset, mailbox, target_pe);
+    put_in_mailbox_with_rotation(&msg_crc, sizeof(msg_crc),
+            start_msg_crc_offset, mailbox, target_pe);
     put_in_mailbox_with_rotation(&msg_len, sizeof(msg_len), msg_len_offset,
             mailbox, target_pe);
     put_in_mailbox_with_rotation(msg, msg_len, msg_offset, mailbox, target_pe);
@@ -191,10 +220,14 @@ int hvr_mailbox_recv(void *msg, size_t msg_capacity, size_t *msg_len,
 
     // Wait for the sentinel value to appear
     uint64_t start_msg_offset = read_index;
-    uint64_t msg_len_offset = (read_index + sizeof(sentinel)) %
+    uint64_t msg_len_crc_offset = (read_index + sizeof(sentinel)) %
         mailbox->capacity_in_bytes;
-    uint64_t msg_offset = ((read_index + sizeof(sentinel) + sizeof(*msg_len)) %
-            mailbox->capacity_in_bytes);
+    uint64_t msg_crc_offset = (read_index + sizeof(sentinel) + sizeof(crc)) %
+        mailbox->capacity_in_bytes;
+    uint64_t msg_len_offset = (read_index + sizeof(sentinel) + 2*sizeof(crc)) %
+        mailbox->capacity_in_bytes;
+    uint64_t msg_offset = ((read_index + sizeof(sentinel) + 2*sizeof(crc) +
+                sizeof(*msg_len)) % mailbox->capacity_in_bytes);
 
     // Assert that the sentinel value is cohesive
     unsigned expect_sentinel;
@@ -202,6 +235,14 @@ int hvr_mailbox_recv(void *msg, size_t msg_capacity, size_t *msg_len,
             mailbox->capacity_in_bytes);
     shmem_uint_wait_until((unsigned *)(mailbox->buf + start_msg_offset),
             SHMEM_CMP_EQ, sentinel);
+
+    crc msg_len_crc;
+    get_from_mailbox_with_rotation(msg_len_crc_offset, &msg_len_crc,
+            sizeof(msg_len_crc), mailbox);
+
+    crc msg_crc;
+    get_from_mailbox_with_rotation(msg_crc_offset, &msg_crc,
+            sizeof(msg_crc), mailbox);
 
     size_t recv_msg_len;
     get_from_mailbox_with_rotation(msg_len_offset, &recv_msg_len,
@@ -212,15 +253,25 @@ int hvr_mailbox_recv(void *msg, size_t msg_capacity, size_t *msg_len,
 
     get_from_mailbox_with_rotation(msg_offset, msg, recv_msg_len, mailbox);
 
+    crc calc_msg_len_crc = crcFast((const unsigned char *)&recv_msg_len,
+            sizeof(recv_msg_len));
+    crc calc_msg_crc = crcFast(msg, recv_msg_len);
+    assert(calc_msg_len_crc == msg_len_crc);
+    assert(calc_msg_crc == msg_crc);
+
     /*
      * Once we've finished extracting the message, clear the sentinel value and
      * increment the read index.
      */
+    memset_mailbox_with_rotation(0, 2*sizeof(crc) +
+            sizeof(recv_msg_len) + recv_msg_len, msg_len_crc_offset, mailbox);
+    shmem_quiet();
     put_in_mailbox_with_rotation(&clear_sentinel, sizeof(clear_sentinel),
             start_msg_offset, mailbox, mailbox->pe);
-    shmem_fence();
+    // shmem_fence();
+    shmem_quiet();
 
-    uint32_t new_read_index = (read_index + sizeof(sentinel) +
+    uint32_t new_read_index = (read_index + sizeof(sentinel) + 2*sizeof(crc) +
             sizeof(recv_msg_len) + recv_msg_len) % mailbox->capacity_in_bytes;
     uint64_t new_indices = pack_indices(new_read_index, write_index);
     while (1) {

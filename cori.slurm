@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 1
+#SBATCH -N 2
 #SBATCH -C haswell
 #SBATCH -t 00:20:00
 #SBATCH -J hoover
@@ -75,23 +75,30 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
 # make bin/explicit_edge_test bin/init_test bin/complex_interact bin/complex_interact2 bin/stale_state bin/coupled_test bin/connected_components
 
 ##### Functional tests #####
-echo 'explicit_edge_test'
-srun -n 2 $HOME/hoover/bin/explicit_edge_test
+echo 'mailbox_test'
+srun -n 2 $HOME/hoover/bin/mailbox_test
 echo
-echo 'init_test'
-srun $SLURM_ARGS $HOME/hoover/bin/init_test 100
-echo
-echo 'complex_interact'
-srun -n 2 $HOME/hoover/bin/complex_interact
-echo
-echo 'complex_interact2'
-srun -n 2 $HOME/hoover/bin/complex_interact2 300
-echo
-echo 'stale_state'
-srun -n 2 $HOME/hoover/bin/stale_state
-echo
-echo 'coupled_test'
-srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
-echo
-echo 'connected_components'
-srun $SLURM_ARGS $HOME/hoover/bin/connected_components 10 100000 100
+# echo 'mailbox_buffer_test'
+# srun $SLURM_ARGS $HOME/hoover/bin/hvr_mailbox_buffer_test
+# echo
+# echo 'explicit_edge_test'
+# srun -n 2 $HOME/hoover/bin/explicit_edge_test
+# echo
+# echo 'init_test'
+# srun $SLURM_ARGS $HOME/hoover/bin/init_test 100
+# echo
+# echo 'complex_interact'
+# srun -n 2 $HOME/hoover/bin/complex_interact
+# echo
+# echo 'complex_interact2'
+# srun -n 2 $HOME/hoover/bin/complex_interact2 300
+# echo
+# echo 'stale_state'
+# srun -n 2 $HOME/hoover/bin/stale_state
+# echo
+# echo 'coupled_test'
+# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
+# echo
+# echo 'connected_components'
+# srun $SLURM_ARGS $HOME/hoover/bin/connected_components 10 100000 100
+
