@@ -73,7 +73,7 @@ void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
 
     hvr_sparse_arr_seg_t *segment = arr->segs[seg];
 
-    struct node *exists = hvr_avl_find(segment->seg[seg_index], j);
+    struct hvr_avl_node *exists = hvr_avl_find(segment->seg[seg_index], j);
     if (exists == nnil) {
         hvr_avl_insert(&(segment->seg[seg_index]), j, arr->tracker);
         segment->seg_size[seg_index] += 1;
@@ -91,7 +91,7 @@ int hvr_sparse_arr_contains(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
         return 0;
     }
 
-    struct node *exists = hvr_avl_find(segment->seg[seg_index], j);
+    struct hvr_avl_node *exists = hvr_avl_find(segment->seg[seg_index], j);
     return (exists != nnil);
 }
 

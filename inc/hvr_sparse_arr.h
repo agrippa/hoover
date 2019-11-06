@@ -29,7 +29,7 @@
 #define HVR_SPARSE_ARR_SEGMENT_SIZE 1024
 
 typedef struct _hvr_sparse_arr_seg_t {
-    struct node *seg[HVR_SPARSE_ARR_SEGMENT_SIZE];
+    struct hvr_avl_node *seg[HVR_SPARSE_ARR_SEGMENT_SIZE];
     unsigned seg_size[HVR_SPARSE_ARR_SEGMENT_SIZE];
     struct _hvr_sparse_arr_seg_t *next; // Only used for maintaining segs_pool
 } hvr_sparse_arr_seg_t;

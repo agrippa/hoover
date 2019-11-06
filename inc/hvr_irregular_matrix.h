@@ -6,6 +6,7 @@
 #include "dlmalloc.h"
 
 typedef struct _hvr_irr_matrix_t {
+
     hvr_edge_info_t **edges;
     uint16_t *edges_capacity;
     uint16_t *edges_len;

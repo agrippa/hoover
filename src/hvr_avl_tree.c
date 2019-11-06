@@ -5,35 +5,37 @@
 
 #include "hvr_avl_tree.h"
  
-struct node dummy = { 0, 0, {&dummy, &dummy} }, *nnil = &dummy;
+struct hvr_avl_node dummy = { 0, 0, {&dummy, &dummy} }, *nnil = &dummy;
 // internally, nnil is the new nul
  
-static struct node *new_node(int value, mspace tracker)
+static struct hvr_avl_node *new_node(int value, mspace tracker)
 {
-    struct node *n = (struct node *)mspace_malloc(tracker, sizeof(*n));
+    struct hvr_avl_node *n = (struct hvr_avl_node *)mspace_malloc(tracker,
+            sizeof(*n));
     if (!n) {
         fprintf(stderr, "ERROR Failed allocating an AVL node. Consider "
                 "increasing HVR_SPARSE_ARR_POOL.\n");
         abort();
     }
-	*n = (struct node) { value, 1, {nnil, nnil} };
+	*n = (struct hvr_avl_node) { value, 1, {nnil, nnil} };
 	return n;
 }
  
 static inline int max(int a, int b) { return a > b ? a : b; }
 
-static inline void set_height(struct node *n) {
+static inline void set_height(struct hvr_avl_node *n) {
 	n->height = 1 + max(n->kid[0]->height, n->kid[1]->height);
 }
  
-static inline int balance(struct node *n) {
+static inline int balance(struct hvr_avl_node *n) {
 	return n->kid[0]->height - n->kid[1]->height;
 }
  
 // rotate a subtree according to dir; if new root is nil, old root is freed
-static struct node * rotate(struct node **rootp, int dir, mspace tracker)
+static struct hvr_avl_node * rotate(struct hvr_avl_node **rootp, int dir,
+        mspace tracker)
 {
-	struct node *old_r = *rootp, *new_r = old_r->kid[dir];
+	struct hvr_avl_node *old_r = *rootp, *new_r = old_r->kid[dir];
  
 	if (nnil == (*rootp = new_r))
 		mspace_free(tracker, old_r);
@@ -45,9 +47,9 @@ static struct node * rotate(struct node **rootp, int dir, mspace tracker)
 	return new_r;
 }
  
-static void adjust_balance(struct node **rootp, mspace tracker)
+static void adjust_balance(struct hvr_avl_node **rootp, mspace tracker)
 {
-	struct node *root = *rootp;
+	struct hvr_avl_node *root = *rootp;
 	int b = balance(root)/2;
 	if (b) {
 		int dir = (1 - b)/2;
@@ -59,7 +61,7 @@ static void adjust_balance(struct node **rootp, mspace tracker)
 }
  
 // find the node that contains value as payload; or returns 0
-static struct node *query(struct node *root, int value)
+static struct hvr_avl_node *query(struct hvr_avl_node *root, int value)
 {
 	return root == nnil
 		? 0
@@ -68,9 +70,9 @@ static struct node *query(struct node *root, int value)
 			: query(root->kid[value > root->payload], value);
 }
  
-void hvr_avl_insert(struct node **rootp, int value, mspace tracker)
+void hvr_avl_insert(struct hvr_avl_node **rootp, int value, mspace tracker)
 {
-	struct node *root = *rootp;
+	struct hvr_avl_node *root = *rootp;
  
 	if (root == nnil)
 		*rootp = new_node(value, tracker);
@@ -80,9 +82,9 @@ void hvr_avl_insert(struct node **rootp, int value, mspace tracker)
 	}
 }
  
-int hvr_avl_delete(struct node **rootp, int value, mspace tracker)
+int hvr_avl_delete(struct hvr_avl_node **rootp, int value, mspace tracker)
 {
-	struct node *root = *rootp;
+	struct hvr_avl_node *root = *rootp;
 	if (root == nnil) return 0; // not found
  
 	// if this is the node we want, rotate until off the tree
@@ -96,7 +98,7 @@ int hvr_avl_delete(struct node **rootp, int value, mspace tracker)
     return success;
 }
 
-void hvr_avl_delete_all(struct node *root, mspace tracker) {
+void hvr_avl_delete_all(struct hvr_avl_node *root, mspace tracker) {
     if (root == nnil) return;
 
     hvr_avl_delete_all(root->kid[0], tracker);
@@ -104,7 +106,7 @@ void hvr_avl_delete_all(struct node *root, mspace tracker) {
     mspace_free(tracker, root);
 }
 
-static void hvr_avl_serialize_helper(struct node *root, int *arr,
+static void hvr_avl_serialize_helper(struct hvr_avl_node *root, int *arr,
         int arr_capacity, int *index) {
     if (root == nnil) return;
 
@@ -116,12 +118,12 @@ static void hvr_avl_serialize_helper(struct node *root, int *arr,
     hvr_avl_serialize_helper(root->kid[1], arr, arr_capacity, index);
 }
 
-void hvr_avl_serialize(struct node *root, int *arr, int arr_capacity) {
+void hvr_avl_serialize(struct hvr_avl_node *root, int *arr, int arr_capacity) {
     int index = 0;
     hvr_avl_serialize_helper(root, arr, arr_capacity, &index);
 }
 
-struct node *hvr_avl_find(struct node *root, int target) {
+struct hvr_avl_node *hvr_avl_find(struct hvr_avl_node *root, int target) {
     if (root == nnil) {
         return nnil;
     } else if (root->payload == target) {

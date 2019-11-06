@@ -3,22 +3,25 @@
 
 #include "dlmalloc.h"
 
-struct node {
+struct hvr_avl_node {
 	int payload;
 	int height;
-	struct node * kid[2];
+	struct hvr_avl_node * kid[2];
 };
 
-extern void hvr_avl_insert(struct node **rootp, int value, mspace tracker);
+extern void hvr_avl_insert(struct hvr_avl_node **rootp, int value,
+        mspace tracker);
 
-extern int hvr_avl_delete(struct node **rootp, int value, mspace tracker);
+extern int hvr_avl_delete(struct hvr_avl_node **rootp, int value,
+        mspace tracker);
 
-extern void hvr_avl_delete_all(struct node *rootp, mspace tracker);
+extern void hvr_avl_delete_all(struct hvr_avl_node *rootp, mspace tracker);
 
-extern struct node *hvr_avl_find(struct node *root, int target);
+extern struct hvr_avl_node *hvr_avl_find(struct hvr_avl_node *root, int target);
 
-extern void hvr_avl_serialize(struct node *root, int *arr, int arr_capacity);
+extern void hvr_avl_serialize(struct hvr_avl_node *root, int *arr,
+        int arr_capacity);
 
-extern struct node *nnil;
+extern struct hvr_avl_node *nnil;
 
 #endif
