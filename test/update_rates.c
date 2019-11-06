@@ -90,19 +90,49 @@ int main(int argc, char **argv) {
     batch_size = atoi(argv[2]);
     int max_elapsed_seconds = atoi(argv[3]);
 
-    FILE *fp = fopen(mat_filename, "r");
-    assert(fp);
+    char filename[2048];
+    sprintf(filename, "%s.npes=%d.pe=%d_0", mat_filename, npes, pe);
+    FILE *fp0 = fopen(filename, "r");
+    assert(fp0);
 
-    int64_t M, N, nz;
+    sprintf(filename, "%s.npes=%d.pe=%d_1", mat_filename, npes, pe);
+    FILE *fp1 = fopen(filename, "r");
+    assert(fp1);
+
+    int64_t M0, N0, nz0, partition_nz0;
+    int64_t M1, N1, nz1, partition_nz1;
+    int64_t M, N, nz, partition_nz;
     size_t n;
-    n = fread(&M, sizeof(M), 1, fp);
-    assert(n == 1);
-    n = fread(&N, sizeof(N), 1, fp);
-    assert(n == 1);
-    n = fread(&nz, sizeof(nz), 1, fp);
-    assert(n == 1);
 
-    assert(M == N);
+    n = fread(&M0, sizeof(M0), 1, fp0);
+    assert(n == 1);
+    n = fread(&N0, sizeof(N0), 1, fp0);
+    assert(n == 1);
+    n = fread(&nz0, sizeof(nz0), 1, fp0);
+    assert(n == 1);
+    n = fread(&partition_nz0, sizeof(partition_nz0), 1, fp0);
+    assert(n == 1);
+    assert(M0 == N0);
+
+    n = fread(&M1, sizeof(M1), 1, fp1);
+    assert(n == 1);
+    n = fread(&N1, sizeof(N1), 1, fp1);
+    assert(n == 1);
+    n = fread(&nz1, sizeof(nz1), 1, fp1);
+    assert(n == 1);
+    n = fread(&partition_nz1, sizeof(partition_nz1), 1, fp1);
+    assert(n == 1);
+    assert(M1 == N1);
+
+    assert(M0 == M1);
+    assert(N0 == N1);
+    assert(nz0 == nz1);
+    assert(partition_nz0 == partition_nz1);
+
+    M = M0;
+    N = N0;
+    nz = nz0;
+    partition_nz = partition_nz0;
 
     if (pe == 0) {
         fprintf(stderr, "Matrix %s is %ld x %ld with %ld non-zeroes\n",
@@ -118,83 +148,38 @@ int main(int argc, char **argv) {
         hvr_vertex_t *vert = hvr_vertex_create(ctx);
     }
 
-    const int tile_size = 64 * 1024 * 1024;
-    int64_t *I = (int64_t *)malloc(tile_size * sizeof(*I));
-    assert(I);
-    int64_t *J = (int64_t *)malloc(tile_size * sizeof(*J));
-    assert(J);
-
-    if (pe == 0) {
-        fprintf(stderr, "Counting edges...\n");
-    }
-
-    long I_offset = ftell(fp);
-
-    int64_t count_edges_to_insert = 0;
-    for (int64_t i = 0; i < nz; i += tile_size) {
-        int64_t to_read = nz - i;
-        if (to_read > tile_size) to_read = tile_size;
-
-        n = fread(I, sizeof(*I), to_read, fp);
-        assert(n == to_read);
-
-        for (int64_t j = 0; j < to_read; j++) {
-            if (I[j] >= my_vertices_start && I[j] < my_vertices_end) {
-                count_edges_to_insert++;
-            }
-        }
-    }
-
-    if (pe == 0) {
-        fprintf(stderr, "Loading edges...\n");
-    }
-
-    long J_offset = ftell(fp);
-
-    my_edges = (hvr_vertex_id_t *)malloc(
-            2 * count_edges_to_insert * sizeof(*my_edges));
+    int64_t *edges0 = (int64_t *)malloc(partition_nz * sizeof(*edges0));
+    assert(edges0);
+    int64_t *edges1 = (int64_t *)malloc(partition_nz * sizeof(*edges1));
+    assert(edges1);
+    my_edges = (hvr_vertex_id_t *)malloc(2 * partition_nz * sizeof(*my_edges));
     assert(my_edges);
 
-#if 0
-    n_my_edges = 0;
-    for (int64_t i = 0; i < nz; i += tile_size) {
-        int64_t to_read = nz - i;
-        if (to_read > tile_size) to_read = tile_size;
+    n = fread(edges0, sizeof(*edges0), partition_nz, fp0);
+    assert(n == partition_nz);
+    n = fread(edges1, sizeof(*edges1), partition_nz, fp1);
+    assert(n == partition_nz);
+    fclose(fp0);
+    fclose(fp1);
 
-        fseek(fp, I_offset + i * sizeof(*I), SEEK_SET);
-        n = fread(I, sizeof(int64_t), to_read, fp);
-        assert(n == to_read);
+    for (int64_t i = 0; i < partition_nz; i++) {
+        assert(edges0[i] < M);
+        int64_t I_pe = edges0[i] / vertices_per_pe;
+        assert(I_pe == pe);
+        int64_t I_offset = edges0[i] % vertices_per_pe;
 
-        fseek(fp, J_offset + i * sizeof(*J), SEEK_SET);
-        n = fread(J, sizeof(int64_t), to_read, fp);
-        assert(n == to_read);
+        assert(edges1[i] < M);
+        int64_t J_pe = edges1[i] / vertices_per_pe;
+        assert(J_pe < npes);
+        int64_t J_offset = edges1[i] % vertices_per_pe;
 
-        for (int64_t j = 0; j < to_read; j++) {
-            if (I[j] >= my_vertices_start && I[j] < my_vertices_end) {
-                assert(I[j] < M);
-                int64_t I_pe = I[j] / vertices_per_pe;
-                assert(I_pe == pe);
-                int64_t I_offset = I[j] % vertices_per_pe;
-
-                assert(J[j] < M);
-                int64_t J_pe = J[j] / vertices_per_pe;
-                assert(J_pe < npes);
-                int64_t J_offset = J[j] % vertices_per_pe;
-
-                my_edges[2 * n_my_edges] = construct_vertex_id(I_pe, I_offset);
-                my_edges[2 * n_my_edges + 1] = construct_vertex_id(J_pe,
-                        J_offset);
-                n_my_edges++;
-            }
-        }
+        my_edges[2 * i] = construct_vertex_id(I_pe, I_offset);
+        my_edges[2 * i + 1] = construct_vertex_id(J_pe, J_offset);
     }
-    assert(n_my_edges == count_edges_to_insert);
-#endif
+    n_my_edges = partition_nz;
 
-    free(I);
-    free(J);
-
-    fclose(fp);
+    free(edges0);
+    free(edges1);
 
     if (pe == 0) {
         fprintf(stderr, "Done loading graph.\n");
@@ -217,7 +202,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "HOOVER runtime initialized.\n");
     }
 
-#if 0
     unsigned long long start_time = hvr_current_time_us();
     hvr_body(ctx);
     unsigned long long elapsed_time = hvr_current_time_us() - start_time;
@@ -231,7 +215,6 @@ int main(int argc, char **argv) {
             (double)n_my_edges / ((double)elapsed_time / 1000000.0));
 
     hvr_finalize(ctx);
-#endif
 
     shmem_finalize();
     

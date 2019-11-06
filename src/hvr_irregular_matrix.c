@@ -105,9 +105,19 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
             m->edges[i] = mspace_realloc(m->allocator, curr_edges,
                     new_capacity * sizeof(*curr_edges));
             if (!m->edges[i]) {
-                fprintf(stderr, "ERROR exhausted edge memory pool (%llu "
-                        "edges). Increase HVR_EDGES_POOL_SIZE.\n",
-                        m->nvertices);
+                size_t allocated_bytes = 0;
+                size_t used_bytes = 0;
+                size_t total_bytes = m->pool_size;
+                for (size_t j = 0; j < m->nvertices; j++) {
+                    allocated_bytes += m->edges_capacity[j] *
+                        sizeof(*curr_edges);
+                    used_bytes += m->edges_len[j] * sizeof(*curr_edges);
+                }
+
+                fprintf(stderr, "ERROR exhausted edge memory pool (total bytes "
+                        "= %llu, allocated bytes = %llu, used bytes = %llu). "
+                        "Increase HVR_EDGES_POOL_SIZE.\n", total_bytes,
+                        allocated_bytes, used_bytes);
                 abort();
             }
             m->edges_capacity[i] = new_capacity;

@@ -7,5 +7,8 @@ generate_graph: generate_graph.c
 		$(GRAPH500_DIR)/generator/splittable_mrg.c \
 		-I$(GRAPH500_DIR)/generator -o generate_graph
 
+partition_graph: partition_graph.c
+	gcc $(FLAGS) partition_graph.c -o partition_graph
+
 clean:
-	rm -f generate_graph
+	rm -f generate_graph partition_graph

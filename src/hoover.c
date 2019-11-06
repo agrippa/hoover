@@ -26,7 +26,7 @@
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
 
-// #define DETAILED_PRINTS
+#define DETAILED_PRINTS
 // #define COUPLING_PRINTS
 
 // #define PRINT_PARTITIONS
@@ -50,6 +50,7 @@ static const char *producer_info_segs_var_name = "HVR_PRODUCER_INFO_SEGS";
 typedef struct _profiling_info_t {
     unsigned long long start_iter;
     unsigned long long end_start_time_step;
+    unsigned long long start_buffered_changes;
     unsigned long long end_update_vertices;
     unsigned long long end_update_dist;
     unsigned long long end_update_partitions;
@@ -1322,7 +1323,7 @@ void hvr_init(const hvr_partition_t n_partitions,
     hvr_mailbox_init(&new_ctx->to_couple_with_mailbox,        8 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->root_info_mailbox,             8 * 1024 * 1024);
 
-    const unsigned n_to_buffer = 256;
+    const unsigned n_to_buffer = 2 * 1024;
     hvr_mailbox_buffer_init(&new_ctx->vert_sub_mailbox_buffer,
             &new_ctx->vert_sub_mailbox, new_ctx->npes,
             sizeof(hvr_vertex_subscription_t), n_to_buffer);
@@ -1677,7 +1678,7 @@ static void process_neighbor_updates(hvr_internal_ctx_t *ctx,
     *measure_midpoint = hvr_current_time_us();
 
     // Poll for new remote vertex subscriptions
-    process_vertex_subscriptions(ctx, 100);
+    process_vertex_subscriptions(ctx, 1000);
 }
 
 /*
@@ -2147,17 +2148,18 @@ static void handle_dead_msg(hvr_dead_pe_msg_t *msg, hvr_internal_ctx_t *ctx) {
     unsigned n_subscriptions = hvr_sparse_arr_linearize_row(msg->pe,
             &subscriptions, &ctx->my_vert_subs);
     for (unsigned i = 0; i < n_subscriptions; i++) {
-        hvr_vertex_t local;
-        shmem_getmem(&local,
-                ctx->vec_cache.pool_mem + subscriptions[i],
-                sizeof(local), msg->pe);
         hvr_vertex_id_t id = construct_vertex_id(msg->pe,
                 subscriptions[i]);
         hvr_vertex_cache_node_t *cached = hvr_vertex_cache_lookup(
                 id, &ctx->vec_cache);
         assert(cached);
-        memcpy(&cached->vert, &local, sizeof(local));
-        cached->populated = 1;
+
+        if (dead_pe_processing || !cached->populated) {
+            shmem_getmem(&cached->vert,
+                    ctx->vec_cache.pool_mem + subscriptions[i],
+                    sizeof(cached->vert), msg->pe);
+            cached->populated = 1;
+        }
     }
 
     hvr_sparse_arr_release_row(subscriptions, &ctx->my_vert_subs);
@@ -3111,6 +3113,7 @@ static size_t bytes_used_by_subcopy_arr(hvr_dist_bitvec_local_subcopy_t *arr,
 static void save_profiling_info(
         unsigned long long start_iter,
         unsigned long long end_start_time_step,
+        unsigned long long start_buffered_changes,
         unsigned long long end_update_vertices,
         unsigned long long end_update_dist,
         unsigned long long end_update_partitions,
@@ -3156,6 +3159,7 @@ static void save_profiling_info(
 
     saved_profiling_info[n_profiled_iters].start_iter = start_iter;
     saved_profiling_info[n_profiled_iters].end_start_time_step = end_start_time_step;
+    saved_profiling_info[n_profiled_iters].start_buffered_changes = start_buffered_changes;
     saved_profiling_info[n_profiled_iters].end_update_vertices = end_update_vertices;
     saved_profiling_info[n_profiled_iters].end_update_dist = end_update_dist;
     saved_profiling_info[n_profiled_iters].end_update_partitions = end_update_partitions;
@@ -3324,8 +3328,11 @@ static void print_profiling_info(profiling_info_t *info) {
     fprintf(profiling_fp, "PE %d - iter %d - total %f ms\n",
             info->pe, info->iter,
             (double)(info->end_update_coupled - info->start_iter) / MS_PER_S);
-    fprintf(profiling_fp, "  start time step %f\n",
-            (double)(info->end_start_time_step - info->start_iter) / MS_PER_S);
+    if (info->start_buffered_changes > 0) {
+        fprintf(profiling_fp, "  start time step %f - buffered changes %f\n",
+                (double)(info->end_start_time_step - info->start_iter) / MS_PER_S,
+                (double)(info->end_start_time_step - info->start_buffered_changes) / MS_PER_S);
+    }
     fprintf(profiling_fp, "  update vertices %f - %d updates\n",
             (double)(info->end_update_vertices - info->end_start_time_step) / MS_PER_S,
             info->count_updated);
@@ -3628,6 +3635,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 start_body,
                 start_body,
                 start_body,
+                start_body,
                 end_update_dist,
                 end_update_partitions,
                 end_partition_window,
@@ -3672,6 +3680,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
         ctx->n_msgs_this_iter = 0;
         hvr_set_wipe(to_couple_with);
 
+        unsigned long long start_buffered_changes = 0;
         if (ctx->start_time_step) {
             hvr_vertex_iter_t iter;
             hvr_vertex_iter_init(&iter, ctx);
@@ -3680,9 +3689,11 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
             ctx->start_time_step(&iter, to_couple_with, ctx);
             ctx->user_mutation_allowed = 0;
 
-            process_buffered_changes(ctx);
-        }
+            start_buffered_changes = hvr_current_time_us();
 
+            process_buffered_changes(ctx);
+
+        }
         const unsigned long long end_start_time_step = hvr_current_time_us();
 
         // Must come before everything else
@@ -3738,6 +3749,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
             save_profiling_info(
                     start_iter,
                     end_start_time_step,
+                    start_buffered_changes,
                     end_update_vertices,
                     end_update_dist,
                     end_update_partitions,
