@@ -43,7 +43,9 @@ typedef struct _hvr_sparse_arr_t {
     hvr_sparse_arr_seg_t *preallocated;
 
     void *pool;
-    mspace tracker;
+    mspace allocator;
+
+    hvr_avl_node_allocator avl_allocator;
 } hvr_sparse_arr_t;
 
 extern void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity);
@@ -62,10 +64,11 @@ extern void hvr_sparse_arr_remove(unsigned i, unsigned j,
 extern void hvr_sparse_arr_remove_row(unsigned i,
         hvr_sparse_arr_t *arr);
 
-extern unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
+extern unsigned hvr_sparse_arr_linearize_row(unsigned i, uint64_t **out_arr,
         hvr_sparse_arr_t *arr);
 
-extern void hvr_sparse_arr_release_row(int *out_arr, hvr_sparse_arr_t *arr);
+extern void hvr_sparse_arr_release_row(uint64_t *out_arr,
+        hvr_sparse_arr_t *arr);
 
 extern size_t hvr_sparse_arr_used_bytes(hvr_sparse_arr_t *arr);
 

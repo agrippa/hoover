@@ -6,184 +6,76 @@
 
 void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
         hvr_irr_matrix_t *m) {
-    m->edges = (hvr_edge_info_t **)malloc_helper(nvertices * sizeof(m->edges[0]));
+    m->edges = (struct hvr_avl_node **)malloc_helper(
+            nvertices * sizeof(m->edges[0]));
     assert(m->edges);
-    m->edges_capacity = (uint16_t *)malloc_helper(
-            nvertices * sizeof(m->edges_capacity[0]));
-    assert(m->edges_capacity);
-    m->edges_len = (uint16_t *)malloc_helper(nvertices * sizeof(m->edges_len[0]));
-    assert(m->edges_len);
-
-    memset(m->edges, 0x00, sizeof(m->edges[0]) * nvertices);
-    memset(m->edges_capacity, 0x00, sizeof(m->edges_capacity[0]) * nvertices);
-    memset(m->edges_len, 0x00, sizeof(m->edges_capacity[0]) * nvertices);
+    for (size_t i = 0; i < nvertices; i++) {
+        m->edges[i] = nnil;
+    }
 
     m->nvertices = nvertices;
+    m->nedges = 0;
 
-    m->pool = malloc_helper(pool_size);
-    assert(m->pool);
-    memset(m->pool, 0xff, pool_size);
-    m->pool_size = pool_size;
-    m->allocator = create_mspace_with_base(m->pool, pool_size, 0);
-    assert(m->allocator);
+    hvr_avl_node_allocator_init(&m->allocator, pool_size,
+            "HVR_EDGES_POOL_SIZE");
 }
 
 hvr_edge_type_t hvr_irr_matrix_get(const hvr_vertex_id_t i,
         const hvr_vertex_id_t j, const hvr_irr_matrix_t *m) {
-    const uint16_t curr_len = m->edges_len[i];
-    const hvr_edge_info_t *curr_edges = m->edges[i];
-
-#pragma unroll
-    for (uint16_t iter = 0; iter < curr_len; iter++) {
-        const hvr_edge_info_t info = curr_edges[iter];
-        const hvr_vertex_id_t neighbor = EDGE_INFO_VERTEX(info);
-        if (neighbor == j) {
-            return (hvr_edge_type_t)EDGE_INFO_EDGE(info);
-        }
+    struct hvr_avl_node *root = m->edges[i];
+    struct hvr_avl_node *found = hvr_avl_find(root, j);
+    if (found != nnil) {
+        return EDGE_INFO_EDGE(found->value);
     }
     return NO_EDGE;
-}
-
-void hvr_irr_matrix_resize(hvr_vertex_id_t i, unsigned new_capacity,
-        hvr_irr_matrix_t *m) {
-    const uint16_t curr_len = m->edges_len[i];
-    const uint16_t curr_capacity = m->edges_capacity[i];
-    assert(curr_len <= new_capacity);
-
-    if (new_capacity != curr_capacity) {
-        m->edges[i] = mspace_realloc(m->allocator, m->edges[i],
-                new_capacity * sizeof(m->edges[0][0]));
-        assert(m->edges[i]);
-        m->edges_capacity[i] = new_capacity;
-    }
 }
 
 void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
         hvr_edge_create_type_t create_type, hvr_irr_matrix_t *m,
         int known_no_edge) {
-    const uint16_t curr_len = m->edges_len[i];
-    const uint16_t curr_capacity = m->edges_capacity[i];
-    hvr_edge_info_t *curr_edges = m->edges[i];
-
-    int found = -1;
-    if (!known_no_edge) {
-        for (uint16_t iter = 0; iter < curr_len; iter++) {
-            const hvr_edge_info_t e = curr_edges[iter];
-            const hvr_vertex_id_t neighbor = EDGE_INFO_VERTEX(e);
-            if  (neighbor == j) {
-                found = iter;
-                break;
-            }
-        }
-    }
-
-    if (found >= 0) {
-        // Existing neighbor
-        if (e == NO_EDGE) {
-            // Delete existing entry, shift all following entries down
-            curr_edges[found] = curr_edges[curr_len - 1];
-            m->edges_len[i] = curr_len - 1;
-        } else {
-            // Overwrite entry
-            curr_edges[found] = construct_edge_info(j, e, create_type);
-        }
-    } else {
-        // Does not exist already
+    struct hvr_avl_node *root = m->edges[i];
+    struct hvr_avl_node *found = hvr_avl_find(root, j);
+    if (found == nnil) {
         if (e == NO_EDGE) return;
 
-        if (curr_len == curr_capacity) {
-            // No more room, expand
-            unsigned new_capacity;
-            if (curr_capacity == 0) {
-                new_capacity = 2;
-            } else if (curr_capacity <= 128) {
-                new_capacity = curr_capacity * 2;
-            } else {
-                new_capacity = curr_capacity + 16;
-            }
-
-            m->edges[i] = mspace_realloc(m->allocator, curr_edges,
-                    new_capacity * sizeof(*curr_edges));
-            if (!m->edges[i]) {
-                size_t allocated_bytes = 0;
-                size_t used_bytes = 0;
-                size_t total_bytes = m->pool_size;
-                for (size_t j = 0; j < m->nvertices; j++) {
-                    allocated_bytes += m->edges_capacity[j] *
-                        sizeof(*curr_edges);
-                    used_bytes += m->edges_len[j] * sizeof(*curr_edges);
-                }
-
-                fprintf(stderr, "ERROR exhausted edge memory pool (total bytes "
-                        "= %llu, allocated bytes = %llu, used bytes = %llu). "
-                        "Increase HVR_EDGES_POOL_SIZE.\n", total_bytes,
-                        allocated_bytes, used_bytes);
-                abort();
-            }
-            m->edges_capacity[i] = new_capacity;
-
-            // Update local variable after realloc
-            curr_edges = m->edges[i];
+        hvr_avl_insert(&(m->edges[i]), j,
+                construct_edge_info(j, e, create_type), &m->allocator);
+        m->nedges += 1;
+    } else {
+        if (e == NO_EDGE) {
+            hvr_avl_delete(&(m->edges[i]), j, &m->allocator);
+            m->nedges -= 1;
+        } else {
+            found->value = e;
         }
-
-        curr_edges[curr_len] = construct_edge_info(j, e, create_type);
-        m->edges_len[i] += 1;
     }
 }
 
 unsigned hvr_irr_matrix_row_len(hvr_vertex_id_t i, hvr_irr_matrix_t *m) {
-    return m->edges_len[i];
+    return hvr_avl_size(m->edges[i]);
 }
 
-unsigned hvr_irr_matrix_linearize_zero_copy(hvr_vertex_id_t i,
-        hvr_edge_info_t **out_edges, hvr_irr_matrix_t *m) {
-    const unsigned curr_len = m->edges_len[i];
-    hvr_edge_info_t *curr_edges = m->edges[i];
-
-    *out_edges = curr_edges;
-
-    return curr_len;
+unsigned hvr_irr_matrix_linearize(hvr_vertex_id_t i,
+        hvr_vertex_id_t *out_vals, size_t capacity, hvr_irr_matrix_t *m) {
+    return hvr_avl_serialize(m->edges[i], out_vals, capacity);
 }
 
-unsigned hvr_irr_matrix_linearize(hvr_vertex_id_t i, hvr_edge_info_t *out_edges,
-        size_t capacity, hvr_irr_matrix_t *m) {
-    const unsigned curr_len = m->edges_len[i];
-    hvr_edge_info_t *curr_edges = m->edges[i];
-
-    assert(curr_len <= capacity);
-
-    memcpy(out_edges, curr_edges, curr_len * sizeof(*out_edges));
-
-    return curr_len;
-}
-
-void hvr_irr_matrix_usage(size_t *out_bytes_used, size_t *out_bytes_capacity,
-        size_t *out_bytes_allocated, size_t *out_max_edges,
+void hvr_irr_matrix_usage(size_t *out_bytes_allocated, size_t *out_max_edges,
         size_t *out_max_edges_index, hvr_irr_matrix_t *m) {
     *out_bytes_allocated = m->nvertices * sizeof(m->edges[0]) +
-        m->nvertices * sizeof(m->edges_capacity[0]) +
-        m->nvertices * sizeof(m->edges_len[0]) +
-        m->pool_size;
+        hvr_avl_node_allocator_bytes_allocated(&m->allocator);
 
     size_t max_edges = 0;
     size_t max_edges_index = 0;
-    size_t bytes_used = 0;
-    size_t bytes_capacity = 0;
-    bytes_capacity = bytes_used = m->nvertices * sizeof(m->edges[0]) +
-        m->nvertices * sizeof(m->edges_capacity[0]) +
-        m->nvertices * sizeof(m->edges_len[0]);
 
     for (size_t i = 0; i < m->nvertices; i++) {
-        bytes_capacity += m->edges_capacity[i] * sizeof(m->edges[0]);
-        bytes_used += m->edges_len[i] * sizeof(m->edges[0]);
-        if (m->edges_len[i] > max_edges) {
-            max_edges = m->edges_len[i];
+        unsigned row_len = hvr_irr_matrix_row_len(i, m);
+        if (row_len > max_edges) {
+            max_edges = row_len;
             max_edges_index = i;
         }
     }
 
-    *out_bytes_used = bytes_used;
-    *out_bytes_capacity = bytes_capacity;
     *out_max_edges = max_edges;
     *out_max_edges_index = max_edges_index;
 }

@@ -26,7 +26,7 @@
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
 
-#define DETAILED_PRINTS
+// #define DETAILED_PRINTS
 // #define COUPLING_PRINTS
 
 // #define PRINT_PARTITIONS
@@ -108,9 +108,7 @@ typedef struct _profiling_info_t {
     size_t vertex_cache_symm_used;
     unsigned vertex_cache_max_len;
 
-    size_t edge_bytes_used;
     size_t edge_bytes_allocated;
-    size_t edge_bytes_capacity;
     size_t max_edges;
     size_t max_edges_index;
 
@@ -214,6 +212,10 @@ static inline void hvr_edge_update_init(hvr_update_msg_t *msg,
 
 static void send_to_vertex_update_mailbox(hvr_update_msg_t *msg, int pe,
         hvr_internal_ctx_t *ctx) {
+    if (hvr_set_contains(pe, ctx->all_terminated_pes)) {
+        return;
+    }
+
     int printed_warning = 0;
     unsigned ntries = 0;
     int success;
@@ -347,13 +349,13 @@ static void collect_impacted_vertices(hvr_vertex_cache_node_t *node,
     node->tmp = *head;
     *head = node;
 
-    hvr_edge_info_t *edge_buffer;
-    unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
+    unsigned n_neighbors = hvr_irr_matrix_linearize(
             CACHE_NODE_OFFSET(node, &ctx->vec_cache),
-            &edge_buffer, &ctx->edges);
+            ctx->edge_buffer, MAX_MODIFICATIONS,
+            &ctx->edges);
 
     for (unsigned n = 0; n < n_neighbors; n++) {
-        hvr_vertex_id_t offset = EDGE_INFO_VERTEX(edge_buffer[n]);
+        hvr_vertex_id_t offset = EDGE_INFO_VERTEX(ctx->edge_buffer[n]);
         hvr_vertex_cache_node_t *neighbor = CACHE_NODE_BY_OFFSET(offset,
                 &ctx->vec_cache);
         if (neighbor->dist_from_local_vert == node->dist_from_local_vert + 1) {
@@ -368,13 +370,12 @@ static int update_dist_from_neighbors(hvr_vertex_cache_node_t *node,
         hvr_internal_ctx_t *ctx) {
     uint8_t new_dist = node->dist_from_local_vert;
 
-    hvr_edge_info_t *edge_buffer;
-    unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
+    unsigned n_neighbors = hvr_irr_matrix_linearize(
             CACHE_NODE_OFFSET(node, &ctx->vec_cache),
-            &edge_buffer, &ctx->edges);
+            ctx->edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
 
     for (unsigned n = 0; n < n_neighbors; n++) {
-        hvr_vertex_id_t offset = EDGE_INFO_VERTEX(edge_buffer[n]);
+        hvr_vertex_id_t offset = EDGE_INFO_VERTEX(ctx->edge_buffer[n]);
         hvr_vertex_cache_node_t *neighbor = CACHE_NODE_BY_OFFSET(offset,
                 &ctx->vec_cache);
         uint8_t dist = neighbor->dist_from_local_vert;
@@ -416,7 +417,7 @@ static void send_edge_updates_to_subscribers(hvr_vertex_cache_node_t *node,
         hvr_edge_type_t new_edge, hvr_internal_ctx_t *ctx) {
     assert(VERTEX_ID_PE(node->vert.id) == ctx->pe);
 
-    int *subscribers = NULL;
+    uint64_t *subscribers = NULL;
     unsigned n_subscribers = hvr_sparse_arr_linearize_row(
             VERTEX_ID_OFFSET(node->vert.id),
             &subscribers, &ctx->remote_vert_subs);
@@ -581,14 +582,13 @@ static inline void update_edge_info(hvr_vertex_cache_node_t *base,
 
 static void mark_all_downstream_neighbors_for_processing(
         hvr_vertex_cache_node_t *modified, hvr_internal_ctx_t *ctx) {
-    hvr_edge_info_t *edge_buffer;
-    unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
+    unsigned n_neighbors = hvr_irr_matrix_linearize(
             CACHE_NODE_OFFSET(modified, &ctx->vec_cache),
-            &edge_buffer, &ctx->edges);
+            ctx->edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
 
     for (unsigned n = 0; n < n_neighbors; n++) {
-        hvr_vertex_id_t offset = EDGE_INFO_VERTEX(edge_buffer[n]);
-        hvr_edge_type_t dir = EDGE_INFO_EDGE(edge_buffer[n]);
+        hvr_vertex_id_t offset = EDGE_INFO_VERTEX(ctx->edge_buffer[n]);
+        hvr_edge_type_t dir = EDGE_INFO_EDGE(ctx->edge_buffer[n]);
         hvr_vertex_cache_node_t *neighbor = CACHE_NODE_BY_OFFSET(offset,
                 &ctx->vec_cache);
 
@@ -2060,13 +2060,12 @@ void hvr_get_neighbors(hvr_vertex_t *vert, hvr_neighbors_t *neighbors,
     }
 
     // Lookup edge information in ctx->edges
-    hvr_edge_info_t *edge_buffer;
-    unsigned n_neighbors = hvr_irr_matrix_linearize_zero_copy(
+    unsigned n_neighbors = hvr_irr_matrix_linearize(
             CACHE_NODE_OFFSET(cached, &ctx->vec_cache),
-            &edge_buffer, &ctx->edges);
-    hvr_neighbors_init(edge_buffer, n_neighbors, &ctx->vec_cache,
-            ctx->neighbors_list_tracker, ctx->neighbors_list_pool_size,
-            neighbors);
+            ctx->edge_buffer, MAX_MODIFICATIONS, &ctx->edges);
+    hvr_neighbors_init(ctx->edge_buffer, n_neighbors,
+            &ctx->vec_cache, ctx->neighbors_list_tracker,
+            ctx->neighbors_list_pool_size, neighbors);
 }
 
 void hvr_reset_neighbors(hvr_neighbors_t *n, hvr_ctx_t in_ctx) {
@@ -2108,11 +2107,16 @@ static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t vid,
     if (owning_pe != ctx->pe && !hvr_sparse_arr_contains(owning_pe,
                 VERTEX_ID_OFFSET(vid), &ctx->my_vert_subs)) {
         if (hvr_set_contains(owning_pe, ctx->all_terminated_pes)) {
-            // Already terminated, just pull this vertex's latest value.
-            shmem_getmem(&cached->vert,
-                    ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(vid),
-                    sizeof(cached->vert), owning_pe);
-            cached->populated = 1;
+            /*
+             * Already terminated, just pull this vertex's latest value (unless
+             * we already have it).
+             */
+            if (dead_pe_processing || !cached->populated) {
+                shmem_getmem(&cached->vert,
+                        ctx->vec_cache.pool_mem + VERTEX_ID_OFFSET(vid),
+                        sizeof(cached->vert), owning_pe);
+                cached->populated = 1;
+            }
         } else {
             // Notify owning PE that we are subscribed to this vertex
             hvr_vertex_subscription_t msg;
@@ -2144,7 +2148,7 @@ static void handle_dead_msg(hvr_dead_pe_msg_t *msg, hvr_internal_ctx_t *ctx) {
      * Check if we were subscribed to any vertices on that PE, and
      * if so go grab their final state.
      */
-    int *subscriptions = NULL;
+    uint64_t *subscriptions = NULL;
     unsigned n_subscriptions = hvr_sparse_arr_linearize_row(msg->pe,
             &subscriptions, &ctx->my_vert_subs);
     for (unsigned i = 0; i < n_subscriptions; i++) {
@@ -2366,7 +2370,7 @@ static int update_vertices(hvr_set_t *to_couple_with,
 }
 
 static void send_updates_to_all_subscribed_pes_helper(hvr_vertex_t *vert,
-        int *subscribers, unsigned n_subscribers, uint8_t is_invalidation,
+        uint64_t *subscribers, unsigned n_subscribers, uint8_t is_invalidation,
         hvr_internal_ctx_t *ctx) {
     for (unsigned s = 0; s < n_subscribers; s++) {
         int sub_pe = subscribers[s];
@@ -2396,7 +2400,7 @@ void send_updates_to_all_subscribed_pes(
     unsigned long long start = hvr_current_time_us();
 
     // Find subscribers to part and send message to them
-    int *subscribers = NULL;
+    uint64_t *subscribers = NULL;
     unsigned n_subscribers = hvr_sparse_arr_linearize_row(part,
             &subscribers, &ctx->remote_partition_subs);
     send_updates_to_all_subscribed_pes_helper(vert, subscribers, n_subscribers,
@@ -3240,10 +3244,9 @@ static void save_profiling_info(
     size_t vertex_cache_allocated, vertex_cache_used,
            vertex_cache_symm_allocated, vertex_cache_symm_used;
 
-    size_t edge_bytes_used, edge_bytes_allocated, edge_bytes_capacity,
-           max_edges, max_edges_index;
-    hvr_irr_matrix_usage(&edge_bytes_used, &edge_bytes_capacity,
-            &edge_bytes_allocated, &max_edges, &max_edges_index, &ctx->edges);
+    size_t edge_bytes_allocated, max_edges, max_edges_index;
+    hvr_irr_matrix_usage(&edge_bytes_allocated, &max_edges, &max_edges_index,
+            &ctx->edges);
 
     hvr_vertex_cache_mem_used(&vertex_cache_used, &vertex_cache_allocated,
             &vertex_cache_symm_used, &vertex_cache_symm_allocated,
@@ -3276,12 +3279,8 @@ static void save_profiling_info(
         vertex_cache_symm_allocated;
     saved_profiling_info[n_profiled_iters].vertex_cache_symm_used =
         vertex_cache_symm_used;
-    saved_profiling_info[n_profiled_iters].edge_bytes_used =
-        edge_bytes_used;
     saved_profiling_info[n_profiled_iters].edge_bytes_allocated =
         edge_bytes_allocated;
-    saved_profiling_info[n_profiled_iters].edge_bytes_capacity =
-        edge_bytes_capacity;
     saved_profiling_info[n_profiled_iters].max_edges = max_edges;
     saved_profiling_info[n_profiled_iters].max_edges_index = max_edges_index;
 
@@ -3435,11 +3434,9 @@ static void print_profiling_info(profiling_info_t *info) {
             (double)info->vertex_cache_symm_allocated / (1024.0 * 1024.0),
             100.0 * (double)info->vertex_cache_symm_used /
             (double)info->vertex_cache_symm_allocated);
-    fprintf(profiling_fp, "    edge set: used=%f MB, allocated=%f MB, "
-            "capacity=%f MB, max # edges=%lu, max edges index=%llu\n",
-            (double)info->edge_bytes_used / (1024.0 * 1024.0),
+    fprintf(profiling_fp, "    edge set: allocated=%f MB, "
+            "max # edges=%lu, max edges index=%llu\n",
             (double)info->edge_bytes_allocated / (1024.0 * 1024.0),
-            (double)info->edge_bytes_capacity / (1024.0 * 1024.0),
             info->max_edges, info->max_edges_index);
     fprintf(profiling_fp, "    total bytes for all mailboxes = %f MB\n",
             (double)info->mailbox_bytes_used / (1024.0 * 1024.0));

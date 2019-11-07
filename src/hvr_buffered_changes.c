@@ -4,10 +4,11 @@
 #include <stdio.h>
 
 #include "hvr_buffered_changes.h"
+#include "hvr_common.h"
 
 void hvr_buffered_changes_init(size_t nallocated,
         hvr_buffered_changes_t *changes) {
-    changes->pool_mem = (hvr_buffered_change_t *)malloc(
+    changes->pool_mem = (hvr_buffered_change_t *)malloc_helper(
             nallocated * sizeof(changes->pool_mem[0]));
     assert(changes->pool_mem);
     changes->nallocated = nallocated;

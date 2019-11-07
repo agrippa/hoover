@@ -18,7 +18,8 @@ void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity) {
     unsigned nsegs = (capacity + HVR_SPARSE_ARR_SEGMENT_SIZE - 1) /
         HVR_SPARSE_ARR_SEGMENT_SIZE;
 
-    arr->segs = (hvr_sparse_arr_seg_t **)malloc_helper(nsegs * sizeof(*(arr->segs)));
+    arr->segs = (hvr_sparse_arr_seg_t **)malloc_helper(
+            nsegs * sizeof(*(arr->segs)));
     assert(arr->segs);
     memset(arr->segs, 0x00, nsegs * sizeof(*(arr->segs)));
 
@@ -42,17 +43,23 @@ void hvr_sparse_arr_init(hvr_sparse_arr_t *arr, unsigned capacity) {
     if (getenv("HVR_SPARSE_ARR_POOL")) {
         pool_size = atoi(getenv("HVR_SPARSE_ARR_POOL"));
     }
+    hvr_avl_node_allocator_init(&arr->avl_allocator, pool_size,
+            "HVR_SPARSE_ARR_POOL");
+
+    pool_size = 1024 * 1024;
+    if (getenv("HVR_SPARSE_ARR_BUF_POOL")) {
+        pool_size = atoi(getenv("HVR_SPARSE_ARR_BUF_POOL"));
+    }
     arr->pool = malloc_helper(pool_size);
     assert(arr->pool);
-    memset(arr->pool, 0xff, pool_size);
-    arr->tracker = create_mspace_with_base(arr->pool, pool_size, 0);
-    assert(arr->tracker);
+    arr->allocator = create_mspace_with_base(arr->pool, pool_size, 0);
+    assert(arr->allocator);
 }
 
 void hvr_sparse_arr_destroy(hvr_sparse_arr_t *arr) {
     free(arr->segs);
     free(arr->preallocated);
-    destroy_mspace(arr->tracker);
+    destroy_mspace(arr->allocator);
     free(arr->pool);
 }
 
@@ -75,7 +82,7 @@ void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
 
     struct hvr_avl_node *exists = hvr_avl_find(segment->seg[seg_index], j);
     if (exists == nnil) {
-        hvr_avl_insert(&(segment->seg[seg_index]), j, arr->tracker);
+        hvr_avl_insert(&(segment->seg[seg_index]), j, j, &arr->avl_allocator);
         segment->seg_size[seg_index] += 1;
     }
 }
@@ -106,7 +113,8 @@ void hvr_sparse_arr_remove(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
         return;
     }
 
-    int success = hvr_avl_delete(&(segment->seg[seg_index]), j, arr->tracker);
+    int success = hvr_avl_delete(&(segment->seg[seg_index]), j,
+            &arr->avl_allocator);
     if (success) {
         segment->seg_size[seg_index] -= 1;
     }
@@ -121,12 +129,12 @@ void hvr_sparse_arr_remove_row(unsigned i, hvr_sparse_arr_t *arr) {
         return;
     }
 
-    hvr_avl_delete_all(segment->seg[seg_index], arr->tracker);
+    hvr_avl_delete_all(segment->seg[seg_index], &arr->avl_allocator);
     segment->seg[seg_index] = nnil;
     segment->seg_size[seg_index] = 0;
 }
 
-unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
+unsigned hvr_sparse_arr_linearize_row(unsigned i, uint64_t **out_arr,
         hvr_sparse_arr_t *arr) {
     assert(i < arr->capacity);
 
@@ -139,18 +147,19 @@ unsigned hvr_sparse_arr_linearize_row(unsigned i, int **out_arr,
     }
 
     int n_stored_values = segment->seg_size[seg_index];
-    int *cache = (int *)mspace_malloc(arr->tracker,
-            n_stored_values * sizeof(*cache));
-    assert(cache);
+    uint64_t *keys_cache = (uint64_t *)mspace_malloc(arr->allocator,
+            n_stored_values * sizeof(*keys_cache));
+    assert(keys_cache);
 
-    hvr_avl_serialize(segment->seg[seg_index], cache, n_stored_values);
+    hvr_avl_serialize(segment->seg[seg_index], keys_cache,
+            n_stored_values);
 
-    *out_arr = cache;
+    *out_arr = keys_cache;
     return n_stored_values;
 }
 
-void hvr_sparse_arr_release_row(int *out_arr, hvr_sparse_arr_t *arr) {
-    mspace_free(arr->tracker, out_arr);
+void hvr_sparse_arr_release_row(uint64_t *out_arr, hvr_sparse_arr_t *arr) {
+    mspace_free(arr->allocator, out_arr);
 }
 
 size_t hvr_sparse_arr_used_bytes(hvr_sparse_arr_t *arr) {

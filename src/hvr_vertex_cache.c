@@ -93,8 +93,8 @@ static inline hvr_vertex_cache_node_t *allocate_node_from_pool(
         hvr_vertex_cache_t *cache) {
     if (!cache->pool_head) {
         // No valid node found, print an error
-        fprintf(stderr, "ERROR: PE %d exhausted %u cache slots\n",
-                shmem_my_pe(), cache->pool_size);
+        fprintf(stderr, "ERROR: PE %d exhausted %u cache slots. Increase "
+                "HVR_VERT_CACHE_PREALLOCS.\n", shmem_my_pe(), cache->pool_size);
         abort();
     }
 

@@ -23,7 +23,7 @@ static inline void hvr_neighbors_seek_to_valid(hvr_neighbors_t *n) {
     }
 }
 
-static inline void hvr_neighbors_init(hvr_edge_info_t *l, unsigned l_len,
+static inline void hvr_neighbors_init(hvr_vertex_id_t *l, unsigned l_len,
         hvr_vertex_cache_t *cache, mspace tracker, size_t pools_size,
         hvr_neighbors_t *n) {
     n->l = (hvr_edge_info_t *)mspace_malloc(tracker, l_len * sizeof(n->l[0]));
@@ -33,7 +33,7 @@ static inline void hvr_neighbors_init(hvr_edge_info_t *l, unsigned l_len,
                 l_len * sizeof(n->l[0]), pools_size);
         abort();
     }
-    memcpy(n->l, l, l_len * sizeof(n->l[0]));
+    memcpy(n->l, l, l_len * sizeof(*l));
 
     n->l_len = l_len;
     n->iter = 0;

@@ -13,11 +13,11 @@ void hvr_mailbox_buffer_init(hvr_mailbox_buffer_t *buf, hvr_mailbox_t *mbox,
     buf->msg_size = msg_size;
     buf->buffer_size_per_pe = buffer_size_per_pe;
 
-    buf->nbuffered_per_pe = (unsigned *)malloc(npes * sizeof(unsigned));
+    buf->nbuffered_per_pe = (unsigned *)malloc_helper(npes * sizeof(unsigned));
     assert(buf->nbuffered_per_pe);
     memset(buf->nbuffered_per_pe, 0x00, npes * sizeof(unsigned));
 
-    buf->buffers = (char *)malloc(npes * buffer_size_per_pe * msg_size);
+    buf->buffers = (char *)malloc_helper(npes * buffer_size_per_pe * msg_size);
     assert(buf->buffers);
 }
 

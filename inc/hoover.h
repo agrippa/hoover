@@ -343,13 +343,8 @@ typedef struct _hvr_internal_ctx_t {
 #define N_VERTICES_PER_BUF 10240
     hvr_partition_t *vert_partition_buf;
 
-#define MAX_MODIFICATIONS 3072
-    hvr_edge_info_t modify_buffer[MAX_MODIFICATIONS];
-    hvr_edge_type_t modify_buffer_info[MAX_MODIFICATIONS];
-
-    hvr_edge_info_t edge_buffer[MAX_MODIFICATIONS];
-    hvr_edge_type_t dir_buffer[MAX_MODIFICATIONS];
-    hvr_vertex_t *vert_ptr_buffer[MAX_MODIFICATIONS];
+#define MAX_MODIFICATIONS 65536
+    hvr_vertex_id_t edge_buffer[MAX_MODIFICATIONS];
 
     hvr_dist_bitvec_t partition_producers;
     hvr_dist_bitvec_t terminated_pes;
