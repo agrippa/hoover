@@ -16,7 +16,7 @@ static struct hvr_avl_node *new_node(uint32_t key, uint64_t value,
 	return n;
 }
  
-static inline uint16_t max(int16_t a, int16_t b) { return a > b ? a : b; }
+static inline int16_t max(int16_t a, int16_t b) { return a > b ? a : b; }
 
 static inline void set_height(struct hvr_avl_node *n) {
 	n->height = 1 + max(n->kid[0]->height, n->kid[1]->height);
