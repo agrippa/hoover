@@ -175,6 +175,7 @@ int main(int argc, char **argv) {
             NULL, // should_terminate
             time_limit_s,
             1,
+            1,
             hvr_ctx);
 
     shmem_barrier_all();

@@ -57,7 +57,8 @@ hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
         hvr_ctx_t ctx) {
     double delta0 = hvr_vertex_get(0, b, ctx) - hvr_vertex_get(0, a, ctx);
     double delta1 = hvr_vertex_get(1, b, ctx) - hvr_vertex_get(1, a, ctx);
-    if (delta0 * delta0 + delta1 * delta1 <=
+    double d = delta0 * delta0 + delta1 * delta1;
+    if (d > 0.0 && delta0 * delta0 + delta1 * delta1 <=
             CONNECTIVITY_THRESHOLD * CONNECTIVITY_THRESHOLD) {
         return BIDIRECTIONAL;
     } else {
@@ -81,15 +82,26 @@ void update_metadata(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         hvr_neighbors_t neighbors;
         hvr_get_neighbors(vertex, &neighbors, ctx);
 
+        unsigned n_neighbors = 0;
         while (hvr_neighbors_next(&neighbors, &neighbor, &dir)) {
             if (hvr_vertex_get(2, neighbor, ctx)) {
                 const int infected_by = hvr_vertex_get_owning_pe(neighbor);
                 hvr_set_insert(infected_by, couple_with);
-                // printf("PE %d coupling with PE %d\n", shmem_my_pe(), infected_by);
+                // fprintf(stderr, "Vertex (%f, %f) infected (PE %d), coupling "
+                //         "with %d\n",
+                //         hvr_vertex_get(0, vertex, ctx),
+                //         hvr_vertex_get(1, vertex, ctx),
+                //         shmem_my_pe(), infected_by);
                 hvr_vertex_set(2, 1.0, vertex, ctx);
-                break;
             }
+            n_neighbors++;
         }
+        // fprintf(stderr, "Ran vertex (%f, %f) on PE %d w/ %u neighbors, infected? %f\n", 
+        //                 hvr_vertex_get(0, vertex, ctx),
+        //                 hvr_vertex_get(1, vertex, ctx),
+        //                 shmem_my_pe(),
+        //                 n_neighbors,
+        //                 hvr_vertex_get(2, vertex, ctx));
 
         hvr_release_neighbors(&neighbors, ctx);
     }
@@ -187,6 +199,15 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         int n_coupled_pes, int *updates_on_this_iter,
         hvr_set_t *terminated_coupled_pes,
         uint64_t n_msgs_this_iter) {
+    // fprintf(stderr, "PE %d coupled with %d PEs. # globally infected=%f "
+    //         "# total=%f. # locally infected=%f / %f.\n",
+    //         shmem_my_pe(), n_coupled_pes,
+    //         hvr_vertex_get(0, global_coupled_metric, ctx),
+    //         hvr_vertex_get(1, global_coupled_metric, ctx),
+    //         hvr_vertex_get(0, local_coupled_metric, ctx),
+    //         hvr_vertex_get(1, local_coupled_metric, ctx)
+    //         );
+
     if ((int)hvr_vertex_get(0, global_coupled_metric, ctx) ==
             grid_dim * grid_dim) {
         assert(n_coupled_pes == shmem_n_pes());
@@ -284,6 +305,7 @@ int main(int argc, char **argv) {
             should_terminate,
             300, // max_elapsed_seconds
             1, // max_graph_traverse_depth
+            1,
             hvr_ctx);
 
     const long long start_time = hvr_current_time_us();

@@ -38,13 +38,13 @@ export CORES_PER_SOCKET=16
 export SOCKETS_PER_NODE=2
 export CORES_PER_TASK=$(( $CORES_PER_SOCKET / $TASKS_PER_SOCKET ))
 
-export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
-export HVR_VERT_CACHE_PREALLOCS=3000000
+export SHMEM_SYMMETRIC_SIZE=$((1 * 1024 * 1024 * 1024))
+export HVR_VERT_CACHE_PREALLOCS=30000
 export HVR_VERT_CACHE_SEGS=40000
 export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=4096
-export HVR_SPARSE_ARR_POOL=$((64 * 1024 * 1024));
-export HVR_EDGES_POOL_SIZE=$((512 * 1024 * 1024))
+export HVR_SPARSE_ARR_POOL=$((4 * 1024 * 1024))
+export HVR_EDGES_POOL_SIZE=$((50 * 1024 * 1024))
 export HVR_PRODUCER_INFO_SEGS=20480
 export HVR_PARTITION_LIST_SEGS=16384
 export HVR_NEIGHBORS_LIST_POOL_SIZE=16384
@@ -75,30 +75,31 @@ export SLURM_ARGS="--ntasks-per-node=$(( $TASKS_PER_SOCKET * $SOCKETS_PER_NODE )
 # make bin/explicit_edge_test bin/init_test bin/complex_interact bin/complex_interact2 bin/stale_state bin/coupled_test bin/connected_components
 
 ##### Functional tests #####
-echo 'mailbox_test'
-srun -n 2 $HOME/hoover/bin/mailbox_test
-echo
+# echo 'mailbox_test'
+# srun -n 2 $HOME/hoover/bin/mailbox_test
+# echo
 # echo 'mailbox_buffer_test'
 # srun $SLURM_ARGS $HOME/hoover/bin/hvr_mailbox_buffer_test
 # echo
-# echo 'explicit_edge_test'
-# srun -n 2 $HOME/hoover/bin/explicit_edge_test
-# echo
-# echo 'init_test'
-# srun $SLURM_ARGS $HOME/hoover/bin/init_test 100
-# echo
-# echo 'complex_interact'
-# srun -n 2 $HOME/hoover/bin/complex_interact
-# echo
-# echo 'complex_interact2'
-# srun -n 2 $HOME/hoover/bin/complex_interact2 300
-# echo
-# echo 'stale_state'
-# srun -n 2 $HOME/hoover/bin/stale_state
-# echo
-# echo 'coupled_test'
-# srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
-# echo
-# echo 'connected_components'
-# srun $SLURM_ARGS $HOME/hoover/bin/connected_components 10 100000 100
+
+echo 'explicit_edge_test'
+srun -n 2 $HOME/hoover/bin/explicit_edge_test
+echo
+echo 'init_test'
+srun $SLURM_ARGS $HOME/hoover/bin/init_test 100
+echo
+echo 'complex_interact'
+srun -n 2 $HOME/hoover/bin/complex_interact
+echo
+echo 'complex_interact2'
+srun -n 2 $HOME/hoover/bin/complex_interact2 300
+echo
+echo 'stale_state'
+srun -n 2 $HOME/hoover/bin/stale_state
+echo
+echo 'coupled_test'
+srun $SLURM_ARGS $HOME/hoover/bin/coupled_test 240
+echo
+echo 'connected_components'
+srun $SLURM_ARGS $HOME/hoover/bin/connected_components 10 100000 100
 

@@ -171,6 +171,7 @@ int main(int argc, char **argv) {
             should_terminate,
             30, // max_elapsed_seconds
             1, // max_graph_traverse_depth
+            1,
             ctx);
 
     hvr_body(ctx);

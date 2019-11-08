@@ -12,7 +12,11 @@ static struct hvr_avl_node *new_node(uint32_t key, uint64_t value,
         hvr_avl_node_allocator *tracker)
 {
     struct hvr_avl_node *n = hvr_avl_node_allocator_alloc(tracker);
-	*n = (struct hvr_avl_node) { {nnil, nnil}, key, value, 1 };
+    n->kid[0] = nnil;
+    n->kid[1] = nnil;
+    n->value = value;
+    n->key = key;
+    n->height = 1;
 	return n;
 }
  

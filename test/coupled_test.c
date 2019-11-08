@@ -121,6 +121,7 @@ int main(int argc, char **argv) {
             should_terminate,
             time_limit, // max_elapsed_seconds
             1, // max_graph_traverse_depth
+            1,
             hvr_ctx);
 
     hvr_exec_info info = hvr_body(hvr_ctx);

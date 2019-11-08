@@ -136,6 +136,7 @@ int main(int argc, char **argv) {
             should_terminate,
             max_elapsed_seconds, // max_elapsed_seconds
             1, // max_graph_traverse_depth
+            1,
             hvr_ctx);
 
     hvr_body(hvr_ctx);

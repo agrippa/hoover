@@ -143,23 +143,30 @@ unsigned hvr_sparse_arr_linearize_row(unsigned i, uint64_t **out_arr,
 
     hvr_sparse_arr_seg_t *segment = arr->segs[seg];
     if (segment == NULL) {
+        *out_arr = NULL;
         return 0;
     }
 
     int n_stored_values = segment->seg_size[seg_index];
-    uint64_t *keys_cache = (uint64_t *)mspace_malloc(arr->allocator,
-            n_stored_values * sizeof(*keys_cache));
-    assert(keys_cache);
+    if (n_stored_values == 0) {
+        *out_arr = NULL;
+    } else {
+        uint64_t *keys_cache = (uint64_t *)mspace_malloc(arr->allocator,
+                n_stored_values * sizeof(*keys_cache));
+        assert(keys_cache);
 
-    hvr_avl_serialize(segment->seg[seg_index], keys_cache,
-            n_stored_values);
+        hvr_avl_serialize(segment->seg[seg_index], keys_cache,
+                n_stored_values);
 
-    *out_arr = keys_cache;
+        *out_arr = keys_cache;
+    }
     return n_stored_values;
 }
 
 void hvr_sparse_arr_release_row(uint64_t *out_arr, hvr_sparse_arr_t *arr) {
-    mspace_free(arr->allocator, out_arr);
+    if (out_arr) {
+        mspace_free(arr->allocator, out_arr);
+    }
 }
 
 size_t hvr_sparse_arr_used_bytes(hvr_sparse_arr_t *arr) {
