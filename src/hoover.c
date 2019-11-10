@@ -26,7 +26,7 @@
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
 
-// #define DETAILED_PRINTS
+#define DETAILED_PRINTS
 // #define COUPLING_PRINTS
 
 // #define PRINT_PARTITIONS
@@ -102,13 +102,14 @@ typedef struct _profiling_info_t {
     size_t my_vert_subs_bytes;
     size_t producer_info_bytes;
     size_t dead_info_bytes;
-    size_t vertex_cache_allocated;
-    size_t vertex_cache_used;
+    size_t vertex_cache_sysmem_allocated;
+    size_t vertex_cache_sysmem_used;
     size_t vertex_cache_symm_allocated;
     size_t vertex_cache_symm_used;
     unsigned vertex_cache_max_len;
 
     size_t edge_bytes_allocated;
+    size_t edge_bytes_used;
     size_t max_edges;
     size_t max_edges_index;
 
@@ -1313,7 +1314,7 @@ void hvr_init(const hvr_partition_t n_partitions,
             new_ctx->n_partitions);
     assert(new_ctx->partition_min_dist_from_local_vert);
 
-    hvr_mailbox_init(&new_ctx->vertex_update_mailbox,       384 * 1024 * 1024);
+    hvr_mailbox_init(&new_ctx->vertex_update_mailbox,       256 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->forward_mailbox,              32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vert_sub_mailbox,             32 * 1024 * 1024);
     hvr_mailbox_init(&new_ctx->vertex_msg_mailbox,           32 * 1024 * 1024);
@@ -3241,16 +3242,16 @@ static void save_profiling_info(
 #endif
 
 #ifdef DETAILED_PRINTS
-    size_t vertex_cache_allocated, vertex_cache_used,
+    size_t vertex_cache_sysmem_allocated, vertex_cache_sysmem_used,
            vertex_cache_symm_allocated, vertex_cache_symm_used;
 
-    size_t edge_bytes_allocated, max_edges, max_edges_index;
-    hvr_irr_matrix_usage(&edge_bytes_allocated, &max_edges, &max_edges_index,
-            &ctx->edges);
+    size_t edge_bytes_allocated, edge_bytes_used, max_edges, max_edges_index;
+    hvr_irr_matrix_usage(&edge_bytes_allocated, &edge_bytes_used, &max_edges,
+            &max_edges_index, &ctx->edges);
 
-    hvr_vertex_cache_mem_used(&vertex_cache_used, &vertex_cache_allocated,
-            &vertex_cache_symm_used, &vertex_cache_symm_allocated,
-            &ctx->vec_cache);
+    hvr_vertex_cache_mem_used(&vertex_cache_sysmem_used,
+            &vertex_cache_sysmem_allocated, &vertex_cache_symm_used,
+            &vertex_cache_symm_allocated, &ctx->vec_cache);
 
     saved_profiling_info[n_profiled_iters].remote_partition_subs_bytes =
         hvr_sparse_arr_used_bytes(&ctx->remote_partition_subs);
@@ -3271,16 +3272,18 @@ static void save_profiling_info(
     saved_profiling_info[n_profiled_iters].dead_info_bytes =
         dead_info_capacity;
 
-    saved_profiling_info[n_profiled_iters].vertex_cache_allocated =
-        vertex_cache_allocated;
-    saved_profiling_info[n_profiled_iters].vertex_cache_used =
-        vertex_cache_used;
+    saved_profiling_info[n_profiled_iters].vertex_cache_sysmem_allocated =
+        vertex_cache_sysmem_allocated;
+    saved_profiling_info[n_profiled_iters].vertex_cache_sysmem_used =
+        vertex_cache_sysmem_used;
     saved_profiling_info[n_profiled_iters].vertex_cache_symm_allocated =
         vertex_cache_symm_allocated;
     saved_profiling_info[n_profiled_iters].vertex_cache_symm_used =
         vertex_cache_symm_used;
     saved_profiling_info[n_profiled_iters].edge_bytes_allocated =
         edge_bytes_allocated;
+    saved_profiling_info[n_profiled_iters].edge_bytes_used =
+        edge_bytes_used;
     saved_profiling_info[n_profiled_iters].max_edges = max_edges;
     saved_profiling_info[n_profiled_iters].max_edges_index = max_edges_index;
 
@@ -3424,19 +3427,22 @@ static void print_profiling_info(profiling_info_t *info) {
     fprintf(profiling_fp, "    producer info = %f MB, dead info = %f MB\n",
             (double)info->producer_info_bytes / (1024.0 * 1024.0),
             (double)info->dead_info_bytes / (1024.0 * 1024.0));
-    fprintf(profiling_fp, "    vertex cache = %f MB / %f MB (%f%%), symm = "
-            "%f MB / %f MB (%f%%)\n",
-            (double)info->vertex_cache_used / (1024.0 * 1024.0),
-            (double)info->vertex_cache_allocated / (1024.0 * 1024.0),
-            100.0 * (double)info->vertex_cache_used /
-            (double)info->vertex_cache_allocated,
+    fprintf(profiling_fp, "    vertex cache sysmem = %f MB / %f MB (%f%%), "
+            "symm = %f MB / %f MB (%f%%)\n",
+            (double)info->vertex_cache_sysmem_used / (1024.0 * 1024.0),
+            (double)info->vertex_cache_sysmem_allocated / (1024.0 * 1024.0),
+            100.0 * (double)info->vertex_cache_sysmem_used /
+            (double)info->vertex_cache_sysmem_allocated,
             (double)info->vertex_cache_symm_used / (1024.0 * 1024.0),
             (double)info->vertex_cache_symm_allocated / (1024.0 * 1024.0),
             100.0 * (double)info->vertex_cache_symm_used /
             (double)info->vertex_cache_symm_allocated);
-    fprintf(profiling_fp, "    edge set: allocated=%f MB, "
+    fprintf(profiling_fp, "    edge set: allocated=%f MB, used = %f MB (%f%%), "
             "max # edges=%lu, max edges index=%llu\n",
             (double)info->edge_bytes_allocated / (1024.0 * 1024.0),
+            (double)info->edge_bytes_used / (1024.0 * 1024.0),
+            100.0 * (double)info->edge_bytes_used /
+                (double)info->edge_bytes_allocated,
             info->max_edges, info->max_edges_index);
     fprintf(profiling_fp, "    total bytes for all mailboxes = %f MB\n",
             (double)info->mailbox_bytes_used / (1024.0 * 1024.0));

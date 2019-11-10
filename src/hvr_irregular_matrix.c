@@ -60,10 +60,16 @@ unsigned hvr_irr_matrix_linearize(hvr_vertex_id_t i,
     return hvr_avl_serialize(m->edges[i], out_vals, capacity);
 }
 
-void hvr_irr_matrix_usage(size_t *out_bytes_allocated, size_t *out_max_edges,
-        size_t *out_max_edges_index, hvr_irr_matrix_t *m) {
+void hvr_irr_matrix_usage(size_t *out_bytes_allocated, size_t *out_bytes_used,
+        size_t *out_max_edges, size_t *out_max_edges_index,
+        hvr_irr_matrix_t *m) {
+    size_t allocator_used, allocator_allocated;
+    hvr_avl_node_allocator_bytes_usage(&m->allocator, &allocator_allocated,
+            &allocator_used);
+
     *out_bytes_allocated = m->nvertices * sizeof(m->edges[0]) +
-        hvr_avl_node_allocator_bytes_allocated(&m->allocator);
+        allocator_allocated;
+    *out_bytes_used = m->nvertices * sizeof(m->edges[0]) + allocator_used;
 
     size_t max_edges = 0;
     size_t max_edges_index = 0;

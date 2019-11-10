@@ -201,9 +201,8 @@ hvr_vertex_cache_node_t *hvr_vertex_cache_reserve(hvr_vertex_cache_t *cache,
 void hvr_vertex_cache_delete(hvr_vertex_cache_node_t *vert,
         hvr_vertex_cache_t *cache);
 
-void hvr_vertex_cache_mem_used(size_t *used, size_t *allocated,
-        size_t *symm_used, size_t *symm_allocated,
-        hvr_vertex_cache_t *cache);
+void hvr_vertex_cache_mem_used(size_t *sysmem_used, size_t *sysmem_allocated,
+        size_t *symm_used, size_t *symm_allocated, hvr_vertex_cache_t *cache);
 
 #ifdef __cplusplus
 }

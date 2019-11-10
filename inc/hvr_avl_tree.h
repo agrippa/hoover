@@ -17,6 +17,7 @@ typedef struct _hvr_avl_node_allocator {
     struct hvr_avl_node *head;
     struct hvr_avl_node *mem;
     size_t pool_size;
+    size_t n_reserved;
     char *envvar;
 } hvr_avl_node_allocator;
 
@@ -46,7 +47,7 @@ struct hvr_avl_node *hvr_avl_node_allocator_alloc(
 void hvr_avl_node_allocator_free(struct hvr_avl_node *node,
         hvr_avl_node_allocator *allocator);
 
-size_t hvr_avl_node_allocator_bytes_allocated(
-        hvr_avl_node_allocator *allocator);
+void hvr_avl_node_allocator_bytes_usage(hvr_avl_node_allocator *allocator,
+        size_t *out_allocated, size_t *out_used);
 
 #endif

@@ -29,7 +29,8 @@ unsigned hvr_irr_matrix_linearize(hvr_vertex_id_t i,
 
 unsigned hvr_irr_matrix_row_len(hvr_vertex_id_t i, hvr_irr_matrix_t *m);
 
-void hvr_irr_matrix_usage(size_t *bytes_allocated, size_t *out_max_edges,
-        size_t *out_max_edges_index, hvr_irr_matrix_t *m);
+void hvr_irr_matrix_usage(size_t *bytes_allocated, size_t *bytes_used,
+        size_t *out_max_edges, size_t *out_max_edges_index,
+        hvr_irr_matrix_t *m);
 
 #endif

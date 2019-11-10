@@ -167,6 +167,7 @@ void hvr_avl_node_allocator_init(hvr_avl_node_allocator *allocator,
 
     allocator->mem = pool;
     allocator->pool_size = pool_size;
+    allocator->n_reserved = 0;
 
     allocator->envvar = (char *)malloc(strlen(envvar) + 1);
     memcpy(allocator->envvar, envvar, strlen(envvar) + 1);
@@ -181,6 +182,7 @@ struct hvr_avl_node *hvr_avl_node_allocator_alloc(
         abort();
     }
     allocator->head = result->kid[0];
+    allocator->n_reserved += 1;
     return result;
 }
 
@@ -188,9 +190,11 @@ void hvr_avl_node_allocator_free(struct hvr_avl_node *node,
         hvr_avl_node_allocator *allocator) {
     node->kid[0] = allocator->head;
     allocator->head = node;
+    allocator->n_reserved -= 1;
 }
 
-size_t hvr_avl_node_allocator_bytes_allocated(
-        hvr_avl_node_allocator *allocator) {
-    return allocator->pool_size * sizeof(struct hvr_avl_node);
+void hvr_avl_node_allocator_bytes_usage(hvr_avl_node_allocator *allocator,
+        size_t *out_allocated, size_t *out_used) {
+    *out_used = allocator->n_reserved * sizeof(struct hvr_avl_node);
+    *out_allocated = allocator->pool_size * sizeof(struct hvr_avl_node);
 }

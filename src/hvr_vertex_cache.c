@@ -146,19 +146,12 @@ void hvr_vertex_cache_destroy(hvr_vertex_cache_t *cache) {
     shmem_free(cache->pool_mem);
 }
 
-void hvr_vertex_cache_mem_used(size_t *out_used, size_t *out_allocated,
-        size_t *out_symm_used, size_t *out_symm_allocated,
-        hvr_vertex_cache_t *cache) {
-    size_t used, allocated;
-    hvr_map_size_in_bytes(&cache->cache_map, &allocated, &used, 0);
+void hvr_vertex_cache_mem_used(size_t *out_sysmem_used,
+        size_t *out_sysmem_allocated, size_t *out_symm_used,
+        size_t *out_symm_allocated, hvr_vertex_cache_t *cache) {
+    hvr_map_size_in_bytes(&cache->cache_map, out_sysmem_allocated,
+            out_sysmem_used, 0);
 
-    allocated += cache->pool_size * sizeof(hvr_vertex_cache_node_t);
-
-    used += (cache->n_local_vertices + cache->n_cached_vertices) *
-        sizeof(hvr_vertex_cache_node_t);
-
-    *out_used = used;
-    *out_allocated = allocated;
     *out_symm_used = (cache->n_local_vertices + cache->n_cached_vertices) *
         sizeof(hvr_vertex_cache_node_t);
     *out_symm_allocated = cache->pool_size * sizeof(hvr_vertex_cache_node_t);
