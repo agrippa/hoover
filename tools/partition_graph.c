@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#define TILE_SIZE (16 * 1024 * 1024)
+#define TILE_SIZE (8 * 1024 * 1024)
 
 typedef struct _file_buffer_t {
     FILE *fp0;
@@ -175,7 +175,12 @@ int main(int argc, char **argv) {
             assert(J_pe < npes);
             int64_t J_offset = J[j] % vertices_per_pe;
 
-            file_buffer_write(pe_bufs + I_pe, I[j], J[j]);
+            // Basic load balancing
+            if (pe_bufs[I_pe].count < pe_bufs[J_pe].count) {
+                file_buffer_write(pe_bufs + I_pe, I[j], J[j]);
+            } else {
+                file_buffer_write(pe_bufs + J_pe, J[j], I[j]);
+            }
         }
     }
 

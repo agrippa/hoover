@@ -9,9 +9,7 @@
 extern "C" {
 #endif
 
-#define HVR_MAX_VECTOR_SIZE 12
-// #define HVR_MAX_VECTOR_SIZE 7
-// #define HVR_MAX_VECTOR_SIZE 1
+#define HVR_MAX_VECTOR_SIZE 7
 
 typedef struct _hvr_vertex_t {
     hvr_vertex_id_t id;
@@ -64,6 +62,17 @@ static inline uint64_t hvr_vertex_get_uint64(const unsigned feature,
     return result;
 }
 
+static inline int64_t hvr_vertex_get_int64(const unsigned feature,
+        const hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
+    assert(sizeof(int64_t) == sizeof(double));
+    assert(feature < HVR_MAX_VECTOR_SIZE);
+
+    int64_t result;
+    memcpy(&result, &(vert->values[feature]), sizeof(result));
+    return result;
+}
+
+
 /*
  * Set the specified feature to the specified value in the provided vector.
  */
@@ -82,6 +91,18 @@ static inline void hvr_vertex_set_uint64(const unsigned feature,
     assert(feature < HVR_MAX_VECTOR_SIZE);
 
     uint64_t old = hvr_vertex_get_uint64(feature, vert, in_ctx);
+    if (val != old) {
+        memcpy(&(vert->values[feature]), &val, sizeof(val));
+        vert->needs_send = 1;
+    }
+}
+
+static inline void hvr_vertex_set_int64(const unsigned feature,
+        const int64_t val, hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
+    assert(sizeof(int64_t) == sizeof(double));
+    assert(feature < HVR_MAX_VECTOR_SIZE);
+
+    int64_t old = hvr_vertex_get_int64(feature, vert, in_ctx);
     if (val != old) {
         memcpy(&(vert->values[feature]), &val, sizeof(val));
         vert->needs_send = 1;

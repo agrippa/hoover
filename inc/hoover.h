@@ -67,7 +67,9 @@ typedef void (*hvr_start_time_step)(hvr_vertex_iter_t *iter,
  * status of vertices on this PE.
  */
 typedef void (*hvr_update_coupled_val_func)(hvr_vertex_iter_t *iter,
-        hvr_ctx_t ctx, hvr_vertex_t *out_coupled_metric);
+        hvr_ctx_t ctx, hvr_vertex_t *out_coupled_metric,
+        uint64_t n_msgs_recvd_this_iter, uint64_t n_msgs_sent_this_iter,
+        uint64_t n_msgs_recvd_total, uint64_t n_msgs_sent_total);
 
 /*
  * Callback to check if this PE should leave the simulation.
@@ -75,11 +77,13 @@ typedef void (*hvr_update_coupled_val_func)(hvr_vertex_iter_t *iter,
 typedef int (*hvr_should_terminate_func)(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *local_coupled_val,
         hvr_vertex_t *all_coupled_vals,
-        hvr_vertex_t *global_coupled_val,
         hvr_set_t *coupled_pes, int n_coupled_pes,
         int *updates_on_this_iter,
         hvr_set_t *terminated_coupled_pes,
-        uint64_t n_msgs_this_iter);
+        uint64_t n_msgs_recvd_this_iter,
+        uint64_t n_msgs_sent_this_iter,
+        uint64_t n_msgs_recvd_total,
+        uint64_t n_msgs_sent_total);
 
 /*
  * API for checking if this PE might have any vertices that interact with
@@ -357,9 +361,6 @@ typedef struct _hvr_internal_ctx_t {
 
     hvr_vertex_t *recently_created;
 
-    uint64_t total_vertex_msgs_sent;
-    uint64_t total_vertex_msgs_recvd;
-
     hvr_buffered_msgs_t buffered_msgs;
 
     hvr_partition_t *new_producer_partitions_list;
@@ -384,7 +385,12 @@ typedef struct _hvr_internal_ctx_t {
     size_t neighbors_list_pool_size;
     mspace neighbors_list_tracker;
 
-    uint64_t n_msgs_this_iter;
+    uint64_t n_msgs_recvd_this_iter;
+    uint64_t n_msgs_recvd_total;
+
+    uint64_t vertex_update_mailbox_nmsgs;
+    uint64_t vertex_update_mailbox_nmsgs_total;
+    uint64_t vertex_update_mailbox_nattempts;
 } hvr_internal_ctx_t;
 
 /*
@@ -393,6 +399,10 @@ typedef struct _hvr_internal_ctx_t {
  */
 typedef struct _hvr_exec_info {
     hvr_time_t executed_iters;
+    unsigned long long start_hvr_body_us;
+    unsigned long long start_hvr_body_iterations_us;
+    unsigned long long start_hvr_body_wrapup_us;
+    unsigned long long end_hvr_body_us;
 } hvr_exec_info;
 
 // Must be called after shmem_init, zeroes out_ctx and fills in pe and npes

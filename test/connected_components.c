@@ -13,6 +13,8 @@
 
 #include <hoover.h>
 
+// #define RANDOM_PES
+
 // Timing variables
 static unsigned long long start_time = 0;
 static unsigned long long time_limit_s = 0;
@@ -60,8 +62,11 @@ hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
 void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
         hvr_ctx_t ctx) {
     for (int e = 0; e < n_edges_to_add; e++) {
-        // uint64_t dst_vertex_pe = fast_rand() % npes;
+#ifdef RANDOM_PES
+        uint64_t dst_vertex_pe = fast_rand() % npes;
+#else
         uint64_t dst_vertex_pe = ctx->pe;
+#endif
 
         uint64_t src_vertex_offset = fast_rand() % nvertices_per_pe;
         uint64_t dst_vertex_offset = fast_rand() % nvertices_per_pe;
@@ -111,12 +116,15 @@ void might_interact(const hvr_partition_t partition,
 }
 
 void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_vertex_t *out_coupled_metric) {
+        hvr_vertex_t *out_coupled_metric, uint64_t n_msgs_recvd_this_iter,
+        uint64_t n_msgs_sent_this_iter, uint64_t n_msgs_recvd_total,
+        uint64_t n_msgs_sent_total) {
     hvr_vertex_set(0, 0.0, out_coupled_metric, ctx);
 }
 
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
+    assert(HVR_MAX_VECTOR_SIZE == 1);
 
     if (argc != 4) {
         fprintf(stderr, "usage: %s <time-limit-in-seconds> <nvertices> "
@@ -182,7 +190,7 @@ int main(int argc, char **argv) {
 
     start_time = hvr_current_time_us();
     hvr_exec_info info = hvr_body(hvr_ctx);
-    elapsed_time = hvr_current_time_us() - start_time;
+    elapsed_time = info.start_hvr_body_wrapup_us - info.start_hvr_body_us;
 
     // Get a total wallclock time across all PEs
     shmem_longlong_sum_to_all(&total_time, &elapsed_time, 1, 0, 0, npes, p_wrk,
@@ -199,12 +207,17 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     if (pe == 0) {
-        printf("%d PEs, total CPU time = %f ms, max elapsed = %f ms, "
-                "%d iterations completed on PE 0\n", npes,
+        printf("%s: %d PEs, total CPU time = %f ms, max elapsed = %f ms, "
+                "%d iterations completed on PE 0\n", argv[0], npes,
                 (double)total_time / 1000.0, (double)max_elapsed / 1000.0,
                 info.executed_iters);
         printf("%lld edges inserted across all PEs, %u edges added per "
                 "iteration\n", total_n_edges_added, n_edges_to_add);
+#ifdef RANDOM_PES
+        printf("Edges drawn with random PEs\n");
+#else
+        printf("Edges drawn with own PE\n");
+#endif
 
 #if 0
         for (size_t i = 0; i < hvr_ctx->my_vert_subs.nsegs; i++) {

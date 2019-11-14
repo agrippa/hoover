@@ -30,8 +30,8 @@ int hvr_avl_delete(struct hvr_avl_node **rootp, uint32_t key,
 void hvr_avl_delete_all(struct hvr_avl_node *rootp,
         hvr_avl_node_allocator *tracker);
 
-struct hvr_avl_node *hvr_avl_find(struct hvr_avl_node *root,
-        uint32_t key);
+struct hvr_avl_node *hvr_avl_find(const struct hvr_avl_node *root,
+        const uint32_t key);
 
 int hvr_avl_serialize(struct hvr_avl_node *root, uint64_t *values,
         int arr_capacity);

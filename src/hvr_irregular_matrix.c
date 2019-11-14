@@ -20,14 +20,18 @@ void hvr_irr_matrix_init(size_t nvertices, size_t pool_size,
             "HVR_EDGES_POOL_SIZE");
 }
 
-hvr_edge_type_t hvr_irr_matrix_get(const hvr_vertex_id_t i,
-        const hvr_vertex_id_t j, const hvr_irr_matrix_t *m) {
+void hvr_irr_matrix_get(const hvr_vertex_id_t i,
+        const hvr_vertex_id_t j, const hvr_irr_matrix_t *m,
+        hvr_edge_type_t *out_edge_type,
+        hvr_edge_create_type_t *out_creation_type) {
     struct hvr_avl_node *root = m->edges[i];
     struct hvr_avl_node *found = hvr_avl_find(root, j);
     if (found != nnil) {
-        return EDGE_INFO_EDGE(found->value);
+        *out_edge_type = EDGE_INFO_EDGE(found->value);
+        *out_creation_type = EDGE_INFO_CREATION(found->value);
+    } else {
+        *out_edge_type = NO_EDGE;
     }
-    return NO_EDGE;
 }
 
 void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
@@ -46,7 +50,7 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
             hvr_avl_delete(&(m->edges[i]), j, &m->allocator);
             m->nedges -= 1;
         } else {
-            found->value = e;
+            found->value = construct_edge_info(j, e, create_type);
         }
     }
 }

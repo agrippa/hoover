@@ -129,14 +129,21 @@ int hvr_avl_serialize(struct hvr_avl_node *root,
     return index;
 }
 
-struct hvr_avl_node *hvr_avl_find(struct hvr_avl_node *root, uint32_t key) {
+struct hvr_avl_node *hvr_avl_find(const struct hvr_avl_node *root,
+        const uint32_t key) {
+    while (root != nnil && root->key != key) {
+        root = hvr_avl_find(root->kid[key > root->key], key);
+    }
+    return (struct hvr_avl_node *)root;
+/*
     if (root == nnil) {
         return nnil;
     } else if (root->key == key) {
-        return root;
+        return (struct hvr_avl_node *)root;
     } else {
         return hvr_avl_find(root->kid[key > root->key], key);
     }
+    */
 }
 
 static void hvr_avl_size_helper(struct hvr_avl_node *curr, unsigned *counter) {

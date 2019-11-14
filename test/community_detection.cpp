@@ -580,12 +580,15 @@ void might_interact(const hvr_partition_t partition,
 }
 
 void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
-        hvr_vertex_t *out_coupled_metric) {
+        hvr_vertex_t *out_coupled_metric, uint64_t n_msgs_recvd_this_iter,
+        uint64_t n_msgs_sent_this_iter, uint64_t n_msgs_recvd_total,
+        uint64_t n_msgs_sent_total) {
     hvr_vertex_set(0, 0.0, out_coupled_metric, ctx);
 }
 
 int main(int argc, char **argv) {
     hvr_ctx_t hvr_ctx;
+    assert(HVR_MAX_VECTOR_SIZE == 7);
 
     if (argc != 14 && argc != 13) {
         fprintf(stderr, "usage: %s <time-limit-in-seconds> "
@@ -695,6 +698,7 @@ int main(int argc, char **argv) {
             NULL, // should_terminate
             time_limit_s,
             1,
+            1,
             hvr_ctx);
 
     shmem_barrier_all();
@@ -756,7 +760,7 @@ int main(int argc, char **argv) {
 
     start_time = hvr_current_time_us();
     hvr_exec_info info = hvr_body(hvr_ctx);
-    elapsed_time = hvr_current_time_us() - start_time;
+    elapsed_time = info.start_hvr_body_wrapup_us - info.start_hvr_body_us;
 
     // Get a total wallclock time across all PEs
     shmem_longlong_sum_to_all(&total_time, &elapsed_time, 1, 0, 0, npes, p_wrk,
