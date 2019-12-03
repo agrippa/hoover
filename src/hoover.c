@@ -84,6 +84,7 @@ typedef struct _profiling_info_t {
     unsigned long long coupling_after;
     unsigned long long coupling_should_terminate;
     unsigned coupling_naborts;
+    uint64_t n_pulled_from_dead_pes;
     unsigned long long coupling_waiting_for_prev;
     unsigned long long coupling_processing_new_requests;
     unsigned long long coupling_sharing_info;
@@ -446,7 +447,6 @@ static void send_edge_updates_to_subscribers(hvr_vertex_cache_node_t *node,
     hvr_edge_update_init(&msg, &base->vert, neighbor->vert.id, new_edge, 1);
     for (unsigned s = 0; s < n_subscribers; s++) {
         int sub_pe = subscribers[s];
-
         send_to_vertex_update_mailbox(&msg, sub_pe, ctx);
     }
 
@@ -2182,7 +2182,7 @@ static uint64_t handle_dead_msg(hvr_dead_pe_msg_t *msg,
 
     /*
      * Check if we were subscribed to any vertices on that PE, and
-     * if so go grab their final state.
+     * if so go grab their final state if we're doing dead PE processing.
      */
     uint64_t *subscriptions = NULL;
     unsigned n_subscriptions = hvr_sparse_arr_linearize_row(msg->pe,
@@ -2194,7 +2194,7 @@ static uint64_t handle_dead_msg(hvr_dead_pe_msg_t *msg,
                 id, &ctx->vec_cache);
         assert(cached);
 
-        if (dead_pe_processing || !cached->populated) {
+        if (dead_pe_processing) {
             shmem_getmem(&cached->vert,
                     ctx->vec_cache.pool_mem + subscriptions[i],
                     sizeof(cached->vert), msg->pe);
@@ -2218,13 +2218,15 @@ static uint64_t handle_dead_msg(hvr_dead_pe_msg_t *msg,
         }
     }
 
-    for (uint64_t v = 0; v < ctx->vec_cache.pool_size; v++) {
-        if (hvr_sparse_arr_contains(v, msg->pe,
-                    &ctx->remote_vert_subs)) {
-            hvr_sparse_arr_remove(v, msg->pe,
-                    &ctx->remote_vert_subs);
-        }
-    }
+#if 0
+    /*
+     * For now, this is commented out because we don't send updates to
+     * terminated PEs anyway. Technically, msg->pe should be deleted from all
+     * vertex subscriptions but it shouldn't impact semantics. Doing this
+     * operation adds a lot of overhead.
+     */
+    hvr_sparse_arr_remove_value(msg->pe, &ctx->remote_vert_subs);
+#endif
     return pulled_vertices;
 }
 
@@ -2453,16 +2455,14 @@ static int update_vertices(hvr_set_t *to_couple_with,
 static void send_updates_to_all_subscribed_pes_helper(hvr_vertex_t *vert,
         uint64_t *subscribers, unsigned n_subscribers, uint8_t is_invalidation,
         hvr_internal_ctx_t *ctx) {
+    const int pe = ctx->pe;
     for (unsigned s = 0; s < n_subscribers; s++) {
         int sub_pe = subscribers[s];
-        assert(sub_pe < ctx->npes);
-        if (sub_pe == ctx->pe) {
-            continue;
+        if (sub_pe != pe) {
+            hvr_update_msg_t msg;
+            hvr_vert_update_init(&msg, vert, is_invalidation);
+            send_to_vertex_update_mailbox(&msg, sub_pe, ctx);
         }
-
-        hvr_update_msg_t msg;
-        hvr_vert_update_init(&msg, vert, is_invalidation);
-        send_to_vertex_update_mailbox(&msg, sub_pe, ctx);
     }
 }
 
@@ -2789,6 +2789,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
         unsigned long long *time_after,
         unsigned long long *time_should_terminate,
         unsigned *out_naborts,
+        uint64_t *n_pulled_from_dead_pes,
         unsigned long long *time_waiting_for_prev,
         unsigned long long *time_processing_new_requests,
         unsigned long long *time_sharing_info,
@@ -3109,7 +3110,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     }
 
     // Ensure that every PE checks for dead PE notifications on each iteration
-    poll_for_dead_pes(ctx);
+    *n_pulled_from_dead_pes = poll_for_dead_pes(ctx);
 
     const unsigned long long before_should_terminate = hvr_current_time_us();
 
@@ -3192,6 +3193,7 @@ static void save_profiling_info(
         unsigned long long coupling_after,
         unsigned long long coupling_should_terminate,
         unsigned coupling_naborts,
+        uint64_t n_pulled_from_dead_pes,
         unsigned long long coupling_waiting_for_prev,
         unsigned long long coupling_processing_new_requests,
         unsigned long long coupling_sharing_info,
@@ -3249,6 +3251,8 @@ static void save_profiling_info(
         coupling_should_terminate;
     saved_profiling_info[n_profiled_iters].coupling_naborts =
         coupling_naborts;
+    saved_profiling_info[n_profiled_iters].n_pulled_from_dead_pes =
+        n_pulled_from_dead_pes;
     saved_profiling_info[n_profiled_iters].coupling_waiting_for_prev =
         coupling_waiting_for_prev;
     saved_profiling_info[n_profiled_iters].coupling_processing_new_requests =
@@ -3447,20 +3451,19 @@ static void print_profiling_info(profiling_info_t *info) {
     fprintf(profiling_fp, "  coupling %f - %f ms coupling, "
             "%f ms waiting, "
             "%f ms adding, "
-            "%f ms on should terminate, "
-            "%u aborts, "
+            "%f ms on should terminate\n",
+            (double)(info->end_update_coupled - info->end_vertex_updates) / MS_PER_S,
+            (double)info->coupling_coupling / MS_PER_S,
+            (double)info->coupling_waiting / MS_PER_S,
+            (double)info->coupling_after / MS_PER_S,
+            (double)info->coupling_should_terminate / MS_PER_S);
+    fprintf(profiling_fp, "    %u aborts, "
             "%u coupled, "
             "root=%d, "
             "%f for prev, "
             "%f processing (%f negotiating), "
             "%f sharing, "
-            "%f waiting\n",
-            (double)(info->end_update_coupled - info->end_vertex_updates) / MS_PER_S,
-            (double)info->coupling_coupling / MS_PER_S,
-            (double)info->coupling_waiting / MS_PER_S,
-            (double)info->coupling_after / MS_PER_S,
-            (double)info->coupling_should_terminate / MS_PER_S,
-            info->coupling_naborts,
+            "%f waiting\n", info->coupling_naborts,
             info->n_coupled_pes,
             info->coupled_pes_root,
             (double)info->coupling_waiting_for_prev / MS_PER_S,
@@ -3468,6 +3471,8 @@ static void print_profiling_info(profiling_info_t *info) {
             (double)info->coupling_negotiating / MS_PER_S,
             (double)info->coupling_sharing_info / MS_PER_S,
             (double)info->coupling_waiting_for_info / MS_PER_S);
+    fprintf(profiling_fp, "    %lu vertices pulled from dead PEs\n",
+            info->n_pulled_from_dead_pes);
     fprintf(profiling_fp, "  %d / %d producer partitions and %d / %d "
             "subscriber partitions for %lu local vertices, %llu mirrored "
             "vertices\n",
@@ -3703,11 +3708,13 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                   coupling_processing_new_requests, coupling_sharing_info,
                   coupling_waiting_for_info, coupling_negotiating;
     unsigned coupling_naborts;
+    uint64_t n_pulled_from_dead_pes;
     int should_abort = update_coupled_values(ctx, &coupled_metric,
             n_updates_sent,
             &coupling_coupling,
             &coupling_waiting, &coupling_after,
             &coupling_should_terminate, &coupling_naborts,
+            &n_pulled_from_dead_pes,
             &coupling_waiting_for_prev, &coupling_processing_new_requests,
             &coupling_sharing_info, &coupling_waiting_for_info,
             &coupling_negotiating, 0);
@@ -3742,6 +3749,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 coupling_waiting, coupling_after,
                 coupling_should_terminate,
                 coupling_naborts,
+                n_pulled_from_dead_pes,
                 coupling_waiting_for_prev,
                 coupling_processing_new_requests,
                 coupling_sharing_info,
@@ -3840,6 +3848,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                 count_updated, &coupling_coupling,
                 &coupling_waiting, &coupling_after,
                 &coupling_should_terminate, &coupling_naborts,
+                &n_pulled_from_dead_pes,
                 &coupling_waiting_for_prev, &coupling_processing_new_requests,
                 &coupling_sharing_info, &coupling_waiting_for_info,
                 &coupling_negotiating, 0);
@@ -3877,6 +3886,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
                     coupling_waiting, coupling_after,
                     coupling_should_terminate,
                     coupling_naborts,
+                    n_pulled_from_dead_pes,
                     coupling_waiting_for_prev,
                     coupling_processing_new_requests,
                     coupling_sharing_info,
@@ -3918,6 +3928,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
             0, &coupling_coupling,
             &coupling_waiting, &coupling_after,
             &coupling_should_terminate, &coupling_naborts,
+            &n_pulled_from_dead_pes,
             &coupling_waiting_for_prev, &coupling_processing_new_requests,
             &coupling_sharing_info, &coupling_waiting_for_info,
             &coupling_negotiating, 1);

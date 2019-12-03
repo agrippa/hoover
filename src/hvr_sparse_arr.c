@@ -120,6 +120,23 @@ void hvr_sparse_arr_remove(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
     }
 }
 
+void hvr_sparse_arr_remove_value(unsigned j, hvr_sparse_arr_t *arr) {
+    const unsigned nsegs = arr->nsegs;
+    for (unsigned seg = 0; seg < nsegs; seg++) {
+        hvr_sparse_arr_seg_t *segment = arr->segs[seg];
+        if (segment) {
+            for (unsigned seg_index = 0;
+                    seg_index < HVR_SPARSE_ARR_SEGMENT_SIZE; seg_index++) {
+                int success = hvr_avl_delete(&(segment->seg[seg_index]), j,
+                        &arr->avl_allocator);
+                if (success) {
+                    segment->seg_size[seg_index] -= 1;
+                }
+            }
+        }
+    }
+}
+
 void hvr_sparse_arr_remove_row(unsigned i, hvr_sparse_arr_t *arr) {
     const unsigned seg = i / HVR_SPARSE_ARR_SEGMENT_SIZE;
     const unsigned seg_index = i % HVR_SPARSE_ARR_SEGMENT_SIZE;

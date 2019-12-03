@@ -3,7 +3,7 @@
 #SBATCH -p regular
 #SBATCH -N 128
 #SBATCH -C haswell
-#SBATCH -t 00:05:00
+#SBATCH -t 00:20:00
 #SBATCH -J hoover-update-rates
 #SBATCH --exclusive
 #SBATCH --contiguous
@@ -70,4 +70,4 @@ export SLURM_ARGS="--ntasks=$(($SLURM_NNODES * $CORES_PER_NODE)) --ntasks-per-so
 # srun $SLURM_ARGS $HOME/hoover/bin/update_rates "$SCRATCH/kronecker_graphs/scale=22_edgefactor=16_edges=67108864_vertices=4194304.bin" $((65536)) 240
 # srun $SLURM_ARGS $HOME/hoover/bin/update_rates "$SCRATCH/kronecker_graphs/scale=23_edgefactor=16_edges=134217728_vertices=8388608.bin" $((65536)) 240
 srun $SLURM_ARGS $HOME/hoover/bin/update_rates "$SCRATCH/kronecker_graphs/scale=26_edgefactor=16_edges=1073741824_vertices=67108864.bin" $((65536)) 240
-# srun $SLURM_ARGS $HOME/hoover/bin/update_rates "$SCRATCH/kronecker_graphs/scale=29_edgefactor=16_edges=8589934592_vertices=536870912.bin" $((65536)) 120
+# srun $SLURM_ARGS $HOME/hoover/bin/update_rates "$SCRATCH/kronecker_graphs/scale=29_edgefactor=16_edges=8589934592_vertices=536870912.bin" $((65536)) 240

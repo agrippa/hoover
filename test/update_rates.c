@@ -3,6 +3,8 @@
 #include <hoover.h>
 #include "mmio.h"
 
+#define SKIP_COUPLING
+
 /*
  * Tested graphs:
  *
@@ -41,11 +43,13 @@ void start_time_step(hvr_vertex_iter_t *iter,
         edges_so_far++;
     }
 
+#ifndef SKIP_COUPLING
     if (edges_so_far == n_my_edges) {
         for (int p = 0; p < npes; p++) {
             hvr_set_insert(p, couple_with);
         }
     }
+#endif
 }
 
 static void might_interact(const hvr_partition_t partition,
@@ -85,6 +89,7 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         uint64_t n_msgs_sent_this_iter,
         uint64_t n_msgs_recvd_total,
         uint64_t n_msgs_sent_total) {
+#ifndef SKIP_COUPLING
     if (n_coupled_pes == npes) {
         uint64_t sum_remaining_edges = 0;
         int64_t sum_pending_msgs = 0;
@@ -100,6 +105,9 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
     } else {
         return 0;
     }
+#else
+    return (edges_so_far == n_my_edges);
+#endif
 }
 
 int main(int argc, char **argv) {

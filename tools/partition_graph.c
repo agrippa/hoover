@@ -2,11 +2,11 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#define TILE_SIZE (8 * 1024 * 1024)
+#define TILE_SIZE (2 * 1024 * 1024)
 
 typedef struct _file_buffer_t {
-    FILE *fp0;
-    FILE *fp1;
+    char filename_0[2048];
+    char filename_1[2048];
 
     int64_t _0[TILE_SIZE];
     int64_t _1[TILE_SIZE];
@@ -18,37 +18,37 @@ typedef struct _file_buffer_t {
 
 void file_buffer_init(file_buffer_t *buf, const char *mat_filename, int npes,
         int pe, int64_t nedges, int64_t nvertices) {
-    char filename[2048];
+    sprintf(buf->filename_0, "%s.npes=%d.pe=%d_0", mat_filename, npes, pe);
+    FILE *fp0 = fopen(buf->filename_0, "w");
+    assert(fp0);
 
-    sprintf(filename, "%s.npes=%d.pe=%d_0", mat_filename, npes, pe);
-    buf->fp0 = fopen(filename, "w");
-    assert(buf->fp0);
-
-    sprintf(filename, "%s.npes=%d.pe=%d_1", mat_filename, npes, pe);
-    buf->fp1 = fopen(filename, "w");
-    assert(buf->fp1);
+    sprintf(buf->filename_1, "%s.npes=%d.pe=%d_1", mat_filename, npes, pe);
+    FILE *fp1 = fopen(buf->filename_1, "w");
+    assert(fp1);
 
     int64_t placeholder = 0;
 
-    size_t n = fwrite(&nvertices, sizeof(nvertices), 1, buf->fp0);
+    size_t n = fwrite(&nvertices, sizeof(nvertices), 1, fp0);
     assert(n == 1);
-    n = fwrite(&nvertices, sizeof(nvertices), 1, buf->fp0);
+    n = fwrite(&nvertices, sizeof(nvertices), 1, fp0);
     assert(n == 1);
-    n = fwrite(&nedges, sizeof(nedges), 1, buf->fp0);
+    n = fwrite(&nedges, sizeof(nedges), 1, fp0);
     assert(n == 1);
-    buf->n_partition_edges_offset = ftell(buf->fp0);
-    n = fwrite(&placeholder, sizeof(placeholder), 1, buf->fp0);
+    buf->n_partition_edges_offset = ftell(fp0);
+    n = fwrite(&placeholder, sizeof(placeholder), 1, fp0);
     assert(n == 1);
+    fclose(fp0);
 
-    n = fwrite(&nvertices, sizeof(nvertices), 1, buf->fp1);
+    n = fwrite(&nvertices, sizeof(nvertices), 1, fp1);
     assert(n == 1);
-    n = fwrite(&nvertices, sizeof(nvertices), 1, buf->fp1);
+    n = fwrite(&nvertices, sizeof(nvertices), 1, fp1);
     assert(n == 1);
-    n = fwrite(&nedges, sizeof(nedges), 1, buf->fp1);
+    n = fwrite(&nedges, sizeof(nedges), 1, fp1);
     assert(n == 1);
-    assert(buf->n_partition_edges_offset == ftell(buf->fp1));
-    n = fwrite(&placeholder, sizeof(placeholder), 1, buf->fp1);
+    assert(buf->n_partition_edges_offset == ftell(fp1));
+    n = fwrite(&placeholder, sizeof(placeholder), 1, fp1);
     assert(n == 1);
+    fclose(fp1);
 
     buf->nbuffered = 0;
     buf->count = 0;
@@ -56,12 +56,19 @@ void file_buffer_init(file_buffer_t *buf, const char *mat_filename, int npes,
 
 void file_buffer_write(file_buffer_t *buf, int64_t _0, int64_t _1) {
     if (buf->nbuffered == TILE_SIZE) {
-        size_t n = fwrite(&buf->_0[0], sizeof(buf->_0[0]), TILE_SIZE,
-                buf->fp0);
+        FILE *fp0 = fopen(buf->filename_0, "a");
+        assert(fp0);
+        FILE *fp1 = fopen(buf->filename_1, "a");
+        assert(fp1);
+
+        size_t n;
+        n = fwrite(&buf->_0[0], sizeof(buf->_0[0]), TILE_SIZE, fp0);
         assert(n == TILE_SIZE);
 
-        n = fwrite(&buf->_1[0], sizeof(buf->_1[0]), TILE_SIZE, buf->fp1);
+        n = fwrite(&buf->_1[0], sizeof(buf->_1[0]), TILE_SIZE, fp1);
         assert(n == TILE_SIZE);
+
+        fclose(fp0); fclose(fp1);
 
         buf->nbuffered = 0;
     }
@@ -73,25 +80,30 @@ void file_buffer_write(file_buffer_t *buf, int64_t _0, int64_t _1) {
 }
 
 void file_buffer_flush(file_buffer_t *buf) {
+    FILE *fp0 = fopen(buf->filename_0, "a");
+    assert(fp0);
+    FILE *fp1 = fopen(buf->filename_1, "a");
+    assert(fp1);
+
     if (buf->nbuffered > 0) {
-        size_t n = fwrite(&buf->_0[0], sizeof(buf->_0[0]), buf->nbuffered,
-                buf->fp0);
+        size_t n;
+        n = fwrite(&buf->_0[0], sizeof(buf->_0[0]), buf->nbuffered, fp0);
         assert(n == buf->nbuffered);
 
-        n = fwrite(&buf->_1[0], sizeof(buf->_1[0]), buf->nbuffered, buf->fp1);
+        n = fwrite(&buf->_1[0], sizeof(buf->_1[0]), buf->nbuffered, fp1);
         assert(n == buf->nbuffered);
     }
 
-    fseek(buf->fp0, buf->n_partition_edges_offset, SEEK_SET);
-    fseek(buf->fp1, buf->n_partition_edges_offset, SEEK_SET);
+    fseek(fp0, buf->n_partition_edges_offset, SEEK_SET);
+    fseek(fp1, buf->n_partition_edges_offset, SEEK_SET);
 
-    size_t n = fwrite(&buf->count, sizeof(buf->count), 1, buf->fp0);
+    size_t n = fwrite(&buf->count, sizeof(buf->count), 1, fp0);
     assert(n == 1);
-    n = fwrite(&buf->count, sizeof(buf->count), 1, buf->fp1);
+    n = fwrite(&buf->count, sizeof(buf->count), 1, fp1);
     assert(n == 1);
 
-    fclose(buf->fp0);
-    fclose(buf->fp1);
+    fclose(fp0);
+    fclose(fp1);
 }
 
 int main(int argc, char **argv) {
