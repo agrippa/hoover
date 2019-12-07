@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-#define HVR_MAX_VECTOR_SIZE 2
+#define HVR_MAX_VECTOR_SIZE 1
 
 typedef struct _hvr_vertex_t {
     hvr_vertex_id_t id;
@@ -47,13 +47,13 @@ void hvr_vertex_init(hvr_vertex_t *vert, hvr_vertex_id_t id, hvr_time_t iter);
  * Get the value for the specified feature in the provided vector.
  */
 static inline double hvr_vertex_get(const unsigned feature,
-        const hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
+        const hvr_vertex_t *vert, const hvr_ctx_t in_ctx) {
     assert(feature < HVR_MAX_VECTOR_SIZE);
     return vert->values[feature];
 }
 
 static inline uint64_t hvr_vertex_get_uint64(const unsigned feature,
-        const hvr_vertex_t *vert, hvr_ctx_t in_ctx) {
+        const hvr_vertex_t *vert, const hvr_ctx_t in_ctx) {
     assert(sizeof(uint64_t) == sizeof(double));
     assert(feature < HVR_MAX_VECTOR_SIZE);
 

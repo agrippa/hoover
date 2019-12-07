@@ -21,7 +21,7 @@ typedef struct _hvr_avl_node_allocator {
     char *envvar;
 } hvr_avl_node_allocator;
 
-void hvr_avl_insert(struct hvr_avl_node **rootp, uint32_t key,
+int hvr_avl_insert(struct hvr_avl_node **rootp, uint32_t key,
         uint64_t value, hvr_avl_node_allocator *tracker);
 
 int hvr_avl_delete(struct hvr_avl_node **rootp, uint32_t key,

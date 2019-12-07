@@ -80,9 +80,13 @@ void hvr_sparse_arr_insert(unsigned i, unsigned j, hvr_sparse_arr_t *arr) {
 
     hvr_sparse_arr_seg_t *segment = arr->segs[seg];
 
-    struct hvr_avl_node *exists = hvr_avl_find(segment->seg[seg_index], j);
-    if (exists == nnil) {
-        hvr_avl_insert(&(segment->seg[seg_index]), j, j, &arr->avl_allocator);
+    /*
+     * hvr_avl_insert will ensure no duplicate entries, and return 1 if an
+     * actual insert occurred.
+     */
+    int is_new_entry = hvr_avl_insert(&(segment->seg[seg_index]), j, j,
+            &arr->avl_allocator);
+    if (is_new_entry) {
         segment->seg_size[seg_index] += 1;
     }
 }

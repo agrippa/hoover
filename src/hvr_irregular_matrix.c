@@ -59,6 +59,11 @@ unsigned hvr_irr_matrix_row_len(hvr_vertex_id_t i, hvr_irr_matrix_t *m) {
     return hvr_avl_size(m->edges[i]);
 }
 
+struct hvr_avl_node *hvr_irr_matrix_tree(hvr_vertex_id_t i,
+        hvr_irr_matrix_t *m) {
+    return m->edges[i];
+}
+
 unsigned hvr_irr_matrix_linearize(hvr_vertex_id_t i,
         hvr_vertex_id_t *out_vals, size_t capacity, hvr_irr_matrix_t *m) {
     return hvr_avl_serialize(m->edges[i], out_vals, capacity);

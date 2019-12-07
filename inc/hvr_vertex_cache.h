@@ -76,7 +76,7 @@ typedef struct _hvr_vertex_cache_t {
 } hvr_vertex_cache_t;
 
 static inline hvr_vertex_cache_node_t *CACHE_NODE_BY_OFFSET(
-        hvr_vertex_id_t offset, hvr_vertex_cache_t *cache) {
+        hvr_vertex_id_t offset, const hvr_vertex_cache_t *cache) {
     assert(offset < cache->pool_size);
     return cache->pool_mem + offset;
 }

@@ -9,8 +9,7 @@
 struct hvr_avl_node dummy = { {&dummy, &dummy}, 0, 0, 0 }, *nnil = &dummy;
  
 static struct hvr_avl_node *new_node(uint32_t key, uint64_t value,
-        hvr_avl_node_allocator *tracker)
-{
+        hvr_avl_node_allocator *tracker) {
     struct hvr_avl_node *n = hvr_avl_node_allocator_alloc(tracker);
     n->kid[0] = nnil;
     n->kid[1] = nnil;
@@ -71,17 +70,23 @@ static struct hvr_avl_node *query(struct hvr_avl_node *root, uint32_t key)
 			: query(root->kid[key > root->key], key);
 }
  
-void hvr_avl_insert(struct hvr_avl_node **rootp, uint32_t key, uint64_t value,
-        hvr_avl_node_allocator *tracker)
-{
+int hvr_avl_insert(struct hvr_avl_node **rootp, uint32_t key, uint64_t value,
+        hvr_avl_node_allocator *tracker) {
+    int result;
 	struct hvr_avl_node *root = *rootp;
- 
-	if (root == nnil)
+
+	if (root == nnil) {
 		*rootp = new_node(key, value, tracker);
-	else if (key != root->key) { // don't allow dup keys
-		hvr_avl_insert(&root->kid[key > root->key], key, value, tracker);
+        result = 1;
+    } else if (key != root->key) { // don't allow dup keys
+		result = hvr_avl_insert(&root->kid[key > root->key], key, value,
+                tracker);
 		adjust_balance(rootp, tracker);
-	}
+	} else {
+        // Duplicate key
+        result = 0;
+    }
+    return result;
 }
  
 int hvr_avl_delete(struct hvr_avl_node **rootp, uint32_t key,

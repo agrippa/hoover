@@ -440,6 +440,9 @@ extern int hvr_my_pe(hvr_ctx_t ctx);
 // Simple utility for time measurement in microseconds
 extern unsigned long long hvr_current_time_us();
 
+extern uint64_t hvr_neighbors_min(hvr_vertex_t *vert, unsigned feature,
+        uint64_t init_val, hvr_ctx_t in_ctx);
+
 extern void hvr_get_neighbors(hvr_vertex_t *vert, hvr_neighbors_t *neighbors,
         hvr_ctx_t in_ctx);
 

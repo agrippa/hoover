@@ -25,6 +25,9 @@ void hvr_irr_matrix_set(hvr_vertex_id_t i, hvr_vertex_id_t j, hvr_edge_type_t e,
         hvr_edge_create_type_t creation_type, hvr_irr_matrix_t *m,
         int known_no_edge);
 
+struct hvr_avl_node *hvr_irr_matrix_tree(hvr_vertex_id_t i,
+        hvr_irr_matrix_t *m);
+
 unsigned hvr_irr_matrix_linearize(hvr_vertex_id_t i,
         hvr_vertex_id_t *out_vals, size_t capacity, hvr_irr_matrix_t *m);
 

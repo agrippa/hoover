@@ -13,7 +13,7 @@
 
 #include <hoover.h>
 
-// #define RANDOM_PES
+#define RANDOM_PES
 
 // Timing variables
 static unsigned long long start_time = 0;
@@ -90,6 +90,7 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
     // Find connected components in graph via label propagation
     uint64_t min_supernode_lbl = hvr_vertex_get_uint64(0, vertex, ctx);
 
+#if 0
     hvr_neighbors_t neighbors;
     hvr_get_neighbors(vertex, &neighbors, ctx);
 
@@ -102,9 +103,12 @@ void update_vertex(hvr_vertex_t *vertex, hvr_set_t *couple_with,
         }
     }
 
-    hvr_vertex_set_uint64(0, min_supernode_lbl, vertex, ctx);
-
     hvr_release_neighbors(&neighbors, ctx);
+#endif
+
+    min_supernode_lbl = hvr_neighbors_min(vertex, 0, min_supernode_lbl, ctx);
+
+    hvr_vertex_set_uint64(0, min_supernode_lbl, vertex, ctx);
 }
 
 void might_interact(const hvr_partition_t partition,
