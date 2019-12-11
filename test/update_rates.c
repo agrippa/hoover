@@ -135,11 +135,11 @@ int main(int argc, char **argv) {
 
     char filename[2048];
     sprintf(filename, "%s.npes=%d.pe=%d_0", mat_filename, npes, pe);
-    FILE *fp0 = fopen(filename, "r");
+    FILE *fp0 = fopen(filename, "rb");
     assert(fp0);
 
     sprintf(filename, "%s.npes=%d.pe=%d_1", mat_filename, npes, pe);
-    FILE *fp1 = fopen(filename, "r");
+    FILE *fp1 = fopen(filename, "rb");
     assert(fp1);
 
     int64_t M0, N0, nz0, partition_nz0;
@@ -153,9 +153,15 @@ int main(int argc, char **argv) {
     assert(n == 1);
     n = fread(&nz0, sizeof(nz0), 1, fp0);
     assert(n == 1);
+    long offset = ftell(fp0);
     n = fread(&partition_nz0, sizeof(partition_nz0), 1, fp0);
     assert(n == 1);
     assert(M0 == N0);
+
+    if (pe == 0) {
+        printf("M=%ld N=%ld nz=%ld partition nz=%ld offset=%lu file=%s\n", M0,
+                N0, nz0, partition_nz0, offset, filename);
+    }
 
     n = fread(&M1, sizeof(M1), 1, fp1);
     assert(n == 1);

@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p debug
-#SBATCH -N 4
+#SBATCH -N 64
 #SBATCH -C haswell
 #SBATCH -t 00:10:00
 #SBATCH -J hoover-community

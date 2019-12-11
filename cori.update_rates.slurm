@@ -1,12 +1,12 @@
 #!/bin/bash -l
 
-#SBATCH -p regular
-#SBATCH -N 128
+#SBATCH -p debug
+#SBATCH -N 64
 #SBATCH -C haswell
-#SBATCH -t 00:20:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover-update-rates
 #SBATCH --exclusive
-#SBATCH --contiguous
+#####SBATCH --contiguous
 #SBATCH --mail-type=ALL
 
 # set -e

@@ -19,11 +19,11 @@ typedef struct _file_buffer_t {
 void file_buffer_init(file_buffer_t *buf, const char *mat_filename, int npes,
         int pe, int64_t nedges, int64_t nvertices) {
     sprintf(buf->filename_0, "%s.npes=%d.pe=%d_0", mat_filename, npes, pe);
-    FILE *fp0 = fopen(buf->filename_0, "w");
+    FILE *fp0 = fopen(buf->filename_0, "wb");
     assert(fp0);
 
     sprintf(buf->filename_1, "%s.npes=%d.pe=%d_1", mat_filename, npes, pe);
-    FILE *fp1 = fopen(buf->filename_1, "w");
+    FILE *fp1 = fopen(buf->filename_1, "wb");
     assert(fp1);
 
     int64_t placeholder = 0;
@@ -34,6 +34,7 @@ void file_buffer_init(file_buffer_t *buf, const char *mat_filename, int npes,
     assert(n == 1);
     n = fwrite(&nedges, sizeof(nedges), 1, fp0);
     assert(n == 1);
+    fflush(fp0);
     buf->n_partition_edges_offset = ftell(fp0);
     n = fwrite(&placeholder, sizeof(placeholder), 1, fp0);
     assert(n == 1);
@@ -45,6 +46,7 @@ void file_buffer_init(file_buffer_t *buf, const char *mat_filename, int npes,
     assert(n == 1);
     n = fwrite(&nedges, sizeof(nedges), 1, fp1);
     assert(n == 1);
+    fflush(fp1);
     assert(buf->n_partition_edges_offset == ftell(fp1));
     n = fwrite(&placeholder, sizeof(placeholder), 1, fp1);
     assert(n == 1);
@@ -56,9 +58,9 @@ void file_buffer_init(file_buffer_t *buf, const char *mat_filename, int npes,
 
 void file_buffer_write(file_buffer_t *buf, int64_t _0, int64_t _1) {
     if (buf->nbuffered == TILE_SIZE) {
-        FILE *fp0 = fopen(buf->filename_0, "a");
+        FILE *fp0 = fopen(buf->filename_0, "ab");
         assert(fp0);
-        FILE *fp1 = fopen(buf->filename_1, "a");
+        FILE *fp1 = fopen(buf->filename_1, "ab");
         assert(fp1);
 
         size_t n;
@@ -80,22 +82,32 @@ void file_buffer_write(file_buffer_t *buf, int64_t _0, int64_t _1) {
 }
 
 void file_buffer_flush(file_buffer_t *buf) {
-    FILE *fp0 = fopen(buf->filename_0, "a");
-    assert(fp0);
-    FILE *fp1 = fopen(buf->filename_1, "a");
-    assert(fp1);
-
     if (buf->nbuffered > 0) {
+        FILE *fp0 = fopen(buf->filename_0, "ab+");
+        assert(fp0);
+        FILE *fp1 = fopen(buf->filename_1, "ab+");
+        assert(fp1);
+
         size_t n;
         n = fwrite(&buf->_0[0], sizeof(buf->_0[0]), buf->nbuffered, fp0);
         assert(n == buf->nbuffered);
 
         n = fwrite(&buf->_1[0], sizeof(buf->_1[0]), buf->nbuffered, fp1);
         assert(n == buf->nbuffered);
+
+        fclose(fp0);
+        fclose(fp1);
     }
 
-    fseek(fp0, buf->n_partition_edges_offset, SEEK_SET);
-    fseek(fp1, buf->n_partition_edges_offset, SEEK_SET);
+    FILE *fp0 = fopen(buf->filename_0, "rb+");
+    assert(fp0);
+    FILE *fp1 = fopen(buf->filename_1, "rb+");
+    assert(fp1);
+
+    int err = fseek(fp0, buf->n_partition_edges_offset, SEEK_SET);
+    assert(err == 0);
+    err = fseek(fp1, buf->n_partition_edges_offset, SEEK_SET);
+    assert(err == 0);
 
     size_t n = fwrite(&buf->count, sizeof(buf->count), 1, fp0);
     assert(n == 1);
@@ -115,7 +127,7 @@ int main(int argc, char **argv) {
     const char *mat_filename = argv[1];
     int npes = atoi(argv[2]);
 
-    FILE *fp = fopen(mat_filename, "r");
+    FILE *fp = fopen(mat_filename, "rb");
     assert(fp);
 
     int64_t M, N, nz;
@@ -135,8 +147,9 @@ int main(int argc, char **argv) {
         file_buffer_init(pe_bufs + p, mat_filename, npes, p, nz, M);
     }
 
-    fprintf(stderr, "Matrix %s is %ld x %ld with %ld non-zeroes\n",
+    fprintf(stderr, "Matrix %s is %ld x %ld with %ld non-zeroes.\n",
             mat_filename, M, N, nz);
+    fprintf(stderr, "Partitioning for %d PEs\n", npes);
 
     int64_t vertices_per_pe = (M + npes - 1) / npes;
 
@@ -162,7 +175,7 @@ int main(int argc, char **argv) {
     long J_offset = ftell(fp);
 
     for (int64_t i = 0; i < nz; i += tile_size) {
-        fprintf(stderr, "Processing %ld / %lu (%f\%)\n", i, nz,
+        fprintf(stderr, "Processing %ld / %lu (%f%%)\n", i, nz,
                 100.0 * (float)i / (float)nz);
 
         int64_t to_read = nz - i;
