@@ -259,13 +259,14 @@ int main(int argc, char **argv) {
     double elapsed_time_ms = (double)(info.start_hvr_body_wrapup_us -
             info.start_hvr_body_us) / 1000.0;
     fprintf(stderr, "PE %d took %f ms to insert %lu / %lu (%f%%) edges with "
-            "batch size %lu ( %f edges per s ). %f %f %f\n",
+            "batch size %lu ( %f edges per s ). %f %f %f. %d iters.\n",
             pe, elapsed_time_ms, edges_so_far, n_my_edges,
             100.0 * (double)edges_so_far / (double)n_my_edges,
             batch_size, (double)n_my_edges / (elapsed_time_ms / 1000.0),
             (double)(info.start_hvr_body_iterations_us - info.start_hvr_body_us) / 1000.0,
             (double)(info.start_hvr_body_wrapup_us - info.start_hvr_body_iterations_us) / 1000.0,
-            (double)(info.end_hvr_body_us - info.start_hvr_body_wrapup_us) / 1000.0);
+            (double)(info.end_hvr_body_us - info.start_hvr_body_wrapup_us) / 1000.0,
+            info.executed_iters);
 
     hvr_finalize(ctx);
 

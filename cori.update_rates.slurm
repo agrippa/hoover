@@ -1,9 +1,11 @@
 #!/bin/bash -l
 
-#SBATCH -p debug
-#SBATCH -N 64
+#SBATCH -p regular
+#SBATCH --qos=premium
+#####SBATCH -q debug
+#SBATCH -N 256
 #SBATCH -C haswell
-#SBATCH -t 00:05:00
+#SBATCH -t 00:02:00
 #SBATCH -J hoover-update-rates
 #SBATCH --exclusive
 #####SBATCH --contiguous
@@ -51,7 +53,7 @@ export HVR_VERT_CACHE_SEGS=50000
 export HVR_SPARSE_ARR_POOL=$((5 * 1024 * 1024))
 export HVR_SPARSE_ARR_SEGS=4096
 export HVR_DIST_BITVEC_POOL_SIZE=$((64 * 1024 * 1024))
-export HVR_EDGES_POOL_SIZE=$((48 * 1024 * 1024))
+export HVR_EDGES_POOL_SIZE=$((24 * 1024 * 1024))
 export HVR_PRODUCER_INFO_SEGS=10240
 export HVR_PARTITION_LIST_SEGS=10240
 export HVR_BUFFERED_CHANGES_ALLOCATED=200000
