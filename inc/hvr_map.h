@@ -38,12 +38,26 @@ extern void hvr_map_init(hvr_map_t *m, unsigned n_segs,
 
 extern void hvr_map_destroy(hvr_map_t *m);
 
+/*
+ * Add a new key-value pair mapping from key -> to_insert to the map. If
+ * replace == 1, then the new value will be inserted whether there is an
+ * existing value for that key or not. If replace == 0 and there is an existing
+ * value, we assert that the new and existing values are the same.
+ */
 extern void hvr_map_add(hvr_vertex_id_t key, void *to_insert,
         int replace, hvr_map_t *m);
 
+/*
+ * Remove the key-value pair for key from the map, asserting that the current
+ * value is val.
+ */
 extern void hvr_map_remove(hvr_vertex_id_t key, void *val,
         hvr_map_t *m);
 
+/*
+ * Get the current value for key from the map, returning NULL if none is found.
+ * Note that this assumes we never add a mapping to NULL to any map.
+ */
 extern void *hvr_map_get(hvr_vertex_id_t key, hvr_map_t *m);
 
 extern void hvr_map_clear(hvr_map_t *m);

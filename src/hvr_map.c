@@ -162,7 +162,6 @@ void hvr_map_add(hvr_vertex_id_t key, void *to_insert, int replace,
     }
 }
 
-// Remove function for edge info
 void hvr_map_remove(hvr_vertex_id_t key, void *val, hvr_map_t *m) {
     hvr_map_seg_t *seg;
     unsigned seg_index;

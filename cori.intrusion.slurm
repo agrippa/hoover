@@ -3,7 +3,7 @@
 #SBATCH -p debug
 #SBATCH -N 4
 #SBATCH -C haswell
-#SBATCH -t 00:10:00
+#SBATCH -t 00:05:00
 #SBATCH -J hoover-intrusion
 #SBATCH --exclusive
 ###SBATCH --contiguous
@@ -74,7 +74,7 @@ fi
 export PARTITIONS="100 100 100"
 export MIN_N_VERTICES_TO_ADD=800
 export MAX_N_VERTICES_TO_ADD=1000
-export TIME_LIMIT_IN_SECONDS=480
+export TIME_LIMIT_IN_SECONDS=240
 export EDGE_DISTANCE=10
 export DOMAIN_SIZE="12000 12000 10000"
 

@@ -6,72 +6,50 @@
 
 int main(int argc, char **argv) {
     hvr_map_t map;
-    hvr_map_init(&map, 1, EDGE_INFO);
+    hvr_map_init(&map, 3, "DUMMY");
 
-    assert(hvr_map_contains(3, 3, &map) == NO_EDGE);
+    assert(hvr_map_get(3, &map) == NULL);
 
+    hvr_map_add(3, (void*)0x1, 0, &map);
+    assert(hvr_map_get(3, &map) == (void*)0x1);
+    assert(hvr_map_get(4, &map) == NULL);
 
-    hvr_map_val_t val1 = {.edge_info = {.id = 3, .edge = BIDIRECTIONAL}};
-    hvr_map_add(3, val1, &map);
-    assert(hvr_map_contains(3, 3, &map) == BIDIRECTIONAL);
-    assert(hvr_map_contains(4, 4, &map) == NO_EDGE);
+    hvr_map_add(4, (void*)0x2, 0, &map);
+    assert(hvr_map_get(3, &map) == (void*)0x1);
+    assert(hvr_map_get(4, &map) == (void*)0x2);
+    assert(hvr_map_get(5, &map) == NULL);
 
-    hvr_map_val_t val2 = {.edge_info = {.id = 4, .edge = DIRECTED_IN}};
-    hvr_map_add(3, val2, &map);
-    assert(hvr_map_contains(3, 3, &map) == BIDIRECTIONAL);
-    assert(hvr_map_contains(3, 4, &map) == DIRECTED_IN);
-    assert(hvr_map_contains(4, 4, &map) == NO_EDGE);
+    hvr_map_add(1500, (void*)0x3, 0, &map);
+    assert(hvr_map_get(1500, &map) == (void*)0x3);
+    assert(hvr_map_get(3, &map) == (void*)0x1);
+    assert(hvr_map_get(4, &map) == (void*)0x2);
+    assert(hvr_map_get(5, &map) == NULL);
 
-    hvr_map_val_t val3 = {.edge_info = {.id = 1500, .edge = DIRECTED_OUT}};
-    hvr_map_add(1500, val3, &map);
-    assert(hvr_map_contains(1500, 1500, &map) == DIRECTED_OUT);
-    assert(hvr_map_contains(3, 3, &map) == BIDIRECTIONAL);
-    assert(hvr_map_contains(3, 4, &map) == DIRECTED_IN);
-    assert(hvr_map_contains(4, 4, &map) == NO_EDGE);
-
-    hvr_map_val_t *tmp_arr = NULL;
-    unsigned capacity = 0;
-    unsigned len = hvr_map_linearize(3, &tmp_arr, &capacity, &map);
-    assert(len == 2);
-    assert(capacity == 2);
-    assert(tmp_arr[0].edge_info.id == 3);
-    assert(tmp_arr[1].edge_info.id == 4);
-    assert(tmp_arr[0].edge_info.edge == BIDIRECTIONAL);
-    assert(tmp_arr[1].edge_info.edge == DIRECTED_IN);
-
-    hvr_map_val_t val7 = {.edge_info = {.id = 3}};
-    hvr_map_remove(3, val7, &map);
-    assert(hvr_map_contains(1500, 1500, &map) == DIRECTED_OUT);
-    assert(hvr_map_contains(3, 3, &map) == NO_EDGE);
-    assert(hvr_map_contains(3, 4, &map) == DIRECTED_IN);
-    assert(hvr_map_contains(4, 4, &map) == NO_EDGE);
-
+    hvr_map_remove(3, (void*)0x1, &map);
+    assert(hvr_map_get(1500, &map) == (void*)0x3);
+    assert(hvr_map_get(3, &map) == NULL);
+    assert(hvr_map_get(4, &map) == (void*)0x2);
+    assert(hvr_map_get(5, &map) == NULL);
 
     // Test that a double add followed by a single remove works
-    hvr_map_val_t val4 = {.edge_info = {.id = 3, .edge = BIDIRECTIONAL}};
-    hvr_map_add(3, val4, &map);
-    assert(hvr_map_contains(3, 3, &map) == BIDIRECTIONAL);
+    hvr_map_add(3, (void *)0x4, 1, &map);
+    assert(hvr_map_get(3, &map) == (void *)0x4);
 
-    hvr_map_val_t val5 = {.edge_info = {.id = 3, .edge = BIDIRECTIONAL}};
-    hvr_map_add(3, val5, &map);
-    assert(hvr_map_contains(3, 3, &map) == BIDIRECTIONAL);
+    hvr_map_add(3, (void*)0x5, 1, &map);
+    assert(hvr_map_get(3, &map) == (void *)0x5);
 
-    hvr_map_val_t val8 = {.edge_info = {.id = 3}};
-    hvr_map_remove(3, val8, &map);
-    assert(hvr_map_contains(3, 3, &map) == NO_EDGE);
+    hvr_map_remove(3, (void*)0x5, &map);
+    assert(hvr_map_get(3, &map) == NULL);
 
     // Test that a double remove is fine
-    hvr_map_val_t val6 = {.edge_info = {.id = 3, .edge = BIDIRECTIONAL}};
-    hvr_map_add(3, val6, &map);
-    assert(hvr_map_contains(3, 3, &map) == BIDIRECTIONAL);
+    hvr_map_add(3, (void *)0x6, 0, &map);
+    assert(hvr_map_get(3, &map) == (void *)0x6);
 
-    hvr_map_val_t val9 = {.edge_info = {.id = 3}};
-    hvr_map_remove(3, val9, &map);
-    assert(hvr_map_contains(3, 3, &map) == NO_EDGE);
+    hvr_map_remove(3, (void *)0x6, &map);
+    assert(hvr_map_get(3, &map) == NULL);
 
-    hvr_map_val_t val10 = {.edge_info = {.id = 3}};
-    hvr_map_remove(3, val10, &map);
-    assert(hvr_map_contains(3, 3, &map) == NO_EDGE);
+    hvr_map_remove(3, (void *)0x6, &map);
+    assert(hvr_map_get(3, &map) == NULL);
 
     printf("Success!\n");
 
