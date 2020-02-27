@@ -1,22 +1,22 @@
-#include "hvr_map.h"
 #include "hoover.h"
+#include <sparsehash/sparse_hash_map>
 
 #define N_VERTICES 1000000
 #define N_REPEATS 50
 
-int main(int argc, char **argv) {
-    hvr_map_t m;
-    hvr_map_init(&m,
-            100000,/* prealloc segs */
-            "DUMMY" /* prealloc segs env var */
-            );
+using google::sparse_hash_map;
+
+typedef sparse_hash_map<hvr_vertex_id_t, void*> map_t;
+
+int main(void) {
+    map_t m;
 
     unsigned long long start = hvr_current_time_us();
     for (int r = 0; r < N_REPEATS; r++) {
         for (unsigned i = 0; i < N_VERTICES - N_REPEATS; i++) {
             unsigned neighbor = i + r;
 
-            hvr_map_add(i, (void*)neighbor, 1, &m);
+            m.insert(std::pair<hvr_vertex_id_t, void*>(i, (void*)neighbor));
         }
     }
     unsigned long long elapsed = hvr_current_time_us() - start;
@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
     start = hvr_current_time_us();
     for (int r = 0; r < N_REPEATS; r++) {
         for (unsigned i = 0; i < N_VERTICES - N_REPEATS; i++) {
-            hvr_map_get(i, &m);
+            m.find(i);
         }
     }
     elapsed = hvr_current_time_us() - start;
