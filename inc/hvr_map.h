@@ -3,6 +3,9 @@
 
 #include "hvr_common.h"
 #include "dlmalloc.h"
+#include "sparsehash/sparse_hash_map"
+
+using google::sparse_hash_map;
 
 #define HVR_MAP_SEG_SIZE 128
 #define HVR_MAP_BUCKETS 16384
