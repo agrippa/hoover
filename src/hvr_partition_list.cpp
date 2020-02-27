@@ -22,7 +22,7 @@ static void prepend_to_partition_list_helper(hvr_vertex_t *curr,
         hvr_internal_ctx_t *ctx) {
     assert(partition < l->n_partitions);
 
-    hvr_vertex_t *head = hvr_map_get(partition, &l->map);
+    hvr_vertex_t *head = (hvr_vertex_t *)hvr_map_get(partition, &l->map);
     curr->prev_in_partition = NULL;
     curr->next_in_partition = head;
 
@@ -50,7 +50,7 @@ void remove_from_partition_list_helper(const hvr_vertex_t *vert,
             vert->prev_in_partition;
     } else if (vert->next_in_partition) {
         // prev is NULL, at head of a non-empty list
-        hvr_vertex_t *head = hvr_map_get(partition, &l->map);
+        hvr_vertex_t *head = (hvr_vertex_t *)hvr_map_get(partition, &l->map);
         assert(head == vert);
         hvr_vertex_t *new_head = head->next_in_partition;
         new_head->prev_in_partition = NULL;
@@ -59,7 +59,7 @@ void remove_from_partition_list_helper(const hvr_vertex_t *vert,
         // next is NULL, at tail of a non-empty list
         vert->prev_in_partition->next_in_partition = NULL;
     } else { // both NULL
-        hvr_vertex_t *head = hvr_map_get(partition, &l->map);
+        hvr_vertex_t *head = (hvr_vertex_t *)hvr_map_get(partition, &l->map);
         assert(head == vert);
         // Only entry in list
         hvr_map_remove(partition, head, &l->map);
@@ -91,7 +91,7 @@ void update_partition_list_membership(hvr_vertex_t *curr,
 
 hvr_vertex_t *hvr_partition_list_head(hvr_partition_t part,
         hvr_partition_list_t *l) {
-    return hvr_map_get(part, &l->map);
+    return (hvr_vertex_t *)hvr_map_get(part, &l->map);
 }
 
 size_t hvr_partition_list_mem_used(hvr_partition_list_t *l) {

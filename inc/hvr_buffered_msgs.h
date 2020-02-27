@@ -2,7 +2,13 @@
 #define _HVR_BUFFERED_MSGS_H
 
 #include "hvr_vertex.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "dlmalloc.h"
+#ifdef __cplusplus
+}
+#endif
 
 typedef struct _hvr_buffered_msgs_node_t {
     hvr_vertex_t vert;

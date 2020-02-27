@@ -6,10 +6,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include "hvr_vertex_cache.h"
 #include "hvr_neighbors.h"
 #include "hvr_common.h"
@@ -482,9 +478,5 @@ static inline void mark_for_processing(hvr_vertex_t *vert,
 }
 
 size_t hvr_n_local_vertices(hvr_ctx_t in_ctx);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

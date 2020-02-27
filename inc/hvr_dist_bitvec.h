@@ -1,10 +1,12 @@
 #ifndef _HVR_DISTRIBUTED_BITVECTOR
 #define _HVR_DISTRIBUTED_BITVECTOR
 
-#include "dlmalloc.h"
-
 #ifdef __cplusplus
 extern "C" {
+#endif
+#include "dlmalloc.h"
+#ifdef __cplusplus
+}
 #endif
 
 /*
@@ -91,9 +93,5 @@ size_t hvr_dist_bitvec_local_subcopy_bytes(
 
 uint64_t hvr_dist_bitvec_get_seq_no(hvr_dist_bitvec_size_t coord0,
         hvr_dist_bitvec_t *vec);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // _HVR_DISTRIBUTED_BITVECTOR

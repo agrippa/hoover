@@ -2,7 +2,13 @@
 #define _HVR_MAP_H
 
 #include "hvr_common.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "dlmalloc.h"
+#ifdef __cplusplus
+}
+#endif
 #include "sparsehash/sparse_hash_map"
 
 using google::sparse_hash_map;

@@ -2,8 +2,13 @@
 #define _HVR_IRREGULAR_MATRIX_H
 
 #include "hvr_common.h"
-#include "hvr_bloom.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "dlmalloc.h"
+#ifdef __cplusplus
+}
+#endif
 #include "hvr_avl_tree.h"
 
 typedef struct _hvr_irr_matrix_t {

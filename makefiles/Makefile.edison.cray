@@ -15,7 +15,7 @@ HOOVER_OBJS=bin/hoover.o bin/hvr_vertex_iter.o \
 			bin/hvr_msg_buf_pool.o bin/hvr_irregular_matrix.o \
 			bin/hvr_buffered_msgs.o bin/dlmalloc.o \
 			bin/shmem_rw_lock.o bin/hvr_partition_list.o \
-			bin/hvr_mailbox_buffer.o bin/hvr_bloom.o bin/hvr_avl_tree.o \
+			bin/hvr_mailbox_buffer.o bin/hvr_avl_tree.o \
 			bin/hvr_buffered_changes.o
 HOOVER_MT_OBJS=$(patsubst bin/%.o,bin/%.mo,$(HOOVER_OBJS))
 
@@ -31,19 +31,10 @@ bin/dlmalloc.o: src/dlmalloc/dlmalloc.c
 bin/crc.o: src/crc/crc.c
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o $@ $^
 
-bin/%.o: src/%.c
+bin/%.o: src/%.cpp
 	$(CC) $(CFLAGS) $(SHMEM_FLAGS) -fPIC -c -o $@ $^
 
-bin/dlmalloc.mo: src/dlmalloc/dlmalloc.c
-	$(CC) $(CFLAGS) -DHVR_MULTITHREADED -fopenmp $(SHMEM_FLAGS) -fPIC -c -o $@ $^
-
-bin/%.mo: src/%.c
-	$(CC) $(CFLAGS) -DHVR_MULTITHREADED -fopenmp $(SHMEM_FLAGS) -fPIC -c -o $@ $^
-
 bin/libhoover.a: $(HOOVER_OBJS)
-	ar rcs $@ $^
-
-bin/libhoover_mt.a: $(HOOVER_MT_OBJS)
 	ar rcs $@ $^
 
 bin/market_to_binary:

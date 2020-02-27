@@ -2,7 +2,13 @@
 #define _HVR_NEIGHBORS_H
 
 #include <assert.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "dlmalloc.h"
+#ifdef __cplusplus
+}
+#endif
 #include "hvr_vertex_cache.h"
 
 typedef struct _hvr_neighbors_t {

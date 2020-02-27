@@ -849,8 +849,8 @@ static void handle_existing_subscription(hvr_partition_t p,
     uint64_t curr_seq_no = hvr_dist_bitvec_get_seq_no(p,
             &ctx->partition_producers);
 
-    hvr_dist_bitvec_local_subcopy_t *p_producer_info = hvr_map_get(p,
-            &ctx->producer_info);
+    hvr_dist_bitvec_local_subcopy_t *p_producer_info =
+        (hvr_dist_bitvec_local_subcopy_t *)hvr_map_get(p, &ctx->producer_info);
     assert(p_producer_info);
 
     if (curr_seq_no <= p_producer_info->seq_no) {
@@ -903,8 +903,8 @@ static void handle_existing_subscription(hvr_partition_t p,
         hvr_dist_bitvec_copy_locally(p, &ctx->terminated_pes,
                 &ctx->local_terminated_pes);
 
-        hvr_dist_bitvec_local_subcopy_t *p_dead_info = hvr_map_get(p,
-                &ctx->dead_info);
+        hvr_dist_bitvec_local_subcopy_t *p_dead_info =
+            (hvr_dist_bitvec_local_subcopy_t *)hvr_map_get(p, &ctx->dead_info);
         assert(p_dead_info);
 
         for (int pe = 0; pe < ctx->npes; pe++) {
@@ -923,8 +923,8 @@ static void handle_existing_subscription(hvr_partition_t p,
 
 static void handle_new_unsubscription(hvr_partition_t p,
         hvr_internal_ctx_t *ctx) {
-    hvr_dist_bitvec_local_subcopy_t *p_producer_info = hvr_map_get(p,
-            &ctx->producer_info);
+    hvr_dist_bitvec_local_subcopy_t *p_producer_info =
+        (hvr_dist_bitvec_local_subcopy_t *)hvr_map_get(p, &ctx->producer_info);
     assert(p_producer_info);
 
     hvr_partition_member_change_t change;
@@ -956,8 +956,8 @@ static void handle_new_unsubscription(hvr_partition_t p,
     hvr_dist_bitvec_local_subcopy_destroy(&ctx->partition_producers,
             p_producer_info);
 
-    hvr_dist_bitvec_local_subcopy_t *p_dead_info = hvr_map_get(p,
-            &ctx->dead_info);
+    hvr_dist_bitvec_local_subcopy_t *p_dead_info =
+        (hvr_dist_bitvec_local_subcopy_t *)hvr_map_get(p, &ctx->dead_info);
     assert(p_dead_info);
     hvr_map_remove(p, p_dead_info, &ctx->dead_info);
     hvr_dist_bitvec_local_subcopy_destroy(&ctx->terminated_pes, p_dead_info);

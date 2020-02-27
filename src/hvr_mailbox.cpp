@@ -122,9 +122,9 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
     uint64_t indices = shmem_uint64_atomic_fetch(mailbox->indices, target_pe);
     uint32_t start_send_index = 0;
 
-    unsigned try = 0;
-    while (max_tries < 0 || try < max_tries) {
-        if (try > 1000000) {
+    unsigned tries = 0;
+    while (max_tries < 0 || tries < max_tries) {
+        if (tries > 1000000) {
             fprintf(stderr, "WARNING PE %d hitting many failed tries sending "
                     "to %d\n", shmem_my_pe(), target_pe);
             abort();
@@ -138,9 +138,9 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
             // Enough room to try
             uint32_t new_write_index = (write_index + full_msg_len) %
                 mailbox->capacity_in_bytes;
-            uint64_t new = pack_indices(read_index, new_write_index);
+            uint64_t new_val = pack_indices(read_index, new_write_index);
             uint64_t old = shmem_uint64_atomic_compare_swap(mailbox->indices,
-                    indices, new, target_pe);
+                    indices, new_val, target_pe);
             if (old == indices) {
                 // Successful
                 start_send_index = write_index;
@@ -151,10 +151,10 @@ int hvr_mailbox_send(const void *msg, size_t msg_len, int target_pe,
         } else {
             indices = shmem_uint64_atomic_fetch(mailbox->indices, target_pe);
         }
-        try++;
+        tries++;
     }
 
-    if (try == max_tries) {
+    if (tries == max_tries) {
         // Failed
         return 0;
     }

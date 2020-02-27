@@ -20,7 +20,8 @@ void hvr_buffered_msgs_insert(size_t i, hvr_vertex_t *payload,
         hvr_buffered_msgs_t *b) {
     assert(i < b->nvertices);
 
-    hvr_buffered_msgs_node_t *node = mspace_malloc(b->allocator, sizeof(*node));
+    hvr_buffered_msgs_node_t *node =
+        (hvr_buffered_msgs_node_t *)mspace_malloc(b->allocator, sizeof(*node));
     assert(node);
 
     memcpy(&node->vert, payload, sizeof(*payload));

@@ -2,7 +2,13 @@
 #define _HVR_SPARSE_ARR_H
 
 #include <stdlib.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "dlmalloc.h"
+#ifdef __cplusplus
+}
+#endif
 #include "hvr_avl_tree.h"
 
 /*
