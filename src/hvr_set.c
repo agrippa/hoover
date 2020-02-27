@@ -56,24 +56,6 @@ int hvr_set_insert(uint64_t val, hvr_set_t *set) {
     return (old_val != new_val);
 }
 
-#ifdef HVR_MULTITHREADED
-int hvr_set_insert_atomic(uint64_t val, hvr_set_t *set) {
-    bit_vec_element_type *bit_vector = set->bit_vector;
-    const uint64_t element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);
-    const uint64_t bit = val % (sizeof(*bit_vector) * BITS_PER_BYTE);
-    const bit_vec_element_type mask = ((bit_vec_element_type)1 << bit);
-    const bit_vec_element_type old_val = __sync_fetch_and_or(
-            &bit_vector[element], mask);
-    const bit_vec_element_type new_val = (old_val | mask);
-
-    if (old_val != new_val) {
-        __sync_fetch_and_add(&(set->n_contained), 1);
-    }
-    return (old_val != new_val);
-
-}
-#endif
-
 static int hvr_set_clear_internal(uint64_t val,
         bit_vec_element_type *bit_vector) {
     const uint64_t element = val / (sizeof(*bit_vector) * BITS_PER_BYTE);

@@ -15,13 +15,6 @@
 #include <shmem.h>
 #include <shmemx.h>
 
-#ifdef HVR_MULTITHREADED
-#include <omp.h>
-#define HVR_IS_MULTITHREADED 1
-#else
-#define HVR_IS_MULTITHREADED 0
-#endif
-
 #include "hoover.h"
 #include "hvr_vertex_iter.h"
 #include "hvr_mailbox.h"
@@ -239,7 +232,7 @@ static void send_to_vertex_update_mailbox(hvr_update_msg_t *msg, int pe,
     int success;
     do {
         success = hvr_mailbox_buffer_send(msg, sizeof(*msg),
-                pe, 100, &ctx->vertex_update_mailbox_buffer, 0);
+                pe, 100, &ctx->vertex_update_mailbox_buffer);
         if (!success) {
             process_vertex_updates(ctx, NULL, MAX_MSGS_DRAINED);
             poll_for_dead_pes(ctx);
@@ -760,10 +753,10 @@ static inline void update_partition_info(hvr_partition_t p,
          */
         if (hvr_set_contains(p, local_new)) {
             // Became active
-            hvr_dist_bitvec_set(p, ctx->pe, registry, HVR_IS_MULTITHREADED);
+            hvr_dist_bitvec_set(p, ctx->pe, registry);
         } else {
             // Went inactive
-            hvr_dist_bitvec_clear(p, ctx->pe, registry, HVR_IS_MULTITHREADED);
+            hvr_dist_bitvec_clear(p, ctx->pe, registry);
         }
     }
 }
@@ -830,7 +823,7 @@ static void handle_new_subscription(hvr_partition_t p,
     for (int pe = 0; pe < ctx->npes; pe++) {
         if (hvr_dist_bitvec_local_subcopy_contains(pe, p_producer_info)) {
             hvr_mailbox_send(&change, sizeof(change), pe,
-                    -1, &ctx->forward_mailbox, HVR_IS_MULTITHREADED);
+                    -1, &ctx->forward_mailbox);
         }
     }
 
@@ -841,9 +834,6 @@ static void handle_new_subscription(hvr_partition_t p,
         for (int pe = 0; pe < ctx->npes; pe++) {
             if (hvr_dist_bitvec_local_subcopy_contains(pe,
                         p_dead_info)) {
-#ifdef HVR_MULTITHREADED
-#pragma omp critical
-#endif
                 pull_vertices_from_dead_pe(pe, p, ctx);
             }
         }
@@ -896,7 +886,7 @@ static void handle_existing_subscription(hvr_partition_t p,
                     &ctx->local_partition_producers)) {
             // New producer
             hvr_mailbox_send(&change, sizeof(change), pe,
-                    -1, &ctx->forward_mailbox, HVR_IS_MULTITHREADED);
+                    -1, &ctx->forward_mailbox);
         }
     }
 
@@ -922,9 +912,6 @@ static void handle_existing_subscription(hvr_partition_t p,
                     hvr_dist_bitvec_local_subcopy_contains(pe,
                         &ctx->local_terminated_pes)) {
                 // New dead PE
-#ifdef HVR_MULTITHREADED
-#pragma omp critical
-#endif
                 pull_vertices_from_dead_pe(pe, p, ctx);
             }
         }
@@ -947,7 +934,7 @@ static void handle_new_unsubscription(hvr_partition_t p,
     for (int pe = 0; pe < ctx->npes; pe++) {
         if (hvr_dist_bitvec_local_subcopy_contains(pe, p_producer_info)) {
             hvr_mailbox_send(&change, sizeof(change), pe,
-                    -1, &ctx->forward_mailbox, HVR_IS_MULTITHREADED);
+                    -1, &ctx->forward_mailbox);
         }
     }
 
@@ -955,10 +942,6 @@ static void handle_new_unsubscription(hvr_partition_t p,
      * Invalidate all vertices cached in this partition because we won't be
      * getting new updates.
      */
-#ifdef HVR_MULTITHREADED
-#pragma omp critical
-    {
-#endif
     hvr_vertex_t *iter = hvr_partition_list_head(p,
             &ctx->mirror_partition_lists);
     while (iter) {
@@ -968,9 +951,6 @@ static void handle_new_unsubscription(hvr_partition_t p,
         }
         iter = next;
     }
-#ifdef HVR_MULTITHREADED
-    }
-#endif
 
     hvr_map_remove(p, p_producer_info, &ctx->producer_info);
     hvr_dist_bitvec_local_subcopy_destroy(&ctx->partition_producers,
@@ -1083,8 +1063,7 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
     for (size_t i = 0; i < ctx->n_prev_producer_partitions; i++) {
         hvr_partition_t p = ctx->prev_producer_partitions_list[i];
         if (!hvr_set_contains(p, new_produced_partitions)) {
-            hvr_dist_bitvec_clear(p, ctx->pe, &ctx->partition_producers,
-                    HVR_IS_MULTITHREADED);
+            hvr_dist_bitvec_clear(p, ctx->pe, &ctx->partition_producers);
         }
     }
 
@@ -1094,8 +1073,7 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
     for (size_t i = 0; i < n_producer_partitions; i++) {
         hvr_partition_t p = ctx->new_producer_partitions_list[i];
         if (!hvr_set_contains(p, ctx->produced_partitions)) {
-            hvr_dist_bitvec_set(p, ctx->pe, &ctx->partition_producers,
-                    HVR_IS_MULTITHREADED);
+            hvr_dist_bitvec_set(p, ctx->pe, &ctx->partition_producers);
         }
     }
 
@@ -1197,18 +1175,6 @@ void hvr_init(const hvr_partition_t n_partitions,
     new_ctx->initialized = 1;
 
     assert(max_graph_traverse_depth >= 1);
-
-    new_ctx->thread_safe = (shmemx_query_thread() == SHMEM_THREAD_MULTIPLE);
-#ifdef HVR_MULTITHREADED
-    assert(new_ctx->thread_safe);
-
-#pragma omp parallel
-    {
-        shmemx_thread_register();
-#pragma omp single
-        new_ctx->nthreads = omp_get_num_threads();
-    }
-#endif
 
     new_ctx->p_wrk_int = (int *)shmem_malloc_wrapper(
             SHMEM_REDUCE_MIN_WRKDATA_SIZE * sizeof(int));
@@ -1436,12 +1402,6 @@ void hvr_init(const hvr_partition_t n_partitions,
     new_ctx->interacting = (hvr_partition_t *)malloc_helper(
             MAX_INTERACTING_PARTITIONS * sizeof(new_ctx->interacting[0]));
     assert(new_ctx->interacting);
-#ifdef HVR_MULTITHREADED
-    new_ctx->per_thread_interacting = (hvr_partition_t *)malloc_helper(
-            new_ctx->nthreads * MAX_INTERACTING_PARTITIONS *
-            sizeof(new_ctx->per_thread_interacting[0]));
-    assert(new_ctx->per_thread_interacting);
-#endif
 
     size_t buffered_msgs_pool_size = 1024ULL * 1024ULL;
     if (getenv("HVR_BUFFERED_MSGS_POOL_SIZE")) {
@@ -1569,7 +1529,7 @@ static void process_vertex_subscriptions(hvr_internal_ctx_t *ctx,
 
     int iter = 0;
     int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->vert_sub_mailbox, 0);
+            &msg_len, &ctx->vert_sub_mailbox);
     while (success && (max_iters == -1 || iter < max_iters)) {
         assert(msg_len % sizeof(hvr_vertex_subscription_t) == 0);
         hvr_vertex_subscription_t *changes =
@@ -1639,7 +1599,7 @@ static void process_vertex_subscriptions(hvr_internal_ctx_t *ctx,
         }
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->vert_sub_mailbox, 0);
+                &msg_len, &ctx->vert_sub_mailbox);
         iter++;
     }
 
@@ -1651,7 +1611,7 @@ static void process_partition_subscriptions(hvr_internal_ctx_t *ctx) {
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
     int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->forward_mailbox, 0);
+            &msg_len, &ctx->forward_mailbox);
     while (success) {
         assert(msg_len == sizeof(hvr_partition_member_change_t));
         /*
@@ -1700,7 +1660,7 @@ static void process_partition_subscriptions(hvr_internal_ctx_t *ctx) {
             }
         }
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->forward_mailbox, 0);
+                &msg_len, &ctx->forward_mailbox);
     }
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
 
@@ -1884,7 +1844,7 @@ void hvr_send_msg(hvr_vertex_id_t dst_id, hvr_vertex_t *payload,
         memcpy(&msg.payload, payload, sizeof(*payload));
 
         hvr_mailbox_send(&msg, sizeof(msg), VERTEX_ID_PE(dst_id), -1,
-                &ctx->vertex_msg_mailbox, 0);
+                &ctx->vertex_msg_mailbox);
     }
 }
 
@@ -1900,7 +1860,7 @@ static void process_incoming_messages(hvr_internal_ctx_t *ctx) {
     hvr_msg_buf_node_t *msg_buf_node = hvr_msg_buf_pool_acquire(
             &ctx->msg_buf_pool);
     int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->vertex_msg_mailbox, 0);
+            &msg_len, &ctx->vertex_msg_mailbox);
     while (success) {
         assert(msg_len == sizeof(inter_vert_msg_t));
         inter_vert_msg_t *msg = (inter_vert_msg_t *)msg_buf_node->ptr;
@@ -1914,7 +1874,7 @@ static void process_incoming_messages(hvr_internal_ctx_t *ctx) {
         mark_for_processing(&local->vert, ctx);
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->vertex_msg_mailbox, 0);
+                &msg_len, &ctx->vertex_msg_mailbox);
     }
 
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
@@ -1933,7 +1893,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
 
     const unsigned long long midpoint = hvr_current_time_us();
     int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->vertex_update_mailbox, 0);
+            &msg_len, &ctx->vertex_update_mailbox);
     while (success) {
         assert(msg_len % sizeof(hvr_update_msg_t) == 0);
         hvr_update_msg_t *msgs = (hvr_update_msg_t *)msg_buf_node->ptr;
@@ -2023,7 +1983,7 @@ static unsigned process_vertex_updates(hvr_internal_ctx_t *ctx,
         if (count_update_msgs >= max_to_process) break;
 
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, &ctx->vertex_update_mailbox, 0);
+                &msg_len, &ctx->vertex_update_mailbox);
     }
 
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
@@ -2221,7 +2181,7 @@ static hvr_vertex_cache_node_t *set_up_vertex_subscription(hvr_vertex_id_t vid,
             int success;
             do {
                 success = hvr_mailbox_buffer_send(&msg, sizeof(msg), owning_pe,
-                        100, &ctx->vert_sub_mailbox_buffer, 0);
+                        100, &ctx->vert_sub_mailbox_buffer);
                 if (!success) {
                     process_vertex_subscriptions(ctx, 100);
                 }
@@ -2299,14 +2259,14 @@ static uint64_t poll_for_dead_pes(hvr_internal_ctx_t *ctx) {
 
     int success = hvr_mailbox_recv(msg_buf_node->ptr,
             msg_buf_node->buf_size, &msg_len,
-            &ctx->coupling_ack_and_dead_mailbox, 0);
+            &ctx->coupling_ack_and_dead_mailbox);
     while (success) {
         assert(msg_len == sizeof(hvr_dead_pe_msg_t));
         hvr_dead_pe_msg_t *msg = (hvr_dead_pe_msg_t *)msg_buf_node->ptr;
         pulled_vertices += handle_dead_msg(msg, ctx);
         success = hvr_mailbox_recv(msg_buf_node->ptr,
                 msg_buf_node->buf_size, &msg_len,
-                &ctx->coupling_ack_and_dead_mailbox, 0);
+                &ctx->coupling_ack_and_dead_mailbox);
     }
 
     hvr_msg_buf_pool_release(msg_buf_node, &ctx->msg_buf_pool);
@@ -2630,7 +2590,7 @@ static void wait_for_full_coupling_info(hvr_msg_buf_node_t *msg_buf_node,
         size_t msg_len;
         int success = hvr_mailbox_recv(msg_buf_node->ptr,
                 msg_buf_node->buf_size, &msg_len,
-                &ctx->coupling_mailbox, 0);
+                &ctx->coupling_mailbox);
         if (success) {
             if (msg_len == sizeof(new_coupling_msg_t)) {
                 new_coupling_msg_t *msg =
@@ -2644,7 +2604,7 @@ static void wait_for_full_coupling_info(hvr_msg_buf_node_t *msg_buf_node,
                      * cluster. So resend to myself.
                      */
                     hvr_mailbox_send(msg, sizeof(*msg), ctx->pe, -1,
-                            &ctx->coupling_mailbox, 0);
+                            &ctx->coupling_mailbox);
                 } else {
                     // Reply, forwarding them to your root
                     new_coupling_msg_ack_t ack;
@@ -2652,7 +2612,7 @@ static void wait_for_full_coupling_info(hvr_msg_buf_node_t *msg_buf_node,
                     ack.root_pe = ctx->coupled_pes_root;
                     ack.abort = 0;
                     hvr_mailbox_send(&ack, sizeof(ack), msg->pe, -1,
-                            &ctx->coupling_ack_and_dead_mailbox, 0);
+                            &ctx->coupling_ack_and_dead_mailbox);
                 }
             } else if (msg_len == ctx->to_couple_with_msg.msg_buf_len) {
                 hvr_internal_set_msg_t *msg =
@@ -2684,7 +2644,7 @@ static size_t blocking_recv(hvr_msg_buf_node_t *msg_buf_node, hvr_mailbox_t *mb,
     int success;
     do {
         success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-                &msg_len, mb, 0);
+                &msg_len, mb);
     } while (!success);
     return msg_len;
 }
@@ -2750,7 +2710,7 @@ static int check_incoming_coupling_requests(hvr_msg_buf_node_t *msg_buf_node,
 
     size_t msg_len;
     int success = hvr_mailbox_recv(msg_buf_node->ptr, msg_buf_node->buf_size,
-            &msg_len, &ctx->coupling_mailbox, 0);
+            &msg_len, &ctx->coupling_mailbox);
     if (success) {
         assert(msg_len == sizeof(new_coupling_msg_t));
         new_coupling_msg_t *msg =
@@ -2763,7 +2723,7 @@ static int check_incoming_coupling_requests(hvr_msg_buf_node_t *msg_buf_node,
         ack.root_pe = ctx->coupled_pes_root;
         ack.abort = 0;
         hvr_mailbox_send(&ack, sizeof(ack), request_src_pe, -1,
-                &ctx->coupling_ack_and_dead_mailbox, 0);
+                &ctx->coupling_ack_and_dead_mailbox);
 
 #ifdef COUPLING_PRINTS
         fprintf(stderr, "PE %d got coupling request from %d\n", ctx->pe,
@@ -2794,7 +2754,7 @@ static int wait_for_coupling_ack(hvr_msg_buf_node_t *msg_buf_node,
     do {
         success = hvr_mailbox_recv(msg_buf_node->ptr,
                 msg_buf_node->buf_size, &msg_len,
-                &ctx->coupling_mailbox, 0);
+                &ctx->coupling_mailbox);
         if (success) {
             assert(msg_len == sizeof(new_coupling_msg_t));
             new_coupling_msg_t *remote_coupling_msg =
@@ -2812,13 +2772,13 @@ static int wait_for_coupling_ack(hvr_msg_buf_node_t *msg_buf_node,
             ack.root_pe = ctx->coupled_pes_root;
             ack.abort = 1;
             hvr_mailbox_send(&ack, sizeof(ack), remote_coupling_msg->pe,
-                    -1, &ctx->coupling_ack_and_dead_mailbox, 0);
+                    -1, &ctx->coupling_ack_and_dead_mailbox);
 
         }
 
         success = hvr_mailbox_recv(msg_buf_node->ptr,
                 msg_buf_node->buf_size, &msg_len,
-                &ctx->coupling_ack_and_dead_mailbox, 0);
+                &ctx->coupling_ack_and_dead_mailbox);
         if (success) {
             if (msg_len == sizeof(hvr_dead_pe_msg_t)) {
                 // A PE has left the simulation, update our set of terminated PEs
@@ -2903,7 +2863,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
             size_t msg_len;
             int success = hvr_mailbox_recv(msg_buf_node->ptr,
                     msg_buf_node->buf_size, &msg_len,
-                    &ctx->to_couple_with_mailbox, 0);
+                    &ctx->to_couple_with_mailbox);
             if (success) {
                 assert(msg_len == ctx->to_couple_with_msg.msg_buf_len);
                 hvr_internal_set_msg_t *msg =
@@ -2964,7 +2924,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                 int is_dead = 0;
                 do {
                     hvr_mailbox_send(&my_coupling_msg, sizeof(my_coupling_msg),
-                            expected_root_pe, -1, &ctx->coupling_mailbox, 0);
+                            expected_root_pe, -1, &ctx->coupling_mailbox);
 #ifdef COUPLING_PRINTS
                     fprintf(stderr, "PE %d sending coupling request to %d\n",
                             ctx->pe, expected_root_pe);
@@ -3138,7 +3098,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
                 hvr_set_insert(p, ctx->received_from);
             } else {
                 hvr_mailbox_send(&coupled_val_msg, sizeof(coupled_val_msg), p,
-                        -1, &ctx->coupling_val_mailbox, 0);
+                        -1, &ctx->coupling_val_mailbox);
             }
         }
     }
@@ -3148,8 +3108,7 @@ static unsigned update_coupled_values(hvr_internal_ctx_t *ctx,
     while (!hvr_set_equal(ctx->received_from, ctx->coupled_pes)) {
         size_t msg_len;
         int success = hvr_mailbox_recv(msg_buf_node->ptr,
-                msg_buf_node->buf_size, &msg_len, &ctx->coupling_val_mailbox,
-                0);
+                msg_buf_node->buf_size, &msg_len, &ctx->coupling_val_mailbox);
         if (success) {
             assert(msg_len == sizeof(hvr_coupling_msg_t));
             hvr_coupling_msg_t *msg = (hvr_coupling_msg_t *)msg_buf_node->ptr;
@@ -4005,7 +3964,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
     dead_msg.pe = ctx->pe;
     for (int p = 0; p < ctx->npes; p++) {
         hvr_mailbox_send(&dead_msg, sizeof(dead_msg), p, -1,
-                &ctx->coupling_ack_and_dead_mailbox, 0);
+                &ctx->coupling_ack_and_dead_mailbox);
     }
 
     this_pe_has_exited = 1;
@@ -4034,7 +3993,7 @@ hvr_exec_info hvr_body(hvr_ctx_t in_ctx) {
      */
     for (hvr_partition_t p = 0; p < ctx->n_partitions; p++) {
         if (hvr_partition_list_head(p, &ctx->local_partition_lists)) {
-            hvr_dist_bitvec_set(p, ctx->pe, &ctx->terminated_pes, 0);
+            hvr_dist_bitvec_set(p, ctx->pe, &ctx->terminated_pes);
         }
     }
 
@@ -4108,13 +4067,6 @@ void hvr_finalize(hvr_ctx_t in_ctx) {
     hvr_msg_buf_pool_destroy(&ctx->msg_buf_pool);
 
     free(ctx->interacting);
-
-#ifdef HVR_MULTITHREADED
-#pragma omp parallel
-    {
-        shmemx_thread_unregister();
-    }
-#endif
 
     free(ctx);
 }

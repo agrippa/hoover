@@ -22,7 +22,7 @@ void hvr_mailbox_buffer_init(hvr_mailbox_buffer_t *buf, hvr_mailbox_t *mbox,
 }
 
 int hvr_mailbox_buffer_send(const void *msg, size_t msg_len, int target_pe,
-        int max_tries, hvr_mailbox_buffer_t *buf, int multithreaded) {
+        int max_tries, hvr_mailbox_buffer_t *buf) {
     assert(msg_len == buf->msg_size);
 
     unsigned nbuffered = buf->nbuffered_per_pe[target_pe];
@@ -34,7 +34,7 @@ int hvr_mailbox_buffer_send(const void *msg, size_t msg_len, int target_pe,
     if (nbuffered == buf->buffer_size_per_pe) {
         // flush
         int success = hvr_mailbox_send(pe_buf, nbuffered * buf->msg_size,
-                target_pe, max_tries, buf->mbox, multithreaded);
+                target_pe, max_tries, buf->mbox);
         if (success) {
             buf->nbuffered_per_pe[target_pe] = 0;
         } else {
@@ -62,7 +62,7 @@ void hvr_mailbox_buffer_flush(hvr_mailbox_buffer_t *buf, int (*cb)(void *, int),
             int printed_warning = 0;
 
             int success = hvr_mailbox_send(pe_buf, nbuffered * buf->msg_size,
-                    p, 100, buf->mbox, 0);
+                    p, 100, buf->mbox);
             int should_abort_send = 0;
             while (!success && !should_abort_send) {
                 if (cb) {
@@ -70,7 +70,7 @@ void hvr_mailbox_buffer_flush(hvr_mailbox_buffer_t *buf, int (*cb)(void *, int),
                 }
 
                 success = hvr_mailbox_send(pe_buf, nbuffered * buf->msg_size,
-                        p, 100, buf->mbox, 0);
+                        p, 100, buf->mbox);
 
                 count_loops++;
                 if (count_loops > 100000 && !printed_warning) {

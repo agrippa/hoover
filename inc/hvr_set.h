@@ -34,10 +34,6 @@ extern hvr_set_t *hvr_create_empty_set(const unsigned nvals);
  */
 extern int hvr_set_insert(uint64_t val, hvr_set_t *set);
 
-#ifdef HVR_MULTITHREADED
-extern int hvr_set_insert_atomic(uint64_t val, hvr_set_t *set);
-#endif
-
 extern int hvr_set_clear(uint64_t val, hvr_set_t *set);
 
 /*

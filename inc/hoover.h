@@ -194,9 +194,6 @@ typedef struct _hvr_internal_ctx_t {
     // The number of PEs (caches shmem_n_pes())
     int npes;
 
-    // Is the current OpenSHMEM runtime configured thread-safe?
-    int thread_safe;
-
     int user_mutation_allowed;
 
     hvr_partition_t *vertex_partitions; // only set while exiting
@@ -354,10 +351,6 @@ typedef struct _hvr_internal_ctx_t {
     hvr_dist_bitvec_t terminated_pes;
 
     hvr_partition_t *interacting;
-#ifdef HVR_MULTITHREADED
-    int nthreads;
-    hvr_partition_t *per_thread_interacting;
-#endif
 
     hvr_vertex_t *recently_created;
 

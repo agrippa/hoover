@@ -57,12 +57,10 @@ void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
         hvr_dist_bitvec_size_t dim1, hvr_dist_bitvec_t *vec);
 
 void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec,
-        int multithreaded);
+        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec);
 
 void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec,
-        int multithreaded);
+        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec);
 
 size_t hvr_dist_bitvec_mem_used(hvr_dist_bitvec_t *vec);
 

@@ -49,8 +49,7 @@ void hvr_dist_bitvec_init(hvr_dist_bitvec_size_t dim0,
 }
 
 void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec,
-        int multithreaded) {
+        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec) {
     assert(coord0 < vec->dim0);
     assert(coord1 < vec->dim1);
 
@@ -67,18 +66,13 @@ void hvr_dist_bitvec_set(hvr_dist_bitvec_size_t coord0,
             vec->symm_vec + ((coord0_offset * vec->dim1_length_in_words) +
             coord1_word), coord1_mask, coord0_pe);
 
-    if (multithreaded) {
-        shmemx_thread_fence();
-    } else {
-        shmem_fence();
-    }
+    shmem_fence();
 
     shmem_uint64_atomic_inc(vec->seq_nos + coord0_offset, coord0_pe);
 }
 
 void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
-        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec,
-        int multithreaded) {
+        hvr_dist_bitvec_size_t coord1, hvr_dist_bitvec_t *vec) {
     assert(coord0 < vec->dim0);
     assert(coord1 < vec->dim1);
 
@@ -95,11 +89,7 @@ void hvr_dist_bitvec_clear(hvr_dist_bitvec_size_t coord0,
             vec->symm_vec + (coord0_offset * vec->dim1_length_in_words) +
             coord1_word, coord1_mask, coord0_pe);
 
-    if (multithreaded) {
-        shmemx_thread_fence();
-    } else {
-        shmem_fence();
-    }
+    shmem_fence();
 
     shmem_uint64_atomic_inc(vec->seq_nos + coord0_offset, coord0_pe);
 }
