@@ -10,9 +10,8 @@
 #include <math.h>
 #include <stdlib.h>
 
-#ifdef MULTITHREADED
-#include <omp.h>
-#include <shmemx.h>
+#ifdef CRAYPAT
+#include <pat_api.h>
 #endif
 
 #include <set>
@@ -32,7 +31,7 @@
 #define MIN(a, b) (((a) < (b)) ? a : b)
 
 // Maximum # of vertices allowed in a subgraph
-#define MAX_SUBGRAPH_VERTICES 5
+#define MAX_SUBGRAPH_VERTICES 4
 
 // Number of patterns to share with other PEs
 #define N_PATTERNS_SHARED 5
@@ -347,9 +346,6 @@ static inline unsigned explore_subgraphs(hvr_vertex_t *last_added,
     const unsigned long long start_tracking_time = hvr_current_time_us();
 #endif
 
-#ifdef HVR_MULTITHREADED
-#pragma omp atomic
-#endif
     pattern_counts[curr_state->adjacency_matrix.matrix] += 1;
 
 #ifdef VERBOSE
@@ -470,10 +466,8 @@ static void copy_to_local_patterns() {
             p.count = pattern_counts[pattern];
             p.matrix.matrix = pattern;
 
-            unsigned my_index;
-            { my_index = n_known_local_patterns; n_known_local_patterns++; }
-
-            memcpy(&known_local_patterns[my_index], &p, sizeof(p));
+            memcpy(&known_local_patterns[n_known_local_patterns++], &p,
+                    sizeof(p));
         }
     }
 }
@@ -913,6 +907,9 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
 }
 
 int main(int argc, char **argv) {
+#ifdef CRAYPAT
+    PAT_record(PAT_STATE_OFF);
+#endif
     hvr_ctx_t hvr_ctx;
     assert(HVR_MAX_VECTOR_SIZE == 3);
 
@@ -957,16 +954,7 @@ int main(int argc, char **argv) {
             possible_permutations * sizeof(*pattern_counts));
     assert(pattern_counts);
 
-#ifdef MULTITHREADED
-#pragma omp parallel
-#pragma omp single
-    nthreads = omp_get_num_threads();
-
-    int provided = shmemx_init_thread(SHMEM_THREAD_MULTIPLE);
-    assert(provided == SHMEM_THREAD_MULTIPLE);
-#else
     shmem_init();
-#endif
 
     pe = shmem_my_pe();
     npes = shmem_n_pes();
@@ -978,9 +966,6 @@ int main(int argc, char **argv) {
                 pe_chunks_by_dim[1], pe_chunks_by_dim[2]);
         printf("Partitions cube = %u x %u x %u\n", partitions_by_dim[0],
                 partitions_by_dim[1], partitions_by_dim[2]);
-#ifdef MULTITHREADED
-        printf("# OMP threads = %d\n", nthreads);
-#endif
     }
 
     assert(pe_chunks_by_dim[0] * pe_chunks_by_dim[1] * pe_chunks_by_dim[2] ==
@@ -1056,7 +1041,13 @@ int main(int argc, char **argv) {
     shmem_barrier_all();
 
     start_time = hvr_current_time_us();
+#ifdef CRAYPAT
+    PAT_record(PAT_STATE_ON);
+#endif
     hvr_exec_info info = hvr_body(hvr_ctx);
+#ifdef CRAYPAT
+    PAT_record(PAT_STATE_OFF);
+#endif
     elapsed_time = info.start_hvr_body_wrapup_us - info.start_hvr_body_us;
 
     printf("PE %d found %u patterns on iter %d using %d "

@@ -97,7 +97,7 @@ mkdir -p job.$SLURM_JOB_ID
 cd job.$SLURM_JOB_ID
 
 srun $SLURM_ARGS \
-    $HOME/hoover/intrusion_detection+pat \
+    $HOME/hoover/bin/intrusion_detection \
     $TIME_LIMIT_IN_SECONDS \
     $EDGE_DISTANCE \
     $DOMAIN_SIZE \

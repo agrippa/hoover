@@ -67,14 +67,14 @@ static uint32_t used_bytes(uint32_t read_index, uint32_t write_index,
     }
 }
 
-static void memset_mailbox_with_rotation(int val, size_t data_len,
+static void clear_mailbox_with_rotation(size_t data_len,
         uint64_t starting_offset, hvr_mailbox_t *mailbox) {
     if (starting_offset + data_len <= mailbox->capacity_in_bytes) {
-        memset(mailbox->buf + starting_offset, val, data_len);
+        memset(mailbox->buf + starting_offset, 0x00, data_len);
     } else {
         uint64_t rotate_index = mailbox->capacity_in_bytes - starting_offset;
-        memset(mailbox->buf + starting_offset, val, rotate_index);
-        memset(mailbox->buf, val, data_len - rotate_index);
+        memset(mailbox->buf + starting_offset, 0x00, rotate_index);
+        memset(mailbox->buf, 0x00, data_len - rotate_index);
     }
 }
 
@@ -282,11 +282,11 @@ int hvr_mailbox_recv(void *msg, size_t msg_capacity, size_t *msg_len,
      * increment the read index.
      */
 #ifdef USE_CRC
-    memset_mailbox_with_rotation(0,
+    clear_mailbox_with_rotation(
             2*sizeof(crc) + sizeof(recv_msg_len) + recv_msg_len,
             msg_len_crc_offset, mailbox);
 #else
-    memset_mailbox_with_rotation(0,
+    clear_mailbox_with_rotation(
             sizeof(recv_msg_len) + recv_msg_len,
             msg_len_offset, mailbox);
 #endif

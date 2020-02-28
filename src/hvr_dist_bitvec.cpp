@@ -188,7 +188,6 @@ void hvr_dist_bitvec_local_subcopy_copy(hvr_dist_bitvec_local_subcopy_t *dst,
 void hvr_dist_bitvec_local_subcopy_destroy(hvr_dist_bitvec_t *vec,
         hvr_dist_bitvec_local_subcopy_t *c) {
     mspace_free(vec->tracker, c->subvec);
-    memset(c, 0x00, sizeof(*c));
 }
 
 size_t hvr_dist_bitvec_local_subcopy_bytes(

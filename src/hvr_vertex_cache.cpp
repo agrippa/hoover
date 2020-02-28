@@ -105,6 +105,7 @@ static inline hvr_vertex_cache_node_t *allocate_node_from_pool(
     }
 
     memset(new_node, 0x00, sizeof(*new_node));
+
     new_node->populated = 1;
     new_node->dist_from_local_vert = UINT8_MAX;
 

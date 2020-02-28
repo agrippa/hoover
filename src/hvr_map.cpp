@@ -70,6 +70,11 @@ static void hvr_map_seg_add(hvr_vertex_id_t key, void *data,
     }
 }
 
+static inline void hvr_map_seg_init(hvr_map_seg_t *seg) {
+    seg->nkeys = 0;
+    seg->next = NULL;
+}
+
 void hvr_map_init(hvr_map_t *m, unsigned n_segs, const char *seg_env_var) {
     memset(m, 0x00, sizeof(*m));
 
@@ -117,7 +122,8 @@ void hvr_map_add(hvr_vertex_id_t key, void *to_insert, int replace,
                 abort();
             }
             m->seg_pool = new_seg->next;
-            memset(new_seg, 0x00, sizeof(*new_seg));
+
+            hvr_map_seg_init(new_seg);
 
             hvr_map_seg_add(key, to_insert, new_seg);
             assert(m->buckets[bucket] == NULL);
@@ -136,7 +142,7 @@ void hvr_map_add(hvr_vertex_id_t key, void *to_insert, int replace,
                     abort();
                 }
                 m->seg_pool = new_seg->next;
-                memset(new_seg, 0x00, sizeof(*new_seg));
+                hvr_map_seg_init(new_seg);
 
                 hvr_map_seg_add(key, to_insert, new_seg);
                 assert(last_seg_in_bucket->next == NULL);
