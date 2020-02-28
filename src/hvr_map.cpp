@@ -3,13 +3,56 @@
 #include <stdio.h>
 #include <string.h>
 
-static int comp(const void *_a, const void *_b) {
-    hvr_map_val_t *a = (hvr_map_val_t *)_a;
-    hvr_map_val_t *b = (hvr_map_val_t *)_b;
+static inline void swap(hvr_vertex_id_t *a, hvr_vertex_id_t *b, void **co_a, void **co_b) {
+    hvr_vertex_id_t tmp = *a;
+    *a = *b;
+    *b = tmp;
 
-    if (a->key < b->key) return -1;
-    else if (a->key > b->key) return 1;
-    else return 0;
+    void *tmp2 = *co_a;
+    *co_a = *co_b;
+    *co_b = tmp2;
+}
+
+/* This function takes last element as pivot, places 
+ *    the pivot element at its correct position in sorted 
+ *        array, and places all smaller (smaller than pivot) 
+ *           to left of pivot and all greater elements to right 
+ *              of pivot */
+static int partition (hvr_vertex_id_t *arr, void **co_arr, int low, int high) 
+{
+    hvr_vertex_id_t pivot = arr[high];    // pivot 
+    int i = (low - 1);  // Index of smaller element 
+
+    for (int j = low; j <= high- 1; j++) 
+    { 
+        // If current element is smaller than the pivot 
+        if (arr[j] < pivot) 
+        { 
+            i++;    // increment index of smaller element 
+            swap(&arr[i], &arr[j], &co_arr[i], &co_arr[j]); 
+        } 
+    } 
+    swap(&arr[i + 1], &arr[high], &co_arr[i + 1], &co_arr[high]); 
+    return (i + 1); 
+} 
+
+/* The main function that implements QuickSort 
+   arr[] --> Array to be sorted, 
+   low  --> Starting index, 
+   high  --> Ending index */
+static void quickSort(hvr_vertex_id_t *arr, void **co_arr, int low, int high) 
+{ 
+    if (low < high) 
+    { 
+        /* pi is partitioning index, arr[p] is now 
+           at right place */
+        int pi = partition(arr, co_arr, low, high); 
+
+        // Separately sort elements before 
+        // partition and after partition 
+        quickSort(arr, co_arr, low, pi - 1); 
+        quickSort(arr, co_arr, pi + 1, high); 
+    } 
 }
 
 // Add a new key with one initial value
@@ -17,13 +60,13 @@ static void hvr_map_seg_add(hvr_vertex_id_t key, void *data,
         hvr_map_seg_t *s) {
     const unsigned insert_index = s->nkeys;
     assert(insert_index < HVR_MAP_SEG_SIZE);
-    s->data[insert_index].key = key;
-    s->data[insert_index].data = data;
+    s->data_key[insert_index] = key;
+    s->data_data[insert_index] = data;
 
     s->nkeys++;
 
     if (s->nkeys == HVR_MAP_SEG_SIZE) {
-        qsort(&(s->data[0]), HVR_MAP_SEG_SIZE, sizeof(s->data[0]), comp);
+        quickSort(&(s->data_key[0]), &(s->data_data[0]), 0, HVR_MAP_SEG_SIZE - 1);
     }
 }
 
@@ -56,9 +99,9 @@ void hvr_map_add(hvr_vertex_id_t key, void *to_insert, int replace,
     if (success) {
         // Key already exists
         if (replace) {
-            seg->data[seg_index].data = to_insert;
+            seg->data_data[seg_index] = to_insert;
         } else {
-            assert(seg->data[seg_index].data == to_insert);
+            assert(seg->data_data[seg_index] == to_insert);
         }
     } else {
         const unsigned bucket = HVR_MAP_BUCKET(key);
@@ -114,13 +157,13 @@ void hvr_map_remove(hvr_vertex_id_t key, void *val, hvr_map_t *m) {
     const int success = hvr_map_find(key, m, &seg, &seg_index);
 
     if (success) {
-        assert(seg->data[seg_index].data == val);
+        assert(seg->data_data[seg_index] == val);
 
         unsigned copy_to = seg_index;
         unsigned copy_from = seg->nkeys - 1;
 
-        memcpy(&(seg->data[copy_to]), &(seg->data[copy_from]),
-                sizeof(seg->data[0]));
+        seg->data_key[copy_to] = seg->data_key[copy_from];
+        seg->data_data[copy_to] = seg->data_data[copy_from];
         seg->nkeys -= 1;
     }
 }
@@ -147,8 +190,7 @@ void hvr_map_size_in_bytes(hvr_map_t *m, size_t *out_capacity,
         hvr_map_seg_t *bucket = m->buckets[b];
         while (bucket) {
             unsigned n_unused_keys = HVR_MAP_SEG_SIZE - bucket->nkeys;
-            used += sizeof(hvr_map_seg_t) - (n_unused_keys *
-                    sizeof(hvr_map_val_t));
+            used += sizeof(hvr_map_seg_t) - (n_unused_keys * sizeof(hvr_vertex_id_t) + sizeof(void*));
 
             used += bucket->nkeys * bytes_per_value;
             allocated += bucket->nkeys * bytes_per_value;

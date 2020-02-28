@@ -1010,7 +1010,7 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
         hvr_map_seg_t *iter = ctx->local_partition_lists.map.buckets[b];
         while (iter) {
             for (int i = 0; i < iter->nkeys; i++) {
-                hvr_vertex_id_t p = iter->data[i].key;
+                hvr_vertex_id_t p = iter->data_key[i];
 
                 // Producer
                 if (!hvr_set_contains(p, new_produced_partitions)) {
@@ -1033,7 +1033,7 @@ static void update_partition_window(hvr_internal_ctx_t *ctx,
         hvr_map_seg_t *iter = ctx->mirror_partition_lists.map.buckets[b];
         while (iter) {
             for (int i = 0; i < iter->nkeys; i++) {
-                hvr_vertex_id_t p = iter->data[i].key;
+                hvr_vertex_id_t p = iter->data_key[i];
                 if (ctx->partition_min_dist_from_local_vert[p] <=
                         ctx->max_graph_traverse_depth - 1) {
                     // Subscriber to any interacting partitions with p

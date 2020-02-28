@@ -691,6 +691,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 score_pattern(known_local_patterns + 0),
                 adjacency_matrix_n_edges(&known_local_patterns[0].matrix));
 #else
+#if 0
         double search_ms = (double)(end_search - start_search) / 1000.0;
         // printf("PE %d found %u patterns on iter %d using %d "
         //         "visits for %u local verts, %f ms to search (%f visits/ms).\n",
@@ -711,6 +712,7 @@ void start_time_step(hvr_vertex_iter_t *iter, hvr_set_t *couple_with,
                 n_local_vertices,
                 0,
                 0);
+#endif
 #endif
     }
 }
@@ -1056,6 +1058,22 @@ int main(int argc, char **argv) {
     start_time = hvr_current_time_us();
     hvr_exec_info info = hvr_body(hvr_ctx);
     elapsed_time = info.start_hvr_body_wrapup_us - info.start_hvr_body_us;
+
+    printf("PE %d found %u patterns on iter %d using %d "
+            "visits. %f ms inserting new vertices, %f ms to search (%f "
+            "counting patterns), %f ms to compute top scores. %u local "
+            "vertices in total. Best score = %u, edge "
+            "count = %u.\n",
+            pe, n_known_local_patterns, info.executed_iters,
+            0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            n_local_vertices,
+            0,
+            0);
+
 
     // Get a total wallclock time across all PEs
     shmem_longlong_sum_to_all(&total_time, &elapsed_time, 1, 0, 0, npes, p_wrk,

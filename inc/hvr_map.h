@@ -14,13 +14,9 @@ extern "C" {
 #define HVR_MAP_BUCKETS 16384
 #define HVR_MAP_BUCKET(my_key) ((my_key) % HVR_MAP_BUCKETS)
 
-typedef struct _hvr_map_val_t {
-    hvr_vertex_id_t key;
-    void *data;
-} hvr_map_val_t;
-
 typedef struct _hvr_map_seg_t {
-    hvr_map_val_t data[HVR_MAP_SEG_SIZE];
+    hvr_vertex_id_t data_key[HVR_MAP_SEG_SIZE];
+    void *data_data[HVR_MAP_SEG_SIZE];
 
     // Number of keys in this map segment
     unsigned nkeys;
@@ -67,7 +63,7 @@ void hvr_map_remove(hvr_vertex_id_t key, void *val,
  */
 // void *hvr_map_get(hvr_vertex_id_t key, hvr_map_t *m);
 
-static inline int binarySearch(const hvr_map_val_t *arr,
+static inline int binarySearch(const hvr_vertex_id_t *arr,
         const hvr_vertex_id_t x) 
 {
     int l = 0;
@@ -77,9 +73,9 @@ static inline int binarySearch(const hvr_map_val_t *arr,
 
         // If the element is present at the middle  
         // itself 
-        if (arr[mid].key == x) {
+        if (arr[mid] == x) {
             return mid;
-        } else if (arr[mid].key > x) {
+        } else if (arr[mid] > x) {
             r = mid - 1;
         } else {
             l = mid + 1;
@@ -99,7 +95,7 @@ static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
     while (seg) {
         const unsigned nkeys = seg->nkeys;
         if (nkeys == HVR_MAP_SEG_SIZE) {
-            int index = binarySearch(seg->data, key);
+            int index = binarySearch(seg->data_key, key);
             if (index >= 0) {
                 *out_seg = seg;
                 *out_index = index;
@@ -107,7 +103,7 @@ static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
             }
         } else {
             for (unsigned i = 0; i < nkeys; i++) {
-                if (seg->data[i].key == key) {
+                if (seg->data_key[i] == key) {
                     *out_seg = seg;
                     *out_index = i;
                     return 1;
@@ -126,7 +122,7 @@ static inline void *hvr_map_get(hvr_vertex_id_t key, hvr_map_t *m) {
     const int success = hvr_map_find(key, m, &seg, &seg_index);
 
     if (success) {
-        return seg->data[seg_index].data;
+        return seg->data_data[seg_index];
     } else {
         return NULL;
     }
