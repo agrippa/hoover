@@ -3,9 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#define HVR_MAP_BUCKET(my_key) ((my_key) % HVR_MAP_BUCKETS)
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-
 static int comp(const void *_a, const void *_b) {
     hvr_map_val_t *a = (hvr_map_val_t *)_a;
     hvr_map_val_t *b = (hvr_map_val_t *)_b;
@@ -28,58 +25,6 @@ static void hvr_map_seg_add(hvr_vertex_id_t key, void *data,
     if (s->nkeys == HVR_MAP_SEG_SIZE) {
         qsort(&(s->data[0]), HVR_MAP_SEG_SIZE, sizeof(s->data[0]), comp);
     }
-}
-
-static inline int binarySearch(const hvr_map_val_t *arr,
-        const hvr_vertex_id_t x) 
-{
-    int l = 0;
-    int r = HVR_MAP_SEG_SIZE - 1;
-    while (r >= l) {
-        const int mid = l + (r - l)/2; 
-
-        // If the element is present at the middle  
-        // itself 
-        if (arr[mid].key == x) {
-            return mid;
-        } else if (arr[mid].key > x) {
-            r = mid - 1;
-        } else {
-            l = mid + 1;
-        }
-    } 
-
-    // We reach here when element is not  
-    // present in array 
-    return -1; 
-}
-
-static inline int hvr_map_find(hvr_vertex_id_t key, hvr_map_t *m,
-        hvr_map_seg_t **out_seg, unsigned *out_index) {
-    unsigned bucket = HVR_MAP_BUCKET(key);
-
-    hvr_map_seg_t *seg = m->buckets[bucket];
-    while (seg) {
-        const unsigned nkeys = seg->nkeys;
-        if (nkeys == HVR_MAP_SEG_SIZE) {
-            int index = binarySearch(seg->data, key);
-            if (index >= 0) {
-                *out_seg = seg;
-                *out_index = index;
-                return 1;
-            }
-        } else {
-            for (unsigned i = 0; i < nkeys; i++) {
-                if (seg->data[i].key == key) {
-                    *out_seg = seg;
-                    *out_index = i;
-                    return 1;
-                }
-            }
-        }
-        seg = seg->next;
-    }
-    return 0;
 }
 
 void hvr_map_init(hvr_map_t *m, unsigned n_segs, const char *seg_env_var) {
@@ -177,19 +122,6 @@ void hvr_map_remove(hvr_vertex_id_t key, void *val, hvr_map_t *m) {
         memcpy(&(seg->data[copy_to]), &(seg->data[copy_from]),
                 sizeof(seg->data[0]));
         seg->nkeys -= 1;
-    }
-}
-
-void *hvr_map_get(hvr_vertex_id_t key, hvr_map_t *m) {
-    hvr_map_seg_t *seg;
-    unsigned seg_index;
-
-    const int success = hvr_map_find(key, m, &seg, &seg_index);
-
-    if (success) {
-        return seg->data[seg_index].data;
-    } else {
-        return NULL;
     }
 }
 
