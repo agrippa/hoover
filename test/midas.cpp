@@ -1,16 +1,8 @@
 #include <shmem.h>
 #include <stdio.h>
 #include <hoover.h>
-#include "mmio.h"
 
-#define SKIP_COUPLING
-
-/*
- * Tested graphs:
- *
- *  - https://sparse.tamu.edu/LAW/in-2004
- *  - https://www.cise.ufl.edu/research/sparse/matrices/SNAP/soc-LiveJournal1.html
- */
+#include "count_min_sketch.hpp"
 
 static int pe, npes;
 
@@ -24,11 +16,48 @@ static uint64_t n_my_edges;
 static uint64_t edges_so_far = 0;
 static uint64_t batch_size = 16;
 
+/*
+ * 'everything' is updated for every single edge, and never cleared.
+ *
+ * 'recent' is updated for every single edge, but is cleared after every
+ * 'recent_n_ms' milliseconds.
+ *
+ * 'history' is initialized with the state of 'everything' after every
+ * 'recent_n_ms' milliseconds.
+ */
+static CountMinSketch *history = NULL;
+static CountMinSketch *recent = NULL;
+static CountMinSketch *everything = NULL;
+
+double recent_n_ms = 1000.0;
+double history_ms = 0.;
+
+double last_tick_ms = 0.;
+double start_time_ms = 0.;
+
+/*
+ * Really just a dummy hash function, needed because the count-min-sketch
+ * implementation we've downloaded only supports updates for int-typed items.
+ *
+ * For a real implementation, you'd write a count-min-sketch implementation from
+ * scratch supporting edge tuples as the item type.
+ */
+static inline int hash_edge(hvr_vertex_id_t a, hvr_vertex_id_t b) {
+    return abs((int)(b - a));
+}
+
 void start_time_step(hvr_vertex_iter_t *iter,
         hvr_set_t *couple_with, hvr_ctx_t ctx) {
     uint64_t limit = edges_so_far + batch_size;
     if (limit > n_my_edges) {
         limit = n_my_edges;
+    }
+
+    double current_time_ms = hvr_current_time_us() / 1000.0;
+    if (current_time_ms - last_tick_ms >= recent_n_ms) {
+        history = new CountMinSketch(*everything);
+        recent = new CountMinSketch(0.01, 0.1);
+        history_ms = current_time_ms - start_time_ms;
     }
 
     while (edges_so_far < limit) {
@@ -40,43 +69,34 @@ void start_time_step(hvr_vertex_iter_t *iter,
 
         hvr_create_edge_with_vertex_id(local, other_id, BIDIRECTIONAL, ctx);
 
+        int edge_hash = hash_edge(local_id, other_id);
+        everything->update(edge_hash, 1);
+        recent->update(edge_hash, 1);
+
+        if (history) {
+            if (history->estimate(edge_hash) > 0 &&
+                    recent->estimate(edge_hash) / recent_n_ms >=
+                    2 * history->estimate(edge_hash) / history_ms) {
+                printf("Found anomaly for edge (%lu -> %lu), historical=%d "
+                        "recent=%d\n", other_id, local_id,
+                        history->estimate(edge_hash),
+                        recent->estimate(edge_hash));
+            }
+        }
+
         edges_so_far++;
     }
-
-#ifndef SKIP_COUPLING
-    if (edges_so_far == n_my_edges) {
-        for (int p = 0; p < npes; p++) {
-            hvr_set_insert(p, couple_with);
-        }
-    }
-#endif
-}
-
-static void might_interact(const hvr_partition_t partition,
-        hvr_partition_t *interacting_partitions,
-        unsigned *n_interacting_partitions,
-        unsigned interacting_partitions_capacity,
-        hvr_ctx_t ctx) {
-    abort(); // Should never be called
 }
 
 void update_coupled_val(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         hvr_vertex_t *out_coupled_metric, uint64_t n_msgs_recvd_this_iter,
         uint64_t n_msgs_sent_this_iter, uint64_t n_msgs_recvd_total,
         uint64_t n_msgs_sent_total) {
-    hvr_vertex_set_uint64(0, n_my_edges - edges_so_far, out_coupled_metric, ctx);
+    hvr_vertex_set_uint64(0, n_my_edges - edges_so_far, out_coupled_metric,
+            ctx);
     hvr_vertex_set_int64(1,
             (int64_t)n_msgs_sent_total - (int64_t)n_msgs_recvd_total,
             out_coupled_metric, ctx);
-}
-
-hvr_partition_t actor_to_partition(const hvr_vertex_t *actor, hvr_ctx_t ctx) {
-    return HVR_INVALID_PARTITION;
-}
-
-hvr_edge_type_t should_have_edge(const hvr_vertex_t *a, const hvr_vertex_t *b,
-        hvr_ctx_t ctx) {
-    abort(); // Should never be called
 }
 
 int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
@@ -89,25 +109,7 @@ int should_terminate(hvr_vertex_iter_t *iter, hvr_ctx_t ctx,
         uint64_t n_msgs_sent_this_iter,
         uint64_t n_msgs_recvd_total,
         uint64_t n_msgs_sent_total) {
-#ifndef SKIP_COUPLING
-    if (n_coupled_pes == npes) {
-        uint64_t sum_remaining_edges = 0;
-        int64_t sum_pending_msgs = 0;
-        for (int p = 0; p < npes; p++) {
-            sum_remaining_edges += hvr_vertex_get_uint64(0,
-                    &all_coupled_metrics[p], ctx);
-            sum_pending_msgs += hvr_vertex_get_int64(1,
-                    &all_coupled_metrics[p], ctx);
-        }
-
-        assert(sum_pending_msgs >= 0);
-        return sum_remaining_edges == 0 && sum_pending_msgs == 0;
-    } else {
-        return 0;
-    }
-#else
     return (edges_so_far == n_my_edges);
-#endif
 }
 
 int main(int argc, char **argv) {
@@ -125,6 +127,9 @@ int main(int argc, char **argv) {
     shmem_init();
     pe = shmem_my_pe();
     npes = shmem_n_pes();
+
+    everything = new CountMinSketch(0.01, 0.1);
+    recent = new CountMinSketch(0.01, 0.1);
 
     hvr_ctx_t ctx;
     hvr_ctx_create(&ctx);
@@ -239,11 +244,11 @@ int main(int argc, char **argv) {
 
     hvr_init(1, // # partitions
             NULL, // update_vertex
-            might_interact,
+            NULL, // might_interact
             update_coupled_val,
-            actor_to_partition,
+            NULL, // actor_to_partition
             start_time_step, // start_time_step
-            should_have_edge,
+            NULL, // should_have_edge
             should_terminate,
             max_elapsed_seconds,
             1, // max_graph_traverse_depth
@@ -254,6 +259,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "HOOVER runtime initialized.\n");
     }
 
+    start_time_ms = hvr_current_time_us() / 1000.0;
+    last_tick_ms = hvr_current_time_us() / 1000.0;
     hvr_exec_info info = hvr_body(ctx);
 
     double elapsed_time_ms = (double)(info.start_hvr_body_wrapup_us -

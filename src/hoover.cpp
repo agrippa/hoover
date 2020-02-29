@@ -645,6 +645,7 @@ static unsigned create_new_edges(hvr_vertex_cache_node_t *updated,
             hvr_vertex_cache_node_t *cache_node =
                 (hvr_vertex_cache_node_t *)cache_iter;
             if (!cache_node->flag) {
+                assert(ctx->should_have_edge);
                 hvr_edge_type_t edge = ctx->should_have_edge(cache_iter,
                         &updated->vert, ctx);
                 update_edge_info(cache_node, updated, edge, IMPLICIT_EDGE,
@@ -682,6 +683,7 @@ static unsigned update_existing_edges(hvr_vertex_cache_node_t *updated,
                 ctx->edge_buffer[n]);
 
         // Check this edge should still exist
+        assert(ctx->should_have_edge);
         hvr_edge_type_t new_edge = ctx->should_have_edge(
                 &updated->vert, &(cached_neighbor->vert), ctx);
         update_edge_info(updated, cached_neighbor, new_edge, IMPLICIT_EDGE,
@@ -708,6 +710,14 @@ static unsigned update_existing_edges(hvr_vertex_cache_node_t *updated,
     return local_count_new_should_have_edges;
 }
 
+static inline hvr_partition_t wrap_actor_to_partition(hvr_vertex_t *curr,
+        hvr_internal_ctx_t *ctx) {
+    if (ctx->actor_to_partition) {
+        return ctx->actor_to_partition(curr, ctx);
+    } else {
+        return HVR_INVALID_PARTITION;
+    }
+}
 
 static void insert_recently_created_in_partitions(hvr_internal_ctx_t *ctx) {
     hvr_partition_list_t *local_partition_lists = &ctx->local_partition_lists;
@@ -717,7 +727,7 @@ static void insert_recently_created_in_partitions(hvr_internal_ctx_t *ctx) {
 
         ctx->recently_created = curr->next_in_partition;
 
-        hvr_partition_t part = ctx->actor_to_partition(curr, ctx);
+        hvr_partition_t part = wrap_actor_to_partition(curr, ctx);
         curr->curr_part = part;
         curr->prev_part = HVR_INVALID_PARTITION;
 
@@ -725,6 +735,7 @@ static void insert_recently_created_in_partitions(hvr_internal_ctx_t *ctx) {
             prepend_to_partition_list(curr, part, local_partition_lists, ctx);
 
             unsigned n_interacting = 0;
+            assert(ctx->might_interact);
             ctx->might_interact(part, ctx->interacting, &n_interacting,
                     MAX_INTERACTING_PARTITIONS, ctx);
 
@@ -969,6 +980,7 @@ static inline void add_interacting_partitions(hvr_vertex_id_t p, hvr_set_t *s,
         hvr_internal_ctx_t *ctx, size_t *n_subscriber_partitions) {
     unsigned n_interacting = 0;
     hvr_partition_t *interacting = ctx->interacting;
+    assert(ctx->might_interact);
     ctx->might_interact(p, interacting, &n_interacting,
             MAX_INTERACTING_PARTITIONS, ctx);
 
@@ -1730,6 +1742,7 @@ static void handle_new_vertex(hvr_vertex_t *new_vert,
 
     unsigned n_interacting = 0;
     if (new_partition != HVR_INVALID_PARTITION) {
+        assert(ctx->might_interact);
         ctx->might_interact(new_partition, ctx->interacting, &n_interacting,
                 MAX_INTERACTING_PARTITIONS, ctx);
     }
@@ -2424,7 +2437,7 @@ static int update_vertices(hvr_set_t *to_couple_with,
 
         if (curr->needs_processing) {
             curr->needs_processing = 0;
-            const hvr_partition_t old_part = ctx->actor_to_partition(curr, ctx);
+            const hvr_partition_t old_part = wrap_actor_to_partition(curr, ctx);
 
             ctx->update_metadata(curr, to_couple_with, ctx);
 
@@ -2436,7 +2449,7 @@ static int update_vertices(hvr_set_t *to_couple_with,
 #endif
                     );
 
-            hvr_partition_t new_partition = ctx->actor_to_partition(curr, ctx);
+            hvr_partition_t new_partition = wrap_actor_to_partition(curr, ctx);
             curr->curr_part = new_partition;
             curr->prev_part = old_part;
 
@@ -2448,6 +2461,7 @@ static int update_vertices(hvr_set_t *to_couple_with,
                 if (curr->needs_send) {
                     // Something changed
                     unsigned n_interacting = 0;
+                    assert(ctx->might_interact);
                     ctx->might_interact(new_partition, ctx->interacting,
                             &n_interacting, MAX_INTERACTING_PARTITIONS, ctx);
                     update_existing_edges((hvr_vertex_cache_node_t *)curr,
